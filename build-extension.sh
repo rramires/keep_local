@@ -4,7 +4,7 @@
 # ============================================================
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 EXT_DIR="chrome-extension"
 DIST_DIR="dist"
 ZIP_NAME="keep_local_extension_v${VERSION}.zip"

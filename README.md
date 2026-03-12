@@ -4,6 +4,8 @@
 
 A Google Keep-inspired notes and task list SPA, 100% client-side with AES-256-GCM encryption. No data ever leaves your browser.
 
+![KeepLocal running as a Chrome Extension](assets/KeepLocal.jpg)
+
 ## ✨ Features
 
 - **Text notes** with Markdown support (rendering + preview)
