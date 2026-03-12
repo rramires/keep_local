@@ -1375,6 +1375,12 @@ function openColorPicker(anchorBtn, note) {
     const opt = e.target.closest('.color-opt');
     if (opt) {
       note.color = opt.dataset.color;
+      const modal = document.getElementById('modal-card');
+      if (modal && note.color && note.color !== 'default') {
+        modal.setAttribute('data-color', note.color);
+      } else if (modal) {
+        modal.removeAttribute('data-color');
+      }
       await saveNote(note);
       popup.remove();
       renderCurrentView();
