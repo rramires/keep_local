@@ -21,5 +21,6 @@
   "background": {
     "service_worker": "service-worker.js"
   },
-  "permissions": []
+  "permissions": [],
+  "homepage_url": "https://github.com/rramires/keep_local"
 }

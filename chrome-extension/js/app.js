@@ -130,6 +130,7 @@ function renderAppShell() {
             <span class="sidebar-icon">${icons.backup}</span>
             <span class="sidebar-item-text">${t('sidebar.backup')}</span>
           </div>
+          <a class="sidebar-footer" href="https://github.com/rramires" target="_blank" rel="noopener noreferrer">© 2026 github.com/rramires</a>
         </div>
       </nav>
 

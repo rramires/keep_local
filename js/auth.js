@@ -212,6 +212,9 @@ export function renderAuthView(container, { onAuthenticated }) {
             </div>
           </div>
         </div>
+        <p class="auth-footer">
+          © 2026 <a href="https://github.com/rramires" target="_blank" rel="noopener noreferrer">github.com/rramires</a>
+        </p>
       </div>
     </div>
   `;
