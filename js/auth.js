@@ -2,6 +2,7 @@
 
 import { generateSalt, deriveKey, hashPassword, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
 import { saveMeta, getMeta, isFirstUse } from './db.js';
+import { t } from './i18n.js';
 
 const SESSION_KEY = 'keeplocal_session_key';
 const SESSION_TS_KEY = 'keeplocal_session_ts';
@@ -20,9 +21,9 @@ export function validatePassword(pw) {
     hasSpecial: /[^a-zA-Z0-9]/.test(pw),
   };
 
-  if (!checks.minLength) errors.push('Mínimo de 8 caracteres');
-  if (!checks.hasUppercase) errors.push('Pelo menos 1 letra maiúscula');
-  if (!checks.hasSpecial) errors.push('Pelo menos 1 caractere especial');
+  if (!checks.minLength) errors.push(t('validation.minLength'));
+  if (!checks.hasUppercase) errors.push(t('validation.hasUppercase'));
+  if (!checks.hasSpecial) errors.push(t('validation.hasSpecial'));
 
   return { valid: errors.length === 0, errors, checks };
 }
@@ -45,7 +46,7 @@ export async function createAccount(password) {
 
 export async function login(password) {
   const saltB64 = await getMeta('salt');
-  if (!saltB64) throw new Error('Nenhuma conta encontrada. Crie uma nova senha ou importe um backup.');
+  if (!saltB64) throw new Error(t('login.noAccount'));
 
   const salt = base64ToArray(saltB64);
   const key = await deriveKey(password, salt, true);
@@ -53,7 +54,7 @@ export async function login(password) {
   const storedHash = await getMeta('passwordVerifier');
 
   if (pwHash !== storedHash) {
-    throw new Error('Senha incorreta.');
+    throw new Error(t('login.wrongPassword'));
   }
 
   await storeSessionKey(key);
@@ -146,50 +147,50 @@ export function renderAuthView(container, { onAuthenticated }) {
       <div class="auth-container">
         <div class="auth-logo">
           <h1>Keep<span>Local</span></h1>
-          <p>Suas notas seguras, offline e criptografadas</p>
+          <p>${t('auth.subtitle')}</p>
         </div>
         <div class="auth-card">
           <div class="auth-tabs">
-            <button class="auth-tab active" data-tab="create">Criar Senha</button>
-            <button class="auth-tab" data-tab="login">Entrar</button>
-            <button class="auth-tab" data-tab="import">Importar</button>
+            <button class="auth-tab active" data-tab="create">${t('auth.createTab')}</button>
+            <button class="auth-tab" data-tab="login">${t('auth.loginTab')}</button>
+            <button class="auth-tab" data-tab="import">${t('auth.importTab')}</button>
           </div>
 
           <!-- Create Password Tab -->
           <form class="auth-form" id="create-form">
             <div class="form-group">
-              <label for="create-password">Nova Senha</label>
-              <input type="password" id="create-password" placeholder="Digite sua senha" autocomplete="new-password">
+              <label for="create-password">${t('auth.newPassword')}</label>
+              <input type="password" id="create-password" placeholder="${t('auth.passwordPlaceholder')}" autocomplete="new-password">
             </div>
             <div class="form-group">
-              <label for="create-confirm">Confirmar Senha</label>
-              <input type="password" id="create-confirm" placeholder="Confirme sua senha" autocomplete="new-password">
+              <label for="create-confirm">${t('auth.confirmPassword')}</label>
+              <input type="password" id="create-confirm" placeholder="${t('auth.confirmPlaceholder')}" autocomplete="new-password">
             </div>
             <div class="password-rules" id="password-rules">
               <ul>
-                <li id="rule-length">Mínimo de 8 caracteres</li>
-                <li id="rule-upper">Pelo menos 1 letra maiúscula</li>
-                <li id="rule-special">Pelo menos 1 caractere especial</li>
+                <li id="rule-length">${t('auth.minLength')}</li>
+                <li id="rule-upper">${t('auth.hasUppercase')}</li>
+                <li id="rule-special">${t('auth.hasSpecial')}</li>
               </ul>
             </div>
             <div class="form-error" id="create-error"></div>
             <div class="form-actions">
-              <button type="submit" class="btn-primary" id="create-btn" disabled>Criar Conta</button>
+              <button type="submit" class="btn-primary" id="create-btn" disabled>${t('auth.createAccount')}</button>
             </div>
             <p style="font-size: 12px; color: var(--text-secondary); text-align: center; margin-top: 8px;">
-              ⚠️ Memorize sua senha! Não há recuperação.
+              ⚠️ ${t('auth.memorizeWarning')}
             </p>
           </form>
 
           <!-- Login Tab -->
           <form class="auth-form hidden" id="login-form">
             <div class="form-group">
-              <label for="login-password">Senha</label>
-              <input type="password" id="login-password" placeholder="Digite sua senha" autocomplete="current-password">
+              <label for="login-password">${t('auth.password')}</label>
+              <input type="password" id="login-password" placeholder="${t('auth.passwordPlaceholder')}" autocomplete="current-password">
             </div>
             <div class="form-error" id="login-error"></div>
             <div class="form-actions">
-              <button type="submit" class="btn-primary">Entrar</button>
+              <button type="submit" class="btn-primary">${t('auth.login')}</button>
             </div>
           </form>
 
@@ -197,17 +198,17 @@ export function renderAuthView(container, { onAuthenticated }) {
           <div class="auth-import hidden" id="import-form">
             <div class="import-dropzone" id="import-dropzone">
               <div class="import-icon">📁</div>
-              <div class="import-text">Arraste o arquivo de backup ou clique para selecionar</div>
+              <div class="import-text">${t('import.dropzoneText')}</div>
               <div class="import-filename hidden" id="import-filename"></div>
               <input type="file" id="import-file" accept=".json,.keeplocal.json" style="display:none">
             </div>
             <div class="form-group">
-              <label for="import-password">Senha do Backup</label>
-              <input type="password" id="import-password" placeholder="Digite a senha usada no backup">
+              <label for="import-password">${t('import.backupPassword')}</label>
+              <input type="password" id="import-password" placeholder="${t('import.backupPlaceholder')}">
             </div>
             <div class="form-error" id="import-error"></div>
             <div class="form-actions">
-              <button type="button" class="btn-primary" id="import-btn" disabled>Importar Backup</button>
+              <button type="button" class="btn-primary" id="import-btn" disabled>${t('import.importButton')}</button>
             </div>
           </div>
         </div>
@@ -264,7 +265,7 @@ function initAuthListeners(container, onAuthenticated) {
     createBtn.disabled = !(allValid && matches);
 
     if (createConfirm.value.length > 0 && !matches) {
-      createError.textContent = 'As senhas não coincidem';
+      createError.textContent = t('auth.passwordsNoMatch');
     } else {
       createError.textContent = '';
     }
@@ -356,7 +357,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await importBackup(selectedFile, importPw.value);
       onAuthenticated(key);
     } catch (err) {
-      importError.textContent = err.message || 'Erro ao importar backup.';
+      importError.textContent = err.message || t('import.importError');
       importBtn.disabled = false;
     }
   });

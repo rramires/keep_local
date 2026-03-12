@@ -6,6 +6,7 @@ import { initTheme, toggleTheme, getTheme } from './theme.js';
 import { initBeforeUnload } from './backup.js';
 import { icons } from './icons.js';
 import { createHistory } from './history.js';
+import { t, tp, getLang, setLang, initI18n } from './i18n.js';
 
 // App state
 let todoHistory = null;
@@ -22,8 +23,10 @@ const appContainer = document.getElementById('app-container');
 
 document.addEventListener('DOMContentLoaded', async () => {
   await openDB();
+  await initI18n();
   await initTheme();
   initBeforeUnload();
+  document.title = t('app.title');
 
   // Try to restore session
   const sessionKey = await getSessionKey();
@@ -54,7 +57,7 @@ function showAuth() {
 
 async function showApp() {
   startSessionTimer(() => {
-    showToast('Sessão expirada. Faça login novamente.');
+    showToast(t('toast.sessionExpired'));
     showAuth();
   });
 
@@ -69,7 +72,7 @@ function renderAppShell() {
       <!-- Header -->
       <header class="header">
         <div class="header-left">
-          <button class="icon-btn menu-btn" data-tooltip="Menu" id="menu-toggle">
+          <button class="icon-btn menu-btn" data-tooltip="Menu" id="menu-toggle" aria-label="Menu">
             ${icons.menu}
           </button>
           <div class="app-title">Keep<span>Local</span></div>
@@ -77,17 +80,20 @@ function renderAppShell() {
         <div class="header-search">
           <div class="search-container">
             <span class="search-icon">${icons.search}</span>
-            <input type="text" placeholder="Pesquisar" id="search-input" autocomplete="off">
-            <button class="icon-btn search-clear" id="search-clear" data-tooltip="Limpar">
+            <input type="text" placeholder="${t('header.search')}" id="search-input" autocomplete="off">
+            <button class="icon-btn search-clear" id="search-clear" data-tooltip="${t('header.clearSearch')}">
               ${icons.close}
             </button>
           </div>
         </div>
         <div class="header-right">
-          <button class="icon-btn" data-tooltip="Tema" id="theme-toggle">
+          <button class="icon-btn" data-tooltip="${t('header.language')}" id="lang-toggle">
+            ${icons.language}
+          </button>
+          <button class="icon-btn" data-tooltip="${t('header.theme')}" id="theme-toggle">
             ${icons.brightness}
           </button>
-          <button class="icon-btn" data-tooltip="Bloquear" id="lock-btn">
+          <button class="icon-btn" data-tooltip="${t('header.lock')}" id="lock-btn">
             ${icons.lock}
           </button>
         </div>
@@ -101,28 +107,28 @@ function renderAppShell() {
         <div class="sidebar-nav">
           <div class="sidebar-item active" data-view="notes">
             <span class="sidebar-icon">${icons.lightbulb}</span>
-            <span class="sidebar-item-text">Notas</span>
+            <span class="sidebar-item-text">${t('sidebar.notes')}</span>
           </div>
           <div class="sidebar-divider"></div>
-          <div class="sidebar-section-title" id="labels-section-title">Labels</div>
+          <div class="sidebar-section-title" id="labels-section-title">${t('sidebar.labels')}</div>
           <div id="sidebar-labels"></div>
           <div class="sidebar-item" id="edit-labels-btn">
             <span class="sidebar-icon">${icons.edit}</span>
-            <span class="sidebar-item-text">Editar labels</span>
+            <span class="sidebar-item-text">${t('sidebar.editLabels')}</span>
           </div>
           <div class="sidebar-divider"></div>
           <div class="sidebar-item" data-view="archive">
             <span class="sidebar-icon">${icons.archive}</span>
-            <span class="sidebar-item-text">Arquivo</span>
+            <span class="sidebar-item-text">${t('sidebar.archive')}</span>
           </div>
           <div class="sidebar-item" data-view="trash">
             <span class="sidebar-icon">${icons.delete_icon}</span>
-            <span class="sidebar-item-text">Lixeira</span>
+            <span class="sidebar-item-text">${t('sidebar.trash')}</span>
           </div>
           <div class="sidebar-divider"></div>
           <div class="sidebar-item" id="backup-btn">
             <span class="sidebar-icon">${icons.backup}</span>
-            <span class="sidebar-item-text">Backup</span>
+            <span class="sidebar-item-text">${t('sidebar.backup')}</span>
           </div>
         </div>
       </nav>
@@ -171,6 +177,14 @@ function initAppListeners() {
   // Theme toggle
   document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
 
+  // Language toggle
+  document.getElementById('lang-toggle').addEventListener('click', async () => {
+    const newLang = getLang() === 'pt-BR' ? 'en' : 'pt-BR';
+    await setLang(newLang);
+    document.title = t('app.title');
+    await showApp();
+  });
+
   // Lock
   document.getElementById('lock-btn').addEventListener('click', () => {
     logout();
@@ -209,7 +223,7 @@ function initAppListeners() {
   document.getElementById('backup-btn').addEventListener('click', async () => {
     const { exportBackup } = await import('./backup.js');
     await exportBackup();
-    showToast('Backup exportado com sucesso!');
+    showToast(t('toast.backupExported'));
     closeMobileSidebar();
   });
 
@@ -359,15 +373,15 @@ function renderNotesView(searchQuery) {
   if (filtered.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.lightbulb}</div>
-      <div class="empty-text">Suas notas aparecem aqui</div>
+      <div class="empty-text">${t('notes.empty')}</div>
     </div>`;
   } else {
     if (pinned.length > 0) {
-      html += `<div class="section-header">Fixadas</div>`;
+      html += `<div class="section-header">${t('notes.pinned')}</div>`;
       html += `<div class="notes-grid" id="pinned-grid">${pinned.map(renderNoteCard).join('')}</div>`;
     }
     if (pinned.length > 0 && unpinned.length > 0) {
-      html += `<div class="section-header">Outras</div>`;
+      html += `<div class="section-header">${t('notes.others')}</div>`;
     }
     if (unpinned.length > 0) {
       html += `<div class="notes-grid" id="unpinned-grid">${unpinned.map(renderNoteCard).join('')}</div>`;
@@ -389,7 +403,7 @@ function renderArchiveView(searchQuery) {
   if (filtered.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.archive}</div>
-      <div class="empty-text">As notas arquivadas aparecem aqui</div>
+      <div class="empty-text">${t('archive.empty')}</div>
     </div>`;
   } else {
     html += `<div class="notes-grid">${filtered.map(n => renderNoteCard(n, true)).join('')}</div>`;
@@ -419,15 +433,15 @@ function renderTrashView(searchQuery) {
 
   if (trashed.length > 0) {
     html += `<div style="padding: 8px 8px 16px; color: var(--text-secondary); font-size: 13px;">
-      As notas na lixeira são excluídas automaticamente após 7 dias.
-      <button class="btn-secondary" id="empty-trash-btn" style="margin-left: 8px; padding: 4px 12px; font-size: 13px;">Esvaziar lixeira</button>
+      ${t('trash.autoDelete')}
+      <button class="btn-secondary" id="empty-trash-btn" style="margin-left: 8px; padding: 4px 12px; font-size: 13px;">${t('trash.emptyTrash')}</button>
     </div>`;
   }
 
   if (valid.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.delete_icon}</div>
-      <div class="empty-text">A lixeira está vazia</div>
+      <div class="empty-text">${t('trash.empty')}</div>
     </div>`;
   } else {
     html += `<div class="notes-grid">${valid.map(n => renderNoteCard(n, false, true)).join('')}</div>`;
@@ -437,13 +451,13 @@ function renderTrashView(searchQuery) {
   initCardListeners();
 
   document.getElementById('empty-trash-btn')?.addEventListener('click', async () => {
-    if (await showConfirm('Excluir permanentemente todas as notas da lixeira?')) {
+    if (await showConfirm(t('trash.confirmEmpty'))) {
       const trashedNotes = notes.filter(n => n.deletedAt);
       for (const n of trashedNotes) {
         await permanentDeleteNote(n.id);
       }
       renderCurrentView();
-      showToast('Lixeira esvaziada.');
+      showToast(t('trash.emptied'));
     }
   });
 }
@@ -458,7 +472,7 @@ function renderLabelView(label, searchQuery) {
   if (filtered.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.label}</div>
-      <div class="empty-text">Nenhuma nota com esta label</div>
+      <div class="empty-text">${t('labels.empty')}</div>
     </div>`;
   } else {
     html += `<div class="notes-grid">${filtered.map(renderNoteCard).join('')}</div>`;
@@ -491,7 +505,7 @@ function renderNoteCard(note, isArchiveView = false, isTrashView = false) {
     }
     const remaining = tasks.length - pending.length - Math.min(done.length, 3);
     if (remaining > 0) {
-      contentHtml += `<div class="card-tasks-more">+ ${remaining} ${remaining === 1 ? 'item' : 'itens'}</div>`;
+      contentHtml += `<div class="card-tasks-more">${tp('card.itemCount', remaining)}</div>`;
     }
     contentHtml += '</div>';
   }
@@ -503,26 +517,26 @@ function renderNoteCard(note, isArchiveView = false, isTrashView = false) {
   let toolbarHtml = '';
   if (isTrashView) {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="restore" data-id="${note.id}" data-tooltip="Restaurar">${icons.restore}</button>
-      <button class="icon-btn card-action" data-action="delete-forever" data-id="${note.id}" data-tooltip="Excluir permanentemente">${icons.delete_forever}</button>
+      <button class="icon-btn card-action" data-action="restore" data-id="${note.id}" data-tooltip="${t('card.restore')}">${icons.restore}</button>
+      <button class="icon-btn card-action" data-action="delete-forever" data-id="${note.id}" data-tooltip="${t('card.deletePermanently')}">${icons.delete_forever}</button>
     `;
   } else if (isArchiveView) {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="unarchive" data-id="${note.id}" data-tooltip="Desarquivar">${icons.unarchive}</button>
-      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="Excluir">${icons.delete_icon}</button>
+      <button class="icon-btn card-action" data-action="unarchive" data-id="${note.id}" data-tooltip="${t('card.unarchive')}">${icons.unarchive}</button>
+      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
     `;
   } else {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="color" data-id="${note.id}" data-tooltip="Cor">${icons.palette}</button>
-      <button class="icon-btn card-action" data-action="archive" data-id="${note.id}" data-tooltip="Arquivar">${icons.archive}</button>
-      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="Excluir">${icons.delete_icon}</button>
-      <button class="icon-btn card-action" data-action="more" data-id="${note.id}" data-tooltip="Mais">${icons.more_vert}</button>
+      <button class="icon-btn card-action" data-action="color" data-id="${note.id}" data-tooltip="${t('card.color')}">${icons.palette}</button>
+      <button class="icon-btn card-action" data-action="archive" data-id="${note.id}" data-tooltip="${t('card.archive')}">${icons.archive}</button>
+      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
+      <button class="icon-btn card-action" data-action="more" data-id="${note.id}" data-tooltip="${t('card.more')}">${icons.more_vert}</button>
     `;
   }
 
   return `
     <div class="note-card" data-id="${note.id}" ${colorAttr} draggable="true">
-      <button class="icon-btn card-pin ${pinClass} card-action" data-action="pin" data-id="${note.id}" data-tooltip="${note.pinned ? 'Desafixar' : 'Fixar'}">
+      <button class="icon-btn card-pin ${pinClass} card-action" data-action="pin" data-id="${note.id}" data-tooltip="${note.pinned ? t('card.unpin') : t('card.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
       <div class="card-inner">
@@ -569,7 +583,7 @@ function initCardListeners() {
           note.archivedAt = Date.now();
           await saveNote(note);
           renderCurrentView();
-          showToast('Nota arquivada', 'Desfazer', async () => {
+          showToast(t('toast.noteArchived'), t('toast.undo'), async () => {
             note.archivedAt = null;
             await saveNote(note);
             renderCurrentView();
@@ -579,13 +593,13 @@ function initCardListeners() {
           note.archivedAt = null;
           await saveNote(note);
           renderCurrentView();
-          showToast('Nota desarquivada');
+          showToast(t('toast.noteUnarchived'));
           break;
         case 'trash':
           note.deletedAt = Date.now();
           await saveNote(note);
           renderCurrentView();
-          showToast('Nota movida para a lixeira', 'Desfazer', async () => {
+          showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
             note.deletedAt = null;
             await saveNote(note);
             renderCurrentView();
@@ -596,13 +610,13 @@ function initCardListeners() {
           note.archivedAt = null;
           await saveNote(note);
           renderCurrentView();
-          showToast('Nota restaurada');
+          showToast(t('toast.noteRestored'));
           break;
         case 'delete-forever':
-          if (await showConfirm('Excluir esta nota permanentemente?')) {
+          if (await showConfirm(t('confirm.deletePermanently'))) {
             await permanentDeleteNote(id);
             renderCurrentView();
-            showToast('Nota excluída permanentemente');
+            showToast(t('toast.noteDeletedForever'));
           }
           break;
         case 'color':
@@ -624,21 +638,21 @@ function renderNewNoteBar() {
   return `
     <div class="new-note-bar" id="new-note-bar">
       <div class="new-note-collapsed">
-        <span class="new-note-placeholder">Criar uma nota...</span>
+        <span class="new-note-placeholder">${t('notes.createNote')}</span>
         <div class="new-note-actions">
-          <button class="icon-btn" data-tooltip="Nova lista" id="new-todo-btn">${icons.check_list}</button>
+          <button class="icon-btn" data-tooltip="${t('notes.newList')}" id="new-todo-btn">${icons.check_list}</button>
         </div>
       </div>
       <div class="new-note-expanded">
-        <input class="new-note-title" placeholder="Título" id="new-note-title" autocomplete="off">
-        <textarea class="new-note-body" placeholder="Criar uma nota..." id="new-note-body" rows="1"></textarea>
+        <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" autocomplete="off">
+        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1"></textarea>
         <div class="new-note-toolbar">
           <div class="toolbar-left">
-            <button class="icon-btn" data-tooltip="Cor" id="new-note-color-btn">${icons.palette}</button>
-            <button class="icon-btn" data-tooltip="Labels" id="new-note-label-btn">${icons.label}</button>
+            <button class="icon-btn" data-tooltip="${t('modal.color')}" id="new-note-color-btn">${icons.palette}</button>
+            <button class="icon-btn" data-tooltip="${t('modal.labels')}" id="new-note-label-btn">${icons.label}</button>
           </div>
           <div class="toolbar-right">
-            <button class="btn-secondary" id="new-note-close">Fechar</button>
+            <button class="btn-secondary" id="new-note-close">${t('modal.close')}</button>
           </div>
         </div>
       </div>
@@ -755,31 +769,31 @@ function openTextModal(note) {
 
   modal.innerHTML = `
     <div class="modal-header">
-      <input class="modal-title-input" placeholder="Título" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
-      <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? 'Desafixar' : 'Fixar'}">
+      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
+      <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? t('modal.unpin') : t('modal.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
     </div>
     <div class="modal-body">
-      <textarea class="note-editor" placeholder="Criar uma nota..." id="modal-editor">${escapeHTMLString(note.content || '')}</textarea>
+      <textarea class="note-editor" placeholder="${t('textModal.placeholder')}" id="modal-editor">${escapeHTMLString(note.content || '')}</textarea>
       <div class="note-preview hidden" id="modal-preview"></div>
     </div>
     <div class="modal-footer">
       <div class="modal-toolbar-left">
-        <button class="icon-btn" data-tooltip="Cor" id="modal-color-btn">${icons.palette}</button>
-        <button class="icon-btn" data-tooltip="Labels" id="modal-labels-btn">${icons.label}</button>
-        <button class="icon-btn" data-tooltip="Duplicar" id="modal-duplicate-btn">${icons.copy}</button>
-        <button class="icon-btn" data-tooltip="Arquivar" id="modal-archive-btn">${icons.archive}</button>
-        <button class="icon-btn" data-tooltip="Excluir" id="modal-delete-btn">${icons.delete_icon}</button>
-        <button class="icon-btn" data-tooltip="Desfazer" id="modal-undo-btn">${icons.undo}</button>
-        <button class="icon-btn" data-tooltip="Refazer" id="modal-redo-btn">${icons.redo}</button>
-        <button class="md-toggle" id="modal-md-toggle" data-tooltip="Alternar Markdown">
-          ${icons.markdown} <span>Preview</span>
+        <button class="icon-btn" data-tooltip="${t('modal.color')}" id="modal-color-btn">${icons.palette}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.labels')}" id="modal-labels-btn">${icons.label}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.duplicate')}" id="modal-duplicate-btn">${icons.copy}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.archive')}" id="modal-archive-btn">${icons.archive}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.delete')}" id="modal-delete-btn">${icons.delete_icon}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.undo')}" id="modal-undo-btn">${icons.undo}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.redo')}" id="modal-redo-btn">${icons.redo}</button>
+        <button class="md-toggle" id="modal-md-toggle" data-tooltip="${t('textModal.markdownToggle')}">
+          ${icons.markdown} <span>${t('textModal.preview')}</span>
         </button>
       </div>
       <div class="modal-toolbar-right">
-        <span class="modal-timestamp">Editada ${formatDateShort(note.updatedAt)}</span>
-        <button class="modal-close-btn" id="modal-close">Fechar</button>
+        <span class="modal-timestamp">${t('modal.edited', { time: formatDateShort(note.updatedAt) })}</span>
+        <button class="modal-close-btn" id="modal-close">${t('modal.close')}</button>
       </div>
     </div>
   `;
@@ -902,7 +916,7 @@ function openTextModal(note) {
     await saveNote(note);
     closeModal();
     renderCurrentView();
-    showToast('Nota arquivada');
+    showToast(t('toast.noteArchived'));
   });
 
   // Delete
@@ -911,7 +925,7 @@ function openTextModal(note) {
     await saveNote(note);
     closeModal();
     renderCurrentView();
-    showToast('Nota movida para a lixeira', 'Desfazer', async () => {
+    showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
       note.deletedAt = null;
       await saveNote(note);
       renderCurrentView();
@@ -924,14 +938,14 @@ function openTextModal(note) {
     const { deepClone } = await import('./utils.js');
     const dup = deepClone(note);
     dup.id = generateUUID();
-    dup.title = (dup.title || 'Sem título') + ' (cópia)';
+    dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
     dup.createdAt = Date.now();
     dup.updatedAt = Date.now();
     dup.pinned = false;
     await saveNote(dup);
     closeModal();
     renderCurrentView();
-    showToast('Nota duplicada');
+    showToast(t('toast.noteDuplicated'));
   });
 
   // Color
@@ -991,10 +1005,10 @@ function renderTodoModalContent(note) {
 
     let html = `
       <div class="todo-item ${isDone ? '' : ''}" data-task-id="${task.id}" draggable="true">
-        <span class="drag-handle" title="Arrastar">⠿</span>
+        <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
         <span class="todo-checkbox ${checkedClass}" data-task-id="${task.id}"></span>
         <input class="todo-text ${textClass}" value="${escapeAttr(task.text)}" data-task-id="${task.id}" ${isDone ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
-        <span class="todo-item-delete" data-task-id="${task.id}" title="Excluir">✕</span>
+        <span class="todo-item-delete" data-task-id="${task.id}" title="${t('todo.deleteTask')}">✕</span>
       </div>
     `;
 
@@ -1003,10 +1017,10 @@ function renderTodoModalContent(note) {
       const childTextClass = child.done ? 'todo-text-done' : '';
       html += `
         <div class="todo-item subitem" data-task-id="${child.id}" draggable="true">
-          <span class="drag-handle" title="Arrastar">⠿</span>
+          <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
           <span class="todo-checkbox ${childChecked}" data-task-id="${child.id}"></span>
           <input class="todo-text ${childTextClass}" value="${escapeAttr(child.text)}" data-task-id="${child.id}" ${child.done ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
-          <span class="todo-item-delete" data-task-id="${child.id}" title="Excluir">✕</span>
+          <span class="todo-item-delete" data-task-id="${child.id}" title="${t('todo.deleteTask')}">✕</span>
         </div>
       `;
     }
@@ -1016,8 +1030,8 @@ function renderTodoModalContent(note) {
 
   modal.innerHTML = `
     <div class="modal-header">
-      <input class="modal-title-input" placeholder="Título" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
-      <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? 'Desafixar' : 'Fixar'}">
+      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
+      <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? t('modal.unpin') : t('modal.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
     </div>
@@ -1025,9 +1039,9 @@ function renderTodoModalContent(note) {
       <!-- Pending tasks -->
       <div class="todo-section" id="pending-section">
         <div class="todo-section-header">
-          <span style="font-size:13px; color: var(--text-secondary);">${pendingRoots.length} ${pendingRoots.length === 1 ? 'tarefa pendente' : 'tarefas pendentes'}</span>
+          <span style="font-size:13px; color: var(--text-secondary);">${tp('todo.pendingCount', pendingRoots.length)}</span>
           <div class="section-actions">
-            ${pendingRoots.length > 0 ? `<button class="icon-btn" data-tooltip="Concluir todas" id="check-all-btn">${icons.check_all}</button>` : ''}
+            ${pendingRoots.length > 0 ? `<button class="icon-btn" data-tooltip="${t('todo.checkAll')}" id="check-all-btn">${icons.check_all}</button>` : ''}
           </div>
         </div>
         <div class="todo-items" id="pending-items">
@@ -1035,7 +1049,7 @@ function renderTodoModalContent(note) {
         </div>
         <div class="todo-add">
           <span class="add-icon">+</span>
-          <input placeholder="Item da lista" id="add-task-input" autocomplete="off">
+          <input placeholder="${t('todo.addPlaceholder')}" id="add-task-input" autocomplete="off">
         </div>
       </div>
 
@@ -1045,10 +1059,10 @@ function renderTodoModalContent(note) {
         <div class="todo-section-header">
           <span class="section-toggle" id="done-toggle">
             <span class="toggle-arrow" id="done-arrow">▼</span>
-            ${doneRoots.length} ${doneRoots.length === 1 ? 'item concluído' : 'itens concluídos'}
+            ${tp('todo.doneCount', doneRoots.length)}
           </span>
           <div class="section-actions">
-            <button class="icon-btn" data-tooltip="Reabrir todas" id="uncheck-all-btn">${icons.uncheck_all}</button>
+            <button class="icon-btn" data-tooltip="${t('todo.uncheckAll')}" id="uncheck-all-btn">${icons.uncheck_all}</button>
           </div>
         </div>
         <div class="todo-items" id="done-items">
@@ -1059,17 +1073,17 @@ function renderTodoModalContent(note) {
     </div>
     <div class="modal-footer">
       <div class="modal-toolbar-left">
-        <button class="icon-btn" data-tooltip="Cor" id="modal-color-btn">${icons.palette}</button>
-        <button class="icon-btn" data-tooltip="Labels" id="modal-labels-btn">${icons.label}</button>
-        <button class="icon-btn" data-tooltip="Duplicar" id="modal-duplicate-btn">${icons.copy}</button>
-        <button class="icon-btn" data-tooltip="Arquivar" id="modal-archive-btn">${icons.archive}</button>
-        <button class="icon-btn" data-tooltip="Excluir" id="modal-delete-btn">${icons.delete_icon}</button>
-        <button class="icon-btn" data-tooltip="Desfazer" id="modal-undo-btn">${icons.undo}</button>
-        <button class="icon-btn" data-tooltip="Refazer" id="modal-redo-btn">${icons.redo}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.color')}" id="modal-color-btn">${icons.palette}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.labels')}" id="modal-labels-btn">${icons.label}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.duplicate')}" id="modal-duplicate-btn">${icons.copy}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.archive')}" id="modal-archive-btn">${icons.archive}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.delete')}" id="modal-delete-btn">${icons.delete_icon}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.undo')}" id="modal-undo-btn">${icons.undo}</button>
+        <button class="icon-btn" data-tooltip="${t('modal.redo')}" id="modal-redo-btn">${icons.redo}</button>
       </div>
       <div class="modal-toolbar-right">
-        <span class="modal-timestamp">Editada ${formatDateShort(note.updatedAt)}</span>
-        <button class="modal-close-btn" id="modal-close">Fechar</button>
+        <span class="modal-timestamp">${t('modal.edited', { time: formatDateShort(note.updatedAt) })}</span>
+        <button class="modal-close-btn" id="modal-close">${t('modal.close')}</button>
       </div>
     </div>
   `;
@@ -1224,7 +1238,7 @@ function initTodoModalListeners(note) {
 
   // Check all
   document.getElementById('check-all-btn')?.addEventListener('click', async () => {
-    if (await showConfirm('Concluir todas as tarefas pendentes?')) {
+    if (await showConfirm(t('todo.confirmCheckAll'))) {
       note.tasks.forEach(t => { t.done = true; });
       await saveNote(note);
       pushTodoHistory();
@@ -1234,7 +1248,7 @@ function initTodoModalListeners(note) {
 
   // Uncheck all
   document.getElementById('uncheck-all-btn')?.addEventListener('click', async () => {
-    if (await showConfirm('Reabrir todas as tarefas concluídas?')) {
+    if (await showConfirm(t('todo.confirmUncheckAll'))) {
       note.tasks.forEach(t => { t.done = false; });
       await saveNote(note);
       pushTodoHistory();
@@ -1270,7 +1284,7 @@ function initTodoModalListeners(note) {
     await saveNote(note);
     closeModal();
     renderCurrentView();
-    showToast('Nota arquivada');
+    showToast(t('toast.noteArchived'));
   });
 
   // Delete
@@ -1279,7 +1293,7 @@ function initTodoModalListeners(note) {
     await saveNote(note);
     closeModal();
     renderCurrentView();
-    showToast('Nota movida para a lixeira');
+    showToast(t('toast.noteToTrash'));
   });
 
   // Duplicate
@@ -1287,7 +1301,7 @@ function initTodoModalListeners(note) {
     const { generateUUID, deepClone } = await import('./utils.js');
     const dup = deepClone(note);
     dup.id = generateUUID();
-    dup.title = (dup.title || 'Sem título') + ' (cópia)';
+    dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
     dup.createdAt = Date.now();
     dup.updatedAt = Date.now();
     dup.pinned = false;
@@ -1299,7 +1313,7 @@ function initTodoModalListeners(note) {
     await saveNote(dup);
     closeModal();
     renderCurrentView();
-    showToast('Nota duplicada');
+    showToast(t('toast.noteDuplicated'));
   });
 
   // Color
@@ -1327,7 +1341,7 @@ function closeModal() {
 
 function updateModalTimestamp(note) {
   const ts = document.querySelector('.modal-timestamp');
-  if (ts) ts.textContent = `Editada ${formatDateShort(note.updatedAt)}`;
+  if (ts) ts.textContent = t('modal.edited', { time: formatDateShort(note.updatedAt) });
 }
 
 // --- Color Picker ---
@@ -1405,7 +1419,7 @@ function openLabelsPickerModal(note) {
         </div>`;
       }).join('')}
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:4px;">
-        <input placeholder="Nova label" id="new-label-input" style="flex:1;border:none;border-bottom:1px solid var(--border-color);background:transparent;padding:4px;font-size:13px;color:var(--text-primary);">
+        <input placeholder="${t('labels.newLabel')}" id="new-label-input" style="flex:1;border:none;border-bottom:1px solid var(--border-color);background:transparent;padding:4px;font-size:13px;color:var(--text-primary);">
       </div>
     `;
   }
@@ -1495,7 +1509,7 @@ function openLabelsManager() {
 
   modal.innerHTML = `
     <div class="modal-header">
-      <span class="modal-title-input" style="font-size:16px;font-weight:500;cursor:default;">Editar labels</span>
+      <span class="modal-title-input" style="font-size:16px;font-weight:500;cursor:default;">${t('labels.editLabels')}</span>
     </div>
     <div class="modal-body">
       <div class="labels-manager" id="labels-manager">
@@ -1503,19 +1517,19 @@ function openLabelsManager() {
           <div class="label-row" data-label="${escapeAttr(l)}">
             <span class="label-icon">${icons.label}</span>
             <input class="label-name-input" value="${escapeAttr(l)}" data-old="${escapeAttr(l)}">
-            <button class="icon-btn label-delete-btn" data-tooltip="Excluir" data-label="${escapeAttr(l)}">${icons.delete_icon}</button>
+            <button class="icon-btn label-delete-btn" data-tooltip="${t('modal.delete')}" data-label="${escapeAttr(l)}">${icons.delete_icon}</button>
           </div>
         `).join('')}
         <div class="label-add-row" id="add-label-row">
           <span style="font-size:18px;">+</span>
-          <input placeholder="Nova label" id="add-label-input" style="flex:1;border:none;background:transparent;font-size:14px;padding:4px;color:var(--text-primary);">
+          <input placeholder="${t('labels.newLabel')}" id="add-label-input" style="flex:1;border:none;background:transparent;font-size:14px;padding:4px;color:var(--text-primary);">
         </div>
       </div>
     </div>
     <div class="modal-footer">
       <div class="modal-toolbar-left"></div>
       <div class="modal-toolbar-right">
-        <button class="modal-close-btn" id="modal-close">Fechar</button>
+        <button class="modal-close-btn" id="modal-close">${t('modal.close')}</button>
       </div>
     </div>
   `;
@@ -1561,7 +1575,7 @@ function openLabelsManager() {
     if (e.key === 'Enter' && addLabelInput.value.trim()) {
       // Label created — will show up when first assigned to a note
       addLabelInput.value = '';
-      showToast('Label será adicionada ao atribuir a uma nota');
+      showToast(t('labels.assignToast'));
     }
   });
 
@@ -1579,10 +1593,10 @@ function openCardMenu(anchorBtn, note) {
 
   popup.innerHTML = `
     <div class="menu-item" data-action="duplicate" style="padding:8px 16px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:8px;">
-      ${icons.copy} Duplicar
+      ${icons.copy} ${t('modal.duplicate')}
     </div>
     <div class="menu-item" data-action="labels" style="padding:8px 16px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:8px;">
-      ${icons.label} Labels
+      ${icons.label} ${t('modal.labels')}
     </div>
   `;
 
@@ -1606,7 +1620,7 @@ function openCardMenu(anchorBtn, note) {
       const { generateUUID, deepClone } = await import('./utils.js');
       const dup = deepClone(note);
       dup.id = generateUUID();
-      dup.title = (dup.title || 'Sem título') + ' (cópia)';
+      dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
       dup.createdAt = Date.now();
       dup.updatedAt = Date.now();
       dup.pinned = false;
@@ -1621,7 +1635,7 @@ function openCardMenu(anchorBtn, note) {
       }
       await saveNote(dup);
       renderCurrentView();
-      showToast('Nota duplicada');
+      showToast(t('toast.noteDuplicated'));
     } else if (action === 'labels') {
       openNoteModal(note);
       setTimeout(() => openLabelsPickerModal(note), 100);
@@ -1874,8 +1888,8 @@ function showConfirm(message) {
       <div class="confirm-card">
         <div class="confirm-text">${escapeHTMLString(message)}</div>
         <div class="confirm-actions">
-          <button class="btn-secondary" id="confirm-cancel">Cancelar</button>
-          <button class="btn-primary" id="confirm-ok">Confirmar</button>
+          <button class="btn-secondary" id="confirm-cancel">${t('confirm.cancel')}</button>
+          <button class="btn-primary" id="confirm-ok">${t('confirm.ok')}</button>
         </div>
       </div>
     `;

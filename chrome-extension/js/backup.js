@@ -2,6 +2,7 @@
 
 import { getAllNoteRecords, getAllMetaRecords, clearAllNotes, clearAllMeta, saveNoteRecord, saveMeta, getMeta } from './db.js';
 import { deriveKey, hashPassword, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
+import { t } from './i18n.js';
 
 let unsavedChanges = false;
 
@@ -65,16 +66,16 @@ export async function importBackup(file, password) {
   try {
     backup = JSON.parse(text);
   } catch {
-    throw new Error('Arquivo de backup inválido.');
+    throw new Error(t('backup.invalidFile'));
   }
 
   if (!backup.app || backup.app !== 'KeepLocal' || !backup.meta || !backup.notes) {
-    throw new Error('Formato de backup não reconhecido.');
+    throw new Error(t('backup.unrecognizedFormat'));
   }
 
   // Find salt from meta
   const saltRecord = backup.meta.find(m => m.key === 'salt');
-  if (!saltRecord) throw new Error('Backup corrompido: salt não encontrado.');
+  if (!saltRecord) throw new Error(t('backup.corruptedSalt'));
 
   const salt = base64ToArray(saltRecord.value);
   const key = await deriveKey(password, salt, true);
@@ -83,7 +84,7 @@ export async function importBackup(file, password) {
   const pwHash = await hashPassword(password, salt);
   const storedHashRecord = backup.meta.find(m => m.key === 'passwordVerifier');
   if (!storedHashRecord || pwHash !== storedHashRecord.value) {
-    throw new Error('Senha incorreta.');
+    throw new Error(t('backup.wrongPassword'));
   }
 
   // Verify by trying to decrypt the first note
@@ -94,7 +95,7 @@ export async function importBackup(file, password) {
       const ct = base64ToArray(firstNote.ciphertext);
       await decrypt(key, iv, ct.buffer ? ct : ct);
     } catch {
-      throw new Error('Senha incorreta ou backup corrompido.');
+      throw new Error(t('backup.wrongPasswordOrCorrupted'));
     }
   }
 
