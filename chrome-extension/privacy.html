@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeepLocal — Política de Privacidade</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.7;
+      color: #333;
+      background: #fafafa;
+      padding: 2rem 1rem;
+    }
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 2.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    h1 {
+      font-size: 1.8rem;
+      margin-bottom: 0.5rem;
+      color: #1a73e8;
+    }
+    .subtitle {
+      color: #666;
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    h2 {
+      font-size: 1.2rem;
+      margin: 1.5rem 0 0.5rem;
+      color: #202124;
+    }
+    p, li {
+      font-size: 1rem;
+      color: #444;
+    }
+    ul {
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+    li { margin-bottom: 0.3rem; }
+    .highlight {
+      background: #e8f0fe;
+      border-left: 4px solid #1a73e8;
+      padding: 1rem 1.2rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1rem 0;
+    }
+    .footer {
+      margin-top: 2rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e0e0e0;
+      font-size: 0.85rem;
+      color: #888;
+    }
+    a { color: #1a73e8; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📝 KeepLocal — Política de Privacidade</h1>
+    <p class="subtitle">Última atualização: Março 2026</p>
+
+    <div class="highlight">
+      <strong>Resumo:</strong> O KeepLocal não coleta, transmite ou armazena nenhum dado fora do seu navegador. Todos os seus dados são criptografados localmente e nunca saem do seu dispositivo.
+    </div>
+
+    <h2>1. Coleta de Dados</h2>
+    <p>O KeepLocal <strong>não coleta nenhum dado pessoal</strong>. Especificamente:</p>
+    <ul>
+      <li>Nenhuma informação é enviada para servidores externos</li>
+      <li>Nenhum analytics ou rastreamento é utilizado</li>
+      <li>Nenhum cookie é criado</li>
+      <li>Nenhuma requisição de rede é feita pela extensão</li>
+    </ul>
+
+    <h2>2. Armazenamento Local</h2>
+    <p>Todos os dados são armazenados exclusivamente no <strong>IndexedDB</strong> do seu navegador, no seu dispositivo. Os dados incluem:</p>
+    <ul>
+      <li>Notas e tarefas (criptografadas)</li>
+      <li>Preferência de tema (claro/escuro)</li>
+      <li>Salt criptográfico e verificador de senha</li>
+    </ul>
+
+    <h2>3. Criptografia</h2>
+    <p>Todos os dados de notas e tarefas são criptografados usando:</p>
+    <ul>
+      <li><strong>AES-256-GCM</strong> — criptografia simétrica de grau militar</li>
+      <li><strong>PBKDF2</strong> com 600.000 iterações e SHA-256 para derivação de chave</li>
+      <li><strong>IV aleatório de 12 bytes</strong> gerado para cada operação de criptografia</li>
+      <li><strong>Web Crypto API</strong> nativa do navegador (sem bibliotecas externas de criptografia)</li>
+    </ul>
+
+    <h2>4. Senha</h2>
+    <p>Sua senha nunca é armazenada em texto puro. Apenas um hash derivado via PBKDF2 é salvo para verificação. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
+
+    <h2>5. Permissões</h2>
+    <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, sessionStorage).</p>
+
+    <h2>6. Código Aberto</h2>
+    <p>O código-fonte completo está disponível em <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> sob licença MIT. Qualquer pessoa pode auditar o código para verificar estas práticas de privacidade.</p>
+
+    <h2>7. Contato</h2>
+    <p>Para questões sobre privacidade, abra uma issue no <a href="https://github.com/rramires/keep_local/issues" target="_blank" rel="noopener noreferrer">repositório do GitHub</a>.</p>
+
+    <div class="footer">
+      <p>KeepLocal é um projeto de código aberto distribuído sob a <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">Licença MIT</a>.</p>
+    </div>
+  </div>
+</body>
+</html>
