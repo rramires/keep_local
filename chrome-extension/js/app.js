@@ -1353,7 +1353,7 @@ function openColorPicker(anchorBtn, note) {
   const colors = ['default', 'coral', 'peach', 'sand', 'mint', 'sage', 'fog', 'storm', 'dusk', 'blossom', 'clay', 'chalk'];
   const popup = document.createElement('div');
   popup.className = 'color-picker-popup';
-  popup.style.cssText = 'position:absolute; z-index:50; background:var(--bg-elevated); border:1px solid var(--border-color); border-radius:8px; padding:8px; box-shadow:0 2px 10px rgba(0,0,0,0.3);';
+  popup.style.cssText = 'position:absolute; z-index:200; background:var(--bg-elevated); border:1px solid var(--border-color); border-radius:8px; padding:8px; box-shadow:0 2px 10px rgba(0,0,0,0.3);';
 
   popup.innerHTML = `<div style="display:flex;gap:4px;flex-wrap:wrap;max-width:200px;">
     ${colors.map(c => {
