@@ -47,6 +47,13 @@ echo "   ✅ lib/"
 cp index.html "$EXT_DIR/index.html"
 echo "   ✅ index.html"
 
+# Verify _locales exist
+if [[ ! -d "$EXT_DIR/_locales" ]]; then
+  echo "❌ Pasta _locales não encontrada em $EXT_DIR/"
+  exit 1
+fi
+echo "   ✅ _locales/"
+
 # Create dist directory
 mkdir -p "$DIST_DIR"
 

@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "KeepLocal — Notas Seguras Offline",
+    "description": "Nome da extensão exibido na Chrome Web Store e página de extensões"
+  },
+  "appDesc": {
+    "message": "Notas e tarefas criptografadas localmente com AES-256-GCM. Sem servidor, sem nuvem, 100% offline.",
+    "description": "Descrição da extensão exibida na Chrome Web Store"
+  }
+}

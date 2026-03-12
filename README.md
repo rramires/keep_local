@@ -1,102 +1,128 @@
-# 📝 KeepLocal — Notas Seguras Offline
+# 📝 KeepLocal — Secure Offline Notes
 
-Uma SPA de notas e listas de tarefas inspirada no Google Keep, 100% client-side com criptografia AES-256-GCM. Nenhum dado sai do seu navegador.
+> 🇧🇷 [Leia em Português](README.pt-BR.md)
 
-## ✨ Funcionalidades
+A Google Keep-inspired notes and task list SPA, 100% client-side with AES-256-GCM encryption. No data ever leaves your browser.
 
-- **Notas de texto** com suporte a Markdown (rendering + preview)
-- **Listas de tarefas** com subitens (1 nível), drag & drop para reordenar e mover entre pendentes/concluídas
-- **Criptografia AES-256-GCM** via Web Crypto API — cada registro criptografado individualmente no IndexedDB
-- **100% offline** — nenhuma requisição externa, todas as dependências são locais
-- **Temas** dark e light
-- **Cores** nas notas (12 opções inspiradas no Google Keep)
-- **Labels** para organização
-- **Pin** para fixar notas importantes
-- **Arquivo** para guardar notas sem deletar
-- **Lixeira** com purge automático após 7 dias
-- **Busca** por título e conteúdo
-- **Duplicar** notas
-- **Undo/Redo** nos modais de edição (Ctrl+Z / Ctrl+Y)
-- **Drag & drop** para reordenar cards na grade
-- **Backup** — exportar/importar dados criptografados (JSON)
-- **Sessão segura** — timeout de 5 minutos de inatividade, chave mantida apenas em sessionStorage
+## ✨ Features
 
-## 🔐 Segurança
+- **Text notes** with Markdown support (rendering + preview)
+- **Task lists** with sub-items (1 level), drag & drop to reorder and move between pending/done
+- **AES-256-GCM encryption** via Web Crypto API — each record individually encrypted in IndexedDB
+- **100% offline** — no external requests, all dependencies are local
+- **Themes** — dark and light
+- **Colors** — 12 note colors inspired by Google Keep
+- **Labels** for organization
+- **Pin** to keep important notes on top
+- **Archive** to store notes without deleting
+- **Trash** with automatic purge after 7 days
+- **Search** by title and content
+- **Duplicate** notes
+- **Undo/Redo** in editing modals (Ctrl+Z / Ctrl+Y)
+- **Drag & drop** to reorder cards on the grid
+- **Backup** — export/import encrypted data (JSON)
+- **Secure session** — 5-minute idle timeout, key kept only in sessionStorage
 
-| Aspecto | Implementação |
+## 🔐 Security
+
+| Aspect | Implementation |
 |---|---|
-| Derivação de chave | PBKDF2 — 600.000 iterações, SHA-256 |
-| Criptografia | AES-256-GCM — IV aleatório de 12 bytes por registro |
-| Armazenamento | IndexedDB — apenas dados cifrados persistem |
-| Sessão | CryptoKey exportada como JWK em sessionStorage |
-| Sanitização | DOMPurify aplicado em todo output Markdown |
-| Senha | Mínimo 8 caracteres, 1 maiúscula, 1 caractere especial |
-| Sem recuperação | Não existe "esqueci a senha" — sem backdoors |
+| Key derivation | PBKDF2 — 600,000 iterations, SHA-256 |
+| Encryption | AES-256-GCM — random 12-byte IV per record |
+| Storage | IndexedDB — only encrypted data persists |
+| Session | CryptoKey exported as JWK in sessionStorage |
+| Sanitization | DOMPurify applied to all Markdown output |
+| Password | Minimum 8 characters, 1 uppercase, 1 special character |
+| No recovery | No "forgot password" — no backdoors |
 
-## 🚀 Como usar
+## 🚀 Getting Started
 
-Não requer build, bundler, nem instalação de dependências. Basta servir os arquivos:
+No build tools, bundlers, or dependency installation required. Just serve the files:
 
 ```bash
-# Com Python
+# With Python
 python3 -m http.server 8080
 
-# Com Node.js
+# With Node.js
 npx serve .
 
-# Ou qualquer servidor HTTP estático
+# Or any static HTTP server
 ```
 
-Acesse `http://localhost:8080` e crie sua senha na primeira utilização.
+Open `http://localhost:8080` and create your password on first use.
 
-## 📁 Estrutura do projeto
+## 🧩 Chrome Extension
+
+Also available as a Chrome Extension (Manifest V3):
+
+```bash
+# Build the package
+./build-extension.sh
+
+# Or load manually:
+# 1. Open chrome://extensions
+# 2. Enable "Developer mode"
+# 3. Click "Load unpacked"
+# 4. Select the chrome-extension/ folder
+```
+
+## 📁 Project Structure
 
 ```
 keep_local/
 ├── index.html              # Entry point
 ├── css/
-│   ├── variables.css       # Tokens de tema (dark/light, cores)
-│   ├── base.css            # Reset, tipografia, botões
-│   ├── auth.css            # Tela de login/cadastro
+│   ├── variables.css       # Theme tokens (dark/light, colors)
+│   ├── base.css            # Reset, typography, buttons
+│   ├── auth.css            # Login/signup screen
 │   ├── layout.css          # Sidebar, header, grid
-│   ├── cards.css           # Cards de notas (masonry)
-│   ├── modal.css           # Modais de edição
+│   ├── cards.css           # Note cards (masonry)
+│   ├── modal.css           # Edit modals
 │   └── components.css      # Checkbox, toast, tooltip
 ├── js/
-│   ├── app.js              # Bootstrap, SPA router, views, modais
-│   ├── auth.js             # Autenticação, sessão, timer
+│   ├── app.js              # Bootstrap, SPA router, views, modals
+│   ├── auth.js             # Authentication, session, timer
 │   ├── crypto.js           # PBKDF2, AES-256-GCM, import/export
 │   ├── db.js               # IndexedDB wrapper
-│   ├── backup.js           # Export/import de backups
+│   ├── backup.js           # Backup export/import
 │   ├── theme.js            # Dark/light toggle
 │   ├── history.js          # Undo/redo stack
-│   ├── icons.js            # Ícones SVG inline
+│   ├── icons.js            # Inline SVG icons
 │   └── utils.js            # UUID, debounce, formatDate, etc.
 ├── lib/
 │   ├── marked.min.js       # Markdown parser (v15.0.12)
 │   └── purify.min.js       # DOMPurify (v3.3.3)
+├── chrome-extension/       # Chrome Extension package
+│   ├── manifest.json       # Manifest V3
+│   ├── service-worker.js   # Background script
+│   ├── privacy.html        # Privacy policy
+│   └── icons/              # Icons 16/48/128 PNG
 └── docs/
-    └── Prompt.txt          # Prompt original do projeto
+    └── Prompt.txt          # Original project prompt
 ```
 
 ## 🛠️ Stack
 
-- **HTML5** + **CSS** (com CSS Nesting nativo) + **JavaScript** puro (ES Modules)
-- **Web Crypto API** — criptografia nativa do navegador
-- **IndexedDB** — armazenamento local estruturado
-- **marked.js** — rendering de Markdown
-- **DOMPurify** — sanitização contra XSS
-- **Nenhum framework, bundler ou dependência de build**
+- **HTML5** + **CSS** (native CSS Nesting) + **Vanilla JavaScript** (ES Modules)
+- **Web Crypto API** — native browser cryptography
+- **IndexedDB** — structured local storage
+- **marked.js** — Markdown rendering
+- **DOMPurify** — XSS sanitization
+- **No frameworks, bundlers, or build dependencies**
 
-## 📋 Requisitos do navegador
+## 📋 Browser Requirements
 
-Navegadores modernos com suporte a:
+Modern browsers with support for:
 - CSS Nesting
 - Web Crypto API
 - IndexedDB
 - ES Modules
 
 Chrome 120+, Firefox 117+, Edge 120+, Safari 17.2+
+
+## 📄 License
+
+[MIT](LICENSE)
 
 ## 📄 Licença
 

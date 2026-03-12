@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KeepLocal — Política de Privacidade</title>
+  <title>KeepLocal — Privacy Policy / Política de Privacidade</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -29,10 +29,34 @@
     .subtitle {
       color: #666;
       font-size: 0.95rem;
-      margin-bottom: 2rem;
+      margin-bottom: 1rem;
       padding-bottom: 1rem;
       border-bottom: 1px solid #e0e0e0;
     }
+    .lang-switch {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .lang-btn {
+      padding: 0.4rem 1rem;
+      border: 2px solid #1a73e8;
+      border-radius: 20px;
+      background: transparent;
+      color: #1a73e8;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .lang-btn.active {
+      background: #1a73e8;
+      color: #fff;
+    }
+    .lang-btn:hover:not(.active) {
+      background: #e8f0fe;
+    }
+    .lang-content { display: none; }
+    .lang-content.active { display: block; }
     h2 {
       font-size: 1.2rem;
       margin: 1.5rem 0 0.5rem;
@@ -67,54 +91,119 @@
 </head>
 <body>
   <div class="container">
-    <h1>📝 KeepLocal — Política de Privacidade</h1>
-    <p class="subtitle">Última atualização: Março 2026</p>
+    <h1>📝 KeepLocal</h1>
+    <p class="subtitle">Last updated: March 2026 · Última atualização: Março 2026</p>
 
-    <div class="highlight">
-      <strong>Resumo:</strong> O KeepLocal não coleta, transmite ou armazena nenhum dado fora do seu navegador. Todos os seus dados são criptografados localmente e nunca saem do seu dispositivo.
+    <div class="lang-switch">
+      <button class="lang-btn active" onclick="switchLang('en')">🇺🇸 English</button>
+      <button class="lang-btn" onclick="switchLang('pt')">🇧🇷 Português</button>
     </div>
 
-    <h2>1. Coleta de Dados</h2>
-    <p>O KeepLocal <strong>não coleta nenhum dado pessoal</strong>. Especificamente:</p>
-    <ul>
-      <li>Nenhuma informação é enviada para servidores externos</li>
-      <li>Nenhum analytics ou rastreamento é utilizado</li>
-      <li>Nenhum cookie é criado</li>
-      <li>Nenhuma requisição de rede é feita pela extensão</li>
-    </ul>
+    <!-- English -->
+    <div id="lang-en" class="lang-content active">
+      <div class="highlight">
+        <strong>Summary:</strong> KeepLocal does not collect, transmit, or store any data outside your browser. All your data is encrypted locally and never leaves your device.
+      </div>
 
-    <h2>2. Armazenamento Local</h2>
-    <p>Todos os dados são armazenados exclusivamente no <strong>IndexedDB</strong> do seu navegador, no seu dispositivo. Os dados incluem:</p>
-    <ul>
-      <li>Notas e tarefas (criptografadas)</li>
-      <li>Preferência de tema (claro/escuro)</li>
-      <li>Salt criptográfico e verificador de senha</li>
-    </ul>
+      <h2>1. Data Collection</h2>
+      <p>KeepLocal <strong>does not collect any personal data</strong>. Specifically:</p>
+      <ul>
+        <li>No information is sent to external servers</li>
+        <li>No analytics or tracking is used</li>
+        <li>No cookies are created</li>
+        <li>No network requests are made by the extension</li>
+      </ul>
 
-    <h2>3. Criptografia</h2>
-    <p>Todos os dados de notas e tarefas são criptografados usando:</p>
-    <ul>
-      <li><strong>AES-256-GCM</strong> — criptografia simétrica de grau militar</li>
-      <li><strong>PBKDF2</strong> com 600.000 iterações e SHA-256 para derivação de chave</li>
-      <li><strong>IV aleatório de 12 bytes</strong> gerado para cada operação de criptografia</li>
-      <li><strong>Web Crypto API</strong> nativa do navegador (sem bibliotecas externas de criptografia)</li>
-    </ul>
+      <h2>2. Local Storage</h2>
+      <p>All data is stored exclusively in your browser's <strong>IndexedDB</strong>, on your device. Data includes:</p>
+      <ul>
+        <li>Notes and tasks (encrypted)</li>
+        <li>Theme preference (dark/light)</li>
+        <li>Cryptographic salt and password verifier</li>
+      </ul>
 
-    <h2>4. Senha</h2>
-    <p>Sua senha nunca é armazenada em texto puro. Apenas um hash derivado via PBKDF2 é salvo para verificação. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
+      <h2>3. Encryption</h2>
+      <p>All note and task data is encrypted using:</p>
+      <ul>
+        <li><strong>AES-256-GCM</strong> — military-grade symmetric encryption</li>
+        <li><strong>PBKDF2</strong> with 600,000 iterations and SHA-256 for key derivation</li>
+        <li><strong>Random 12-byte IV</strong> generated for each encryption operation</li>
+        <li><strong>Web Crypto API</strong> native to the browser (no external cryptography libraries)</li>
+      </ul>
 
-    <h2>5. Permissões</h2>
-    <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, sessionStorage).</p>
+      <h2>4. Password</h2>
+      <p>Your password is never stored in plain text. Only a PBKDF2-derived hash is saved for verification. <strong>There is no password recovery</strong> — if you forget your password, your data cannot be recovered.</p>
 
-    <h2>6. Código Aberto</h2>
-    <p>O código-fonte completo está disponível em <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> sob licença MIT. Qualquer pessoa pode auditar o código para verificar estas práticas de privacidade.</p>
+      <h2>5. Permissions</h2>
+      <p>KeepLocal <strong>does not request any permissions</strong> from Chrome. It works entirely with standard browser APIs (IndexedDB, Web Crypto API, sessionStorage).</p>
 
-    <h2>7. Contato</h2>
-    <p>Para questões sobre privacidade, abra uma issue no <a href="https://github.com/rramires/keep_local/issues" target="_blank" rel="noopener noreferrer">repositório do GitHub</a>.</p>
+      <h2>6. Open Source</h2>
+      <p>The complete source code is available at <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> under the MIT license. Anyone can audit the code to verify these privacy practices.</p>
+
+      <h2>7. Contact</h2>
+      <p>For privacy questions, open an issue on the <a href="https://github.com/rramires/keep_local/issues" target="_blank" rel="noopener noreferrer">GitHub repository</a>.</p>
+    </div>
+
+    <!-- Português -->
+    <div id="lang-pt" class="lang-content">
+      <div class="highlight">
+        <strong>Resumo:</strong> O KeepLocal não coleta, transmite ou armazena nenhum dado fora do seu navegador. Todos os seus dados são criptografados localmente e nunca saem do seu dispositivo.
+      </div>
+
+      <h2>1. Coleta de Dados</h2>
+      <p>O KeepLocal <strong>não coleta nenhum dado pessoal</strong>. Especificamente:</p>
+      <ul>
+        <li>Nenhuma informação é enviada para servidores externos</li>
+        <li>Nenhum analytics ou rastreamento é utilizado</li>
+        <li>Nenhum cookie é criado</li>
+        <li>Nenhuma requisição de rede é feita pela extensão</li>
+      </ul>
+
+      <h2>2. Armazenamento Local</h2>
+      <p>Todos os dados são armazenados exclusivamente no <strong>IndexedDB</strong> do seu navegador, no seu dispositivo. Os dados incluem:</p>
+      <ul>
+        <li>Notas e tarefas (criptografadas)</li>
+        <li>Preferência de tema (claro/escuro)</li>
+        <li>Salt criptográfico e verificador de senha</li>
+      </ul>
+
+      <h2>3. Criptografia</h2>
+      <p>Todos os dados de notas e tarefas são criptografados usando:</p>
+      <ul>
+        <li><strong>AES-256-GCM</strong> — criptografia simétrica de grau militar</li>
+        <li><strong>PBKDF2</strong> com 600.000 iterações e SHA-256 para derivação de chave</li>
+        <li><strong>IV aleatório de 12 bytes</strong> gerado para cada operação de criptografia</li>
+        <li><strong>Web Crypto API</strong> nativa do navegador (sem bibliotecas externas de criptografia)</li>
+      </ul>
+
+      <h2>4. Senha</h2>
+      <p>Sua senha nunca é armazenada em texto puro. Apenas um hash derivado via PBKDF2 é salvo para verificação. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
+
+      <h2>5. Permissões</h2>
+      <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, sessionStorage).</p>
+
+      <h2>6. Código Aberto</h2>
+      <p>O código-fonte completo está disponível em <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> sob licença MIT. Qualquer pessoa pode auditar o código para verificar estas práticas de privacidade.</p>
+
+      <h2>7. Contato</h2>
+      <p>Para questões sobre privacidade, abra uma issue no <a href="https://github.com/rramires/keep_local/issues" target="_blank" rel="noopener noreferrer">repositório do GitHub</a>.</p>
+    </div>
 
     <div class="footer">
-      <p>KeepLocal é um projeto de código aberto distribuído sob a <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">Licença MIT</a>.</p>
+      <p>KeepLocal is an open-source project distributed under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT License</a>.</p>
     </div>
   </div>
+
+  <script>
+    function switchLang(lang) {
+      document.querySelectorAll('.lang-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.lang-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('lang-' + lang).classList.add('active');
+      document.querySelector('[onclick="switchLang(\'' + lang + '\')"]').classList.add('active');
+      document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
+    }
+    // Auto-detect language
+    if (navigator.language.startsWith('pt')) switchLang('pt');
+  </script>
 </body>
 </html>
