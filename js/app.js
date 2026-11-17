@@ -1,5 +1,5 @@
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
-import { planNoteChange,persistNoteBatch } from './note-actions.js';
+import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
@@ -410,9 +410,10 @@ async function changeFromUI(source,change) {
 async function changeManyFromUI(sources,change) {
   const generation=sessionGeneration,plans=sources.map(n=>planNoteChange(n,change,activeEdit?.id===n.id?activeEdit.capture():null));
   if(!plans.length)return true;
-  try{await persistNoteBatch(plans,{enqueue:enqueueWrite,getVersion:id=>knownVersions.get(id),key:cryptoKey,vaultId:loadedVaultId,signal:sessionController?.signal,onCommitted:()=>{
+  try{await persistNoteBatch(plans,{enqueue:enqueueWrite,getVersion:id=>knownVersions.get(id),key:cryptoKey,vaultId:loadedVaultId,signal:sessionController?.signal,assertCurrent:()=>replaceExistingNotes(notes,plans),onCommitted:()=>{
     if(generation!==sessionGeneration)return;
-    for(const {next,fields} of plans){noteWrites.recordCommit(next.id,next.updatedAt,knownVersions.get(next.id));knownVersions.set(next.id,next.updatedAt);const i=notes.findIndex(n=>n.id===next.id);notes[i]=next;if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
+    notes=replaceExistingNotes(notes,plans);
+    for(const {next,fields} of plans){noteWrites.recordCommit(next.id,next.updatedAt,knownVersions.get(next.id));knownVersions.set(next.id,next.updatedAt);if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
     setUnsaved();
   }});return generation===sessionGeneration;}
   catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='note.conflict'?'note.actionConflict':'note.actionFailed'));}return false;}

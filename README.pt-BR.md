@@ -177,3 +177,13 @@ qualquer alteração do snapshot do cofre exige novo export. O snapshot completo
 é conferido novamente na transação de exclusão, incluindo outros registros. Depois de resolver todos os registros
 ilegíveis, importação integral e troca de senha voltam a funcionar. O indicador
 de força de senha é uma heurística; ele não mede a aleatoriedade das palavras.
+
+## Escopo da persistência do editor
+
+Ações de metadados de notas de texto e listas usam cópias e só são promovidas
+após gravar. Edições de tarefas usam um rascunho: uma falha mantém mudanças
+pendentes para nova tentativa ao fechar; elas não têm a mesma garantia de ausência
+de divergência das ações de metadados. Confira o erro e tente salvar antes de
+descartar o rascunho. A política de senha é heurística: combinações como
+Dallas2024Cowboys! e Summer2024!Summer2024! ainda podem atender ao mínimo. Use
+5–6 palavras sorteadas; o indicador não consegue provar que a frase foi sorteada.

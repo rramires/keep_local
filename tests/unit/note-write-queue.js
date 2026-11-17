@@ -31,3 +31,9 @@ test('T2.20 5000 seeded interleavings keep committed memory and database equal',
 });
 test('T2.20 failed persistence never publishes speculative state',async()=>{const h=harness('text'),before=structuredClone(h.memory);h.fail();const promise=h.write(h.memory,{change:actions[0]});const check=assert.rejects(promise,/injected/);await h.release();await check;assert.deepEqual(h.memory,before);assert.deepEqual(h.db,before);});
 test('T2.20 remote versions and ended sessions do not rebase as local writes',async()=>{const h=harness('text'),source=structuredClone(h.memory);h.remote();await assert.rejects(h.write(source,{change:actions[0]}),{code:'note.conflict'});const current=structuredClone(h.memory),promise=h.write(current,{change:actions[0]});h.end();await assert.rejects(promise,{code:'session.ended'});assert.deepEqual(h.memory,h.db);});
+
+import {replaceExistingNotes} from '../../js/note-actions.js';
+test('T2.23 collective publication rejects missing targets without an array -1 property',()=>{
+ const before=[{id:'first',labels:['Work']}],plans=[{next:{id:'missing',labels:[]}}];assert.throws(()=>replaceExistingNotes(before,plans),{code:'note.conflict'});assert.deepEqual(before,[{id:'first',labels:['Work']}]);assert.equal(Object.hasOwn(before,'-1'),false);
+ const updated=replaceExistingNotes(before,[{next:{id:'first',labels:[]}}]);assert.deepEqual(updated,[{id:'first',labels:[]}]);assert.deepEqual(before,[{id:'first',labels:['Work']}]);
+});

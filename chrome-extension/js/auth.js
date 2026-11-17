@@ -177,10 +177,11 @@ function initAuthListeners(container, onAuthenticated) {
 
   function updateCreateValidation() {
     const pw = createPw.value;
-    const { checks,valid,strength } = validatePassword(pw);
+    const { checks,valid,strength,reason } = validatePassword(pw);
 
     container.querySelector('#rule-length').classList.toggle('valid', checks.minLength);
     container.querySelector('#rule-common').classList.toggle('valid',checks.notCommon);
+    container.querySelector('#rule-common').textContent=t('validation.'+(reason||'common'));
     container.querySelector('#password-strength').textContent=t('password.strength.'+strength);
 
     const allValid = valid;

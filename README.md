@@ -185,3 +185,13 @@ validates every record strictly and rejects the complete import without mutation
 Repair legacy data before full reimport or password rotation. Automatic locks
 clear unsaved plaintext; a failed manual lock offers cancel or explicit discard.
 An export in flight is cancelled when its session ends or changes.
+
+## Editor persistence scope
+
+Metadata actions on text and todo notes use copies and publish only after a
+successful write. Task edits use an editor draft: a failed save keeps pending
+changes for retry when closing; they do not have the same no-divergence guarantee
+as metadata actions. Review the failure message and retry before discarding a draft.
+Password pattern checks are heuristics: combinations such as Dallas2024Cowboys!
+and Summer2024!Summer2024! may still meet the minimum. Use 5–6 randomly selected
+words; the indicator cannot establish that a phrase was randomly generated.
