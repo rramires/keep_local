@@ -5,6 +5,12 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  "validation.common": "Avoid common passwords and repeated characters.",
+  "auth.passphraseHint": "Use a long, random passphrase. Uppercase letters and symbols are optional.",
+  "password.strength.weak": "Too short or too common",
+  "password.strength.adequate": "Meets the minimum; a longer random phrase is better",
+  "password.strength.long": "Long phrase; choose unpredictable words",
+
   'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
   "backup.replaceConfirm": "Replace {local} local notes with {incoming} backup notes? Export the current vault first if you need to keep it.",
@@ -128,7 +134,7 @@ const en = {
   'auth.passwordPlaceholder': 'Enter your password',
   'auth.confirmPassword': 'Confirm Password',
   'auth.confirmPlaceholder': 'Confirm your password',
-  'auth.minLength': 'Minimum 8 characters',
+  'auth.minLength': 'Minimum 14 characters',
   'auth.hasUppercase': 'At least 1 uppercase letter',
   'auth.hasSpecial': 'At least 1 special character',
   'auth.passwordsNoMatch': 'Passwords do not match',
@@ -152,7 +158,7 @@ const en = {
   'backup.wrongPasswordOrCorrupted': 'Incorrect password or corrupted backup.',
 
   // Validation errors (auth.js validatePassword)
-  'validation.minLength': 'Minimum 8 characters',
+  'validation.minLength': 'Minimum 14 characters',
   'validation.hasUppercase': 'At least 1 uppercase letter',
   'validation.hasSpecial': 'At least 1 special character',
 
@@ -162,6 +168,12 @@ const en = {
 };
 
 const ptBR = {
+  "validation.common": "Evite senhas comuns e caracteres repetidos.",
+  "auth.passphraseHint": "Use uma frase-senha longa e aleatória. Maiúsculas e símbolos são opcionais.",
+  "password.strength.weak": "Muito curta ou muito comum",
+  "password.strength.adequate": "Atende ao mínimo; prefira uma frase aleatória mais longa",
+  "password.strength.long": "Frase longa; escolha palavras imprevisíveis",
+
   'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
   "backup.replaceConfirm": "Substituir {local} notas locais por {incoming} notas do backup? Exporte o cofre atual antes se precisar preservá-lo.",
@@ -285,7 +297,7 @@ const ptBR = {
   'auth.passwordPlaceholder': 'Digite sua senha',
   'auth.confirmPassword': 'Confirmar Senha',
   'auth.confirmPlaceholder': 'Confirme sua senha',
-  'auth.minLength': 'Mínimo de 8 caracteres',
+  'auth.minLength': 'Mínimo de 14 caracteres',
   'auth.hasUppercase': 'Pelo menos 1 letra maiúscula',
   'auth.hasSpecial': 'Pelo menos 1 caractere especial',
   'auth.passwordsNoMatch': 'As senhas não coincidem',
@@ -309,7 +321,7 @@ const ptBR = {
   'backup.wrongPasswordOrCorrupted': 'Senha incorreta ou backup corrompido.',
 
   // Validation errors
-  'validation.minLength': 'Mínimo de 8 caracteres',
+  'validation.minLength': 'Mínimo de 14 caracteres',
   'validation.hasUppercase': 'Pelo menos 1 letra maiúscula',
   'validation.hasSpecial': 'Pelo menos 1 caractere especial',
 

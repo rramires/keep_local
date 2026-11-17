@@ -13,24 +13,13 @@ let onSessionExpired = null;
 
 // --- Password Validation ---
 
-export function validatePassword(pw) {
-  const errors = [];
-  const checks = {
-    minLength: pw.length >= 8,
-    hasUppercase: /[A-Z]/.test(pw),
-    hasSpecial: /[^a-zA-Z0-9]/.test(pw),
-  };
-
-  if (!checks.minLength) errors.push(t('validation.minLength'));
-  if (!checks.hasUppercase) errors.push(t('validation.hasUppercase'));
-  if (!checks.hasSpecial) errors.push(t('validation.hasSpecial'));
-
-  return { valid: errors.length === 0, errors, checks };
-}
+export { validatePassword } from './password-policy.js';
+import { validatePassword } from './password-policy.js';
 
 // --- Account Creation ---
 
 export async function createAccount(password) {
+  const policy=validatePassword(password);if(!policy.valid)throw new Error(policy.errors.join(' ' ));
   const salt = generateSalt();
   const key = await deriveKey(password, salt, true);
   const keyCheck = await createKeyCheck(key);
@@ -175,10 +164,11 @@ export function renderAuthView(container, { onAuthenticated }) {
             <div class="password-rules" id="password-rules">
               <ul>
                 <li id="rule-length">${t('auth.minLength')}</li>
-                <li id="rule-upper">${t('auth.hasUppercase')}</li>
-                <li id="rule-special">${t('auth.hasSpecial')}</li>
+                <li id="rule-common">${t('validation.common')}</li>
               </ul>
             </div>
+            <p id="password-strength" role="status"></p>
+            <p>${t('auth.passphraseHint')}</p>
             <div class="form-error" id="create-error"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary" id="create-btn" disabled>${t('auth.createAccount')}</button>
@@ -264,13 +254,13 @@ function initAuthListeners(container, onAuthenticated) {
 
   function updateCreateValidation() {
     const pw = createPw.value;
-    const { checks } = validatePassword(pw);
+    const { checks,valid,strength } = validatePassword(pw);
 
     container.querySelector('#rule-length').classList.toggle('valid', checks.minLength);
-    container.querySelector('#rule-upper').classList.toggle('valid', checks.hasUppercase);
-    container.querySelector('#rule-special').classList.toggle('valid', checks.hasSpecial);
+    container.querySelector('#rule-common').classList.toggle('valid',checks.notCommon);
+    container.querySelector('#password-strength').textContent=t('password.strength.'+strength);
 
-    const allValid = checks.minLength && checks.hasUppercase && checks.hasSpecial;
+    const allValid = valid;
     const matches = pw === createConfirm.value && createConfirm.value.length > 0;
     createBtn.disabled = !(allValid && matches);
 
