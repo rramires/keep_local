@@ -1,3 +1,5 @@
+import { createEditSession, serialQueue, limitText } from './edit-session.js';
+import { MAX_NOTE_BYTES } from './note-model.js';
 import { validateNote } from './note-model.js';
 // app.js — Bootstrap, SPA router, view switching
 
@@ -11,6 +13,9 @@ import { t, tp, getLang, setLang, initI18n } from './i18n.js';
 
 // App state
 let todoHistory = null;
+let activeEdit=null;
+let sessionGeneration=0;
+const enqueueWrite=serialQueue();
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
@@ -44,6 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function showAuth() {
   stopSessionTimer();
+  sessionGeneration++;activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
   cryptoKey = null;
   notes = [];
   appContainer.innerHTML = '';
@@ -189,9 +195,9 @@ function initAppListeners() {
   });
 
   // Lock
-  document.getElementById('lock-btn').addEventListener('click', () => {
+  document.getElementById('lock-btn').addEventListener('click', async () => {
+    if(!await closeModal())return;
     logout();
-    showAuth();
   });
 
   // Sidebar navigation
@@ -247,7 +253,7 @@ function initAppListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = document.getElementById('modal-overlay');
-      if (modal.classList.contains('open')) {
+      if (modal?.classList.contains('open')) {
         closeModal();
       }
     }
@@ -289,32 +295,29 @@ async function loadNotes() {
   }
 }
 
-export async function saveNote(note) {
-  const { encrypt, arrayToBase64, arrayBufferToBase64 } = await import('./crypto.js');
-  const { saveNoteRecord } = await import('./db.js');
-  const { setUnsaved } = await import('./backup.js');
-
-  note.updatedAt = Date.now();
-
-  const json = JSON.stringify(note);
-  const { iv, ciphertext } = await encrypt(cryptoKey, json);
-
-  await saveNoteRecord({
-    id: note.id,
-    iv: arrayToBase64(iv),
-    ciphertext: arrayBufferToBase64(ciphertext),
-    updatedAt: note.updatedAt,
+export function saveNote(note) {
+  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration;
+  return enqueueWrite(note.id,async()=>{
+    if(!key || generation!==sessionGeneration)throw new Error('session.ended');
+    snapshot.updatedAt=Date.now();
+    validateNote(snapshot);
+    const { encrypt, arrayToBase64, arrayBufferToBase64 }=await import('./crypto.js');
+    const { saveNoteRecord }=await import('./db.js');
+    const { setUnsaved }=await import('./backup.js');
+    const {iv,ciphertext}=await encrypt(key,JSON.stringify(snapshot));
+    if(generation!==sessionGeneration)throw new Error('session.ended');
+    await saveNoteRecord({id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt});
+    if(generation!==sessionGeneration)return;
+    note.updatedAt=snapshot.updatedAt;
+    const idx=notes.findIndex(n=>n.id===snapshot.id);
+    if(idx>=0)notes[idx]=snapshot;else notes.push(snapshot);
+    setUnsaved();
   });
-
-  // Update in-memory array
-  const idx = notes.findIndex(n => n.id === note.id);
-  if (idx >= 0) {
-    notes[idx] = note;
-  } else {
-    notes.push(note);
-  }
-
-  setUnsaved();
+}
+async function saveFromUI(note) {
+  if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
+  try { await saveNote(note);return true; }
+  catch(error){showToast(t(error.code||'note.saveFailed'));return false;}
 }
 
 export async function permanentDeleteNote(id) {
@@ -592,39 +595,39 @@ function initCardListeners() {
       switch (action) {
         case 'pin':
           note.pinned = !note.pinned;
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
           renderCurrentView();
           break;
         case 'archive':
           note.archivedAt = Date.now();
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
           renderCurrentView();
           showToast(t('toast.noteArchived'), t('toast.undo'), async () => {
             note.archivedAt = null;
-            await saveNote(note);
+            if (!await saveFromUI(note)) return false;
             renderCurrentView();
           });
           break;
         case 'unarchive':
           note.archivedAt = null;
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
           renderCurrentView();
           showToast(t('toast.noteUnarchived'));
           break;
         case 'trash':
           note.deletedAt = Date.now();
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
           renderCurrentView();
           showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
             note.deletedAt = null;
-            await saveNote(note);
+            if (!await saveFromUI(note)) return false;
             renderCurrentView();
           });
           break;
         case 'restore':
           note.deletedAt = null;
           note.archivedAt = null;
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
           renderCurrentView();
           showToast(t('toast.noteRestored'));
           break;
@@ -706,7 +709,7 @@ function initNewNoteBar() {
     const body = bodyInput.value.trim();
 
     if (title || body) {
-      await createNewNote('text', title, body);
+      if(!await createNewNote('text', title, body))return;
     }
 
     bar.classList.remove('expanded');
@@ -714,6 +717,8 @@ function initNewNoteBar() {
     bodyInput.value = '';
   });
 
+  limitText(bodyInput,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));
+  titleInput.maxLength=4096;
   // Auto-resize textarea
   bodyInput.addEventListener('input', () => {
     bodyInput.style.height = 'auto';
@@ -729,7 +734,7 @@ function initNewNoteBar() {
     const body = bodyInput.value.trim();
 
     if (title || body) {
-      await createNewNote('text', title, body);
+      if(!await createNewNote('text', title, body))return;
     }
 
     bar.classList.remove('expanded');
@@ -761,18 +766,21 @@ async function createNewNote(type, title = '', content = '') {
     note.tasks = [];
   }
 
-  await saveNote(note);
+  if (!await saveFromUI(note)) return false;
 
   if (type === 'todo') {
     openNoteModal(note);
   } else {
     renderCurrentView();
   }
+  return true;
 }
 
 // --- Note Modal ---
 
-function openNoteModal(note) {
+async function openNoteModal(note) {
+  if (activeEdit && !await closeModal()) return;
+  note=structuredClone(note);
   if (note.type === 'text') {
     openTextModal(note);
   } else {
@@ -835,11 +843,11 @@ function openTextModal(note) {
   undoBtn.addEventListener('click', () => {
     const prev = history.undo();
     if (prev) {
-      document.getElementById('modal-title').value = prev.title;
+      titleInput.value = prev.title;
       editor.value = prev.content;
       note.title = prev.title;
       note.content = prev.content;
-      saveNote(note);
+      void saveFromUI(note);
       updateUndoRedoBtns();
     }
   });
@@ -847,11 +855,11 @@ function openTextModal(note) {
   redoBtn.addEventListener('click', () => {
     const next = history.redo();
     if (next) {
-      document.getElementById('modal-title').value = next.title;
+      titleInput.value = next.title;
       editor.value = next.content;
       note.title = next.title;
       note.content = next.content;
-      saveNote(note);
+      void saveFromUI(note);
       updateUndoRedoBtns();
     }
   });
@@ -871,34 +879,23 @@ function openTextModal(note) {
   modal._keyHandler = keyHandler;
 
   // --- Text modal listeners ---
-  const { debounce } = getUtils();
   const editor = document.getElementById('modal-editor');
+  const titleInput = document.getElementById('modal-title');
   const preview = document.getElementById('modal-preview');
   const mdToggle = document.getElementById('modal-md-toggle');
   let previewMode = false;
-
-  const pushHistory = debounce(() => {
-    history.push({ title: document.getElementById('modal-title').value, content: editor.value });
-    updateUndoRedoBtns();
-  }, 500);
-
-  const autoSave = debounce(async () => {
-    note.title = document.getElementById('modal-title').value;
-    note.content = editor.value;
-    await saveNote(note);
-    updateModalTimestamp(note);
-  }, 2000);
-
-  editor.addEventListener('input', () => { pushHistory(); autoSave(); });
-  document.getElementById('modal-title').addEventListener('input', () => { pushHistory(); autoSave(); });
-
-  editor.addEventListener('blur', async () => {
-    note.title = document.getElementById('modal-title').value;
-    note.content = editor.value;
-    await saveNote(note);
-    updateModalTimestamp(note);
-  });
-
+  const capture=()=>({...note,title:titleInput.value,content:editor.value});
+  limitText(editor,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));
+  titleInput.maxLength=4096;
+  const edit=createEditSession({capture,save:async snapshot=>{
+    const ok=await saveFromUI(snapshot);
+    if(ok){Object.assign(note,snapshot);updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
+    return ok;
+  }});
+  activeEdit={...edit,id:note.id,cleanup:()=>history.clear()};
+  editor.addEventListener('input',edit.schedule);
+  titleInput.addEventListener('input',edit.schedule);
+  editor.addEventListener('blur',()=>void edit.flush());
   // Markdown toggle
   mdToggle.addEventListener('click', () => {
     previewMode = !previewMode;
@@ -919,7 +916,7 @@ function openTextModal(note) {
   // Pin
   document.getElementById('modal-pin').addEventListener('click', async () => {
     note.pinned = !note.pinned;
-    await saveNote(note);
+    if (!await saveFromUI(note)) return false;
     document.getElementById('modal-pin').classList.toggle('pinned', note.pinned);
     document.getElementById('modal-pin').innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
@@ -930,8 +927,8 @@ function openTextModal(note) {
   // Archive
   document.getElementById('modal-archive-btn').addEventListener('click', async () => {
     note.archivedAt = Date.now();
-    await saveNote(note);
-    closeModal();
+    if (!await saveFromUI(note)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteArchived'));
   });
@@ -939,12 +936,12 @@ function openTextModal(note) {
   // Delete
   document.getElementById('modal-delete-btn').addEventListener('click', async () => {
     note.deletedAt = Date.now();
-    await saveNote(note);
-    closeModal();
+    if (!await saveFromUI(note)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
       note.deletedAt = null;
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       renderCurrentView();
     });
   });
@@ -959,8 +956,8 @@ function openTextModal(note) {
     dup.createdAt = Date.now();
     dup.updatedAt = Date.now();
     dup.pinned = false;
-    await saveNote(dup);
-    closeModal();
+    if (!await saveFromUI(dup)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteDuplicated'));
   });
@@ -988,6 +985,11 @@ function openTodoModal(note) {
   todoHistory = createHistory({ title: note.title || '', tasks: deepClone(note.tasks || []) });
 
   renderTodoModalContent(note);
+  activeEdit={id:note.id,capture:()=>note,cancel(){},cleanup:()=>todoHistory?.clear(),flush:async()=>{
+    const title=document.getElementById('modal-title');if(title)note.title=title.value;
+    document.querySelectorAll('#modal-card .todo-text').forEach(input=>{const task=note.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;});
+    return saveFromUI(note);
+  }};
 
   const overlay = document.getElementById('modal-overlay');
   overlay.classList.add('open');
@@ -1133,7 +1135,7 @@ function initTodoModalListeners(note) {
     if (prev) {
       note.title = prev.title;
       note.tasks = deepClone(prev.tasks);
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       renderTodoModalContent(note);
     }
   });
@@ -1143,7 +1145,7 @@ function initTodoModalListeners(note) {
     if (next) {
       note.title = next.title;
       note.tasks = deepClone(next.tasks);
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       renderTodoModalContent(note);
     }
   });
@@ -1152,7 +1154,7 @@ function initTodoModalListeners(note) {
   const titleInput = document.getElementById('modal-title');
   titleInput.addEventListener('blur', async () => {
     note.title = titleInput.value;
-    await saveNote(note);
+    if (!await saveFromUI(note)) return false;
     updateModalTimestamp(note);
     pushTodoHistory();
   });
@@ -1172,7 +1174,7 @@ function initTodoModalListeners(note) {
         parentId: null,
       });
       note.tasks = tasks;
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       addInput.value = '';
       pushTodoHistory();
       renderTodoModalContent(note);
@@ -1194,7 +1196,7 @@ function initTodoModalListeners(note) {
           parentId: lastRoot.id,
         });
         note.tasks = tasks;
-        await saveNote(note);
+        if (!await saveFromUI(note)) return false;
         addInput.value = '';
         pushTodoHistory();
         renderTodoModalContent(note);
@@ -1216,7 +1218,7 @@ function initTodoModalListeners(note) {
         child.done = task.done;
       });
 
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       pushTodoHistory();
       renderTodoModalContent(note);
     });
@@ -1229,7 +1231,7 @@ function initTodoModalListeners(note) {
       const task = note.tasks.find(t => t.id === taskId);
       if (task) {
         task.text = input.value;
-        await saveNote(note);
+        if (!await saveFromUI(note)) return false;
         pushTodoHistory();
       }
     });
@@ -1247,7 +1249,7 @@ function initTodoModalListeners(note) {
     btn.addEventListener('click', async () => {
       const taskId = btn.dataset.taskId;
       note.tasks = note.tasks.filter(t => t.id !== taskId && t.parentId !== taskId);
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       pushTodoHistory();
       renderTodoModalContent(note);
     });
@@ -1257,7 +1259,7 @@ function initTodoModalListeners(note) {
   document.getElementById('check-all-btn')?.addEventListener('click', async () => {
     if (await showConfirm(t('todo.confirmCheckAll'))) {
       note.tasks.forEach(t => { t.done = true; });
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       pushTodoHistory();
       renderTodoModalContent(note);
     }
@@ -1267,7 +1269,7 @@ function initTodoModalListeners(note) {
   document.getElementById('uncheck-all-btn')?.addEventListener('click', async () => {
     if (await showConfirm(t('todo.confirmUncheckAll'))) {
       note.tasks.forEach(t => { t.done = false; });
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       pushTodoHistory();
       renderTodoModalContent(note);
     }
@@ -1287,7 +1289,7 @@ function initTodoModalListeners(note) {
   // Pin
   document.getElementById('modal-pin').addEventListener('click', async () => {
     note.pinned = !note.pinned;
-    await saveNote(note);
+    if (!await saveFromUI(note)) return false;
     document.getElementById('modal-pin').classList.toggle('pinned', note.pinned);
     document.getElementById('modal-pin').innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
@@ -1298,8 +1300,8 @@ function initTodoModalListeners(note) {
   // Archive
   document.getElementById('modal-archive-btn').addEventListener('click', async () => {
     note.archivedAt = Date.now();
-    await saveNote(note);
-    closeModal();
+    if (!await saveFromUI(note)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteArchived'));
   });
@@ -1307,8 +1309,8 @@ function initTodoModalListeners(note) {
   // Delete
   document.getElementById('modal-delete-btn').addEventListener('click', async () => {
     note.deletedAt = Date.now();
-    await saveNote(note);
-    closeModal();
+    if (!await saveFromUI(note)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteToTrash'));
   });
@@ -1327,8 +1329,8 @@ function initTodoModalListeners(note) {
     const idMap = {};
     note.tasks.forEach((t, i) => { idMap[t.id] = dup.tasks[i].id; });
     dup.tasks.forEach(t => { if (t.parentId) t.parentId = idMap[t.parentId] || null; });
-    await saveNote(dup);
-    closeModal();
+    if (!await saveFromUI(dup)) return false;
+    if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteDuplicated'));
   });
@@ -1347,13 +1349,17 @@ function initTodoModalListeners(note) {
   initTaskDragDrop(note);
 }
 
-function closeModal() {
-  const modal = document.querySelector('.modal-card');
-  if (modal && modal._keyHandler) {
-    document.removeEventListener('keydown', modal._keyHandler);
-  }
-  document.getElementById('modal-overlay').classList.remove('open');
-  renderCurrentView();
+async function closeModal() {
+  const edit=activeEdit;
+  if(edit && !await edit.flush())return false;
+  if(edit!==activeEdit)return false;
+  activeEdit=null;edit?.cancel();edit?.cleanup?.();todoHistory=null;
+  const modal=document.querySelector('.modal-card');
+  if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
+  document.getElementById('modal-overlay')?.classList.remove('open');
+  if(modal)modal.innerHTML='';
+  if(cryptoKey)renderCurrentView();
+  return true;
 }
 
 function updateModalTimestamp(note) {
@@ -1398,7 +1404,7 @@ function openColorPicker(anchorBtn, note) {
       } else if (modal) {
         modal.removeAttribute('data-color');
       }
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       popup.remove();
       renderCurrentView();
     }
@@ -1463,7 +1469,7 @@ function openLabelsPickerModal(note) {
       const idx = note.labels.indexOf(label);
       if (idx >= 0) note.labels.splice(idx, 1);
       else note.labels.push(label);
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       renderPopup();
     }
   });
@@ -1477,7 +1483,7 @@ function openLabelsPickerModal(note) {
         if (!note.labels.includes(newLabel)) {
           note.labels.push(newLabel);
         }
-        await saveNote(note);
+        if (!await saveFromUI(note)) return false;
         renderPopup();
       }
     }
@@ -1569,7 +1575,7 @@ function openLabelsManager() {
           if (note.labels?.includes(oldName)) {
             const idx = note.labels.indexOf(oldName);
             note.labels[idx] = newName;
-            await saveNote(note);
+            if (!await saveFromUI(note)) return false;
           }
         }
         input.dataset.old = newName;
@@ -1584,7 +1590,7 @@ function openLabelsManager() {
       for (const note of notes) {
         if (note.labels?.includes(label)) {
           note.labels = note.labels.filter(l => l !== label);
-          await saveNote(note);
+          if (!await saveFromUI(note)) return false;
         }
       }
       btn.closest('.label-row').remove();
@@ -1656,7 +1662,7 @@ function openCardMenu(anchorBtn, note) {
         });
         dup.tasks.forEach(t => { if (t.parentId) t.parentId = idMap[t.parentId] || null; });
       }
-      await saveNote(dup);
+      if (!await saveFromUI(dup)) return false;
       renderCurrentView();
       showToast(t('toast.noteDuplicated'));
     } else if (action === 'labels') {
@@ -1721,8 +1727,8 @@ function initCardDragDrop() {
         draggedNote.order = targetNote.order;
         targetNote.order = tempOrder;
 
-        await saveNote(draggedNote);
-        await saveNote(targetNote);
+        if (!await saveFromUI(draggedNote)) return false;
+        if (!await saveFromUI(targetNote)) return false;
         renderCurrentView();
       });
     });
@@ -1823,7 +1829,7 @@ function initTaskDragDrop(note) {
       // Reassign orders
       sectionTasks.forEach((t, i) => { t.order = i; });
 
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       if (todoHistory) {
         const { deepClone } = getUtils();
         todoHistory.push({ title: note.title || '', tasks: deepClone(note.tasks || []) });
@@ -1863,7 +1869,7 @@ function initTaskDragDrop(note) {
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       draggedTask.order = sectionTasks.length;
 
-      await saveNote(note);
+      if (!await saveFromUI(note)) return false;
       if (todoHistory) {
         const { deepClone } = getUtils();
         todoHistory.push({ title: note.title || '', tasks: deepClone(note.tasks || []) });

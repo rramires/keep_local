@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
   "backup.replaceConfirm": "Replace {local} local notes with {incoming} backup notes? Export the current vault first if you need to keep it.",
   "backup.cancelled": "Import cancelled. Your vault was preserved.",
@@ -161,6 +162,7 @@ const en = {
 };
 
 const ptBR = {
+  'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
   "backup.replaceConfirm": "Substituir {local} notas locais por {incoming} notas do backup? Exporte o cofre atual antes se precisar preservá-lo.",
   "backup.cancelled": "Importação cancelada. Seu cofre foi preservado.",

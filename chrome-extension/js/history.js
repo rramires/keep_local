@@ -9,6 +9,7 @@ export function createHistory(initialState) {
   let pointer = 0;
 
   return {
+    clear() { states.length=0;pointer=-1; },
     push(state) {
       // Remove any redo states beyond current pointer
       states.splice(pointer + 1);

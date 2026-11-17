@@ -71,7 +71,9 @@ export async function importKey(jwkString) {
 }
 
 export function arrayToBase64(arr) {
-  return btoa(String.fromCharCode(...arr));
+  let binary = '';
+  for (let i=0;i<arr.length;i+=8192) binary+=String.fromCharCode(...arr.subarray(i,i+8192));
+  return btoa(binary);
 }
 
 export function base64ToArray(b64) {
