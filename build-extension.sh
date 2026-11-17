@@ -64,7 +64,7 @@ rm -f "$DIST_DIR/$ZIP_NAME"
 echo ""
 echo "📦 Criando pacote ZIP..."
 cd "$EXT_DIR"
-zip -r -q "../$DIST_DIR/$ZIP_NAME" . -x ".*"
+zip -r -q "../$DIST_DIR/$ZIP_NAME" . -x ".*" "lib/VENDOR.md" "lib/SHA256SUMS"
 cd ..
 
 echo ""
