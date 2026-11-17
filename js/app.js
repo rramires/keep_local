@@ -1,3 +1,4 @@
+import { purgeTrash } from './trash.js';
 import { ensureVaultId, getMeta } from './db.js';
 import { getSessionVaultId, setSessionVaultId } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
@@ -90,6 +91,7 @@ async function showApp() {
 
   renderAppShell();
   await loadNotes();
+  await purgeExpiredTrash();
   renderCurrentView();
 }
 
@@ -230,8 +232,9 @@ function initAppListeners() {
 
   // Sidebar navigation
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       currentView = item.dataset.view;
+      if(currentView==='trash')await purgeExpiredTrash();
       currentLabel = null;
       updateSidebarActive(item);
       renderCurrentView();
@@ -484,20 +487,15 @@ function renderArchiveView(searchQuery) {
   initCardListeners();
 }
 
+async function purgeExpiredTrash(){
+  try{await purgeTrash(notes,permanentDeleteNote);}catch(error){showToast(t(error.code||'note.saveFailed'));}
+}
+
 function renderTrashView(searchQuery) {
   const trashed = notes.filter(n => n.deletedAt);
   const filtered = filterNotes(trashed, searchQuery);
 
-  // Auto-purge expired (7 days)
-  const now = Date.now();
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-  filtered.forEach(n => {
-    if (now - n.deletedAt > sevenDays) {
-      permanentDeleteNote(n.id);
-    }
-  });
-
-  const valid = filtered.filter(n => now - n.deletedAt <= sevenDays);
+  const valid=filtered;
 
   const mainInner = document.getElementById('main-inner');
   let html = '';
