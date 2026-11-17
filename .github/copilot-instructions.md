@@ -17,7 +17,7 @@ legacy-only and is deleted atomically after successful migration.
 Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
 5-minute deadline is checked on intervals, focus and visibility, with activity
 throttled to 1 second. Never persist a key or password. A typed reset is explicit.
-New passphrases require 14 characters, no composition rules, a short denylist.
+New passphrases require 14 characters, no composition rules, an embedded denylist and sequence/pattern checks; recommend 5+ randomly chosen words.
 
 Backup v2 is raw `[salt16][iv12][ciphertext+tag]`, no plaintext magic/header.
 Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD

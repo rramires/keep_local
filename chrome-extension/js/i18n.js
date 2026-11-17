@@ -49,11 +49,11 @@ const en = {
 
   'backup.legacyWarning': 'Legacy backup imported. Export a new v2 backup now; v1 cannot detect missing records.',
   'markdown.unavailable': 'Safe Markdown preview is unavailable. Showing plain text.',
-  "validation.common": "Avoid common passwords and repeated characters.",
-  "auth.passphraseHint": "Use a long, random passphrase. Uppercase letters and symbols are optional.",
-  "password.strength.weak": "Too short or too common",
+  "validation.common": "Avoid common passwords, sequences, keyboard runs and repeated patterns.",
+  "auth.passphraseHint": "Use 5 or more randomly chosen words. Uppercase letters and symbols are optional.",
+  "password.strength.weak": "Too short or predictable",
   "password.strength.adequate": "Meets the minimum; a longer random phrase is better",
-  "password.strength.long": "Long phrase; choose unpredictable words",
+  "password.strength.long": "Long and varied; strength depends on randomly chosen words",
 
   'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
@@ -256,11 +256,11 @@ const ptBR = {
 
   'backup.legacyWarning': 'Backup antigo importado. Exporte um novo backup v2 agora; o v1 não detecta registros removidos.',
   'markdown.unavailable': 'A prévia segura de Markdown está indisponível. Exibindo texto simples.',
-  "validation.common": "Evite senhas comuns e caracteres repetidos.",
-  "auth.passphraseHint": "Use uma frase-senha longa e aleatória. Maiúsculas e símbolos são opcionais.",
-  "password.strength.weak": "Muito curta ou muito comum",
+  "validation.common": "Evite senhas comuns, sequências, corridas de teclado e padrões repetidos.",
+  "auth.passphraseHint": "Use 5 ou mais palavras sorteadas. Maiúsculas e símbolos são opcionais.",
+  "password.strength.weak": "Muito curta ou previsível",
   "password.strength.adequate": "Atende ao mínimo; prefira uma frase aleatória mais longa",
-  "password.strength.long": "Frase longa; escolha palavras imprevisíveis",
+  "password.strength.long": "Longa e variada; a força depende de palavras sorteadas",
 
   'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
