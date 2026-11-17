@@ -5,6 +5,8 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'note.actionFailed': 'Could not apply this action. The stored note and its displayed state were preserved; retry.',
+  'note.actionConflict': 'Another tab changed this note. This action was not applied; review the current version.',
   'recovery.copy': 'Create note with this content',
   'recovery.newTitle': 'Recovered content',
   'recovery.copyTooLarge': 'Too large to create a note. Read and copy the text manually to a safe place.',
@@ -210,6 +212,8 @@ const en = {
 };
 
 const ptBR = {
+  'note.actionFailed': 'Não foi possível aplicar esta ação. A nota armazenada e seu estado exibido foram preservados; tente novamente.',
+  'note.actionConflict': 'Outra aba alterou esta nota. A ação não foi aplicada; confira a versão atual.',
   'recovery.copy': 'Criar nota com este conteúdo',
   'recovery.newTitle': 'Conteúdo recuperado',
   'recovery.copyTooLarge': 'Conteúdo grande demais para criar uma nota. Leia e copie o texto manualmente para um local seguro.',

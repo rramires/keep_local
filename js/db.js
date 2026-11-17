@@ -290,3 +290,17 @@ export function discardPreservedRecord(record,expected,{signal}={}) {
     m.onsuccess=finish;n.onsuccess=finish;
   });
 }
+
+export function guardedNoteBatch(changes,{expectedVaultId,signal}) {
+  return vaultTransaction(({tx,meta,notes},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const m=meta.getAll(),requests=changes.map(c=>notes.get(c.id));let remaining=requests.length+1;
+    const finish=()=>{if(--remaining)return;try{
+      const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
+      if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(Error('vault.changed'),{code:'vault.changed'});
+      changes.forEach((change,i)=>{const stored=requests[i].result;if(stored?(change.knownUpdatedAt===undefined||stored.updatedAt>change.knownUpdatedAt):change.knownUpdatedAt!==undefined)throw Object.assign(Error('note.conflict'),{code:'note.conflict'});});
+      changes.forEach(change=>notes.put(change.record));markVaultDirty(meta,values);done();
+    }catch(error){fail(error);}};
+    m.onsuccess=finish;requests.forEach(request=>request.onsuccess=finish);
+  });
+}

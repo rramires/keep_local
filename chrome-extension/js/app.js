@@ -1,3 +1,4 @@
+import { planNoteChange,persistNoteBatch } from './note-actions.js';
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState } from './backup.js';
 import { purgeTrash } from './trash.js';
@@ -373,15 +374,15 @@ export function saveNote(note,{sourceEdit=null}={}) {
     setUnsaved();
   });
 }
-async function saveFromUI(note) {
+async function saveFromUI(note,{mergeDraft=true,context='editor'}={}) {
   const generation=sessionGeneration;
   const sourceEdit=activeEdit?.id===note.id?activeEdit:null;
-  if(sourceEdit)Object.assign(note,sourceEdit.capture());
+  if(sourceEdit&&mergeDraft)Object.assign(note,sourceEdit.capture());
   if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
   try { await saveNote(note,{sourceEdit});return generation===sessionGeneration; }
   catch(error){
     if(generation!==sessionGeneration)return false;
-    if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
+    if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t('note.saveAsNew'),async()=>{
       if(generation!==sessionGeneration)return;
       const edit=activeEdit?.id===note.id?activeEdit:null;
       const source=edit?(edit.captureDraft?.()||edit.capture()):structuredClone(note),captured=JSON.stringify(source);
@@ -392,9 +393,27 @@ async function saveFromUI(note) {
       }
       await refreshChangedNote(note.id);
     });
-    else showToast(t(error.code||'note.saveFailed'));
+    else showToast(t(error.code||(context==='action'?'note.actionFailed':'note.saveFailed')));
     return false;
   }
+}
+
+async function changeFromUI(source,change) {
+  const generation=sessionGeneration;
+  const plan=planNoteChange(source,change,activeEdit?.id===source.id?activeEdit.capture():null);
+  if(!await saveFromUI(plan.next,{mergeDraft:false,context:'action'})||generation!==sessionGeneration)return false;
+  Object.assign(source,plan.fields,{updatedAt:plan.next.updatedAt});
+  if(activeEdit?.id===source.id)activeEdit.applyFields?.({...plan.fields,updatedAt:plan.next.updatedAt});
+  return true;
+}
+async function changeManyFromUI(sources,change) {
+  const generation=sessionGeneration,plans=sources.map(n=>planNoteChange(n,change,activeEdit?.id===n.id?activeEdit.capture():null));
+  if(!plans.length)return true;
+  try{await persistNoteBatch(plans,{enqueue:enqueueWrite,getVersion:id=>knownVersions.get(id),key:cryptoKey,vaultId:loadedVaultId,signal:sessionController?.signal});}
+  catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='note.conflict'?'note.actionConflict':'note.actionFailed'));}return false;}
+  if(generation!==sessionGeneration)return false;
+  for(const {next,fields} of plans){knownVersions.set(next.id,next.updatedAt);const i=notes.findIndex(n=>n.id===next.id);notes[i]=next;if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
+  (await import('./backup.js')).setUnsaved();return true;
 }
 
 export async function permanentDeleteNote(id) {
@@ -701,40 +720,32 @@ function initCardListeners() {
 
       switch (action) {
         case 'pin':
-          note.pinned = !note.pinned;
-          if (!await saveFromUI(note)) return false;
+          if (!await changeFromUI(note,next=>{next.pinned = !next.pinned;})) return false;
           renderCurrentView();
           break;
         case 'archive':
-          note.archivedAt = Date.now();
-          if (!await saveFromUI(note)) return false;
+          if (!await changeFromUI(note,next=>{next.archivedAt = Date.now();})) return false;
           renderCurrentView();
           showToast(t('toast.noteArchived'), t('toast.undo'), async () => {
-            note.archivedAt = null;
-            if (!await saveFromUI(note)) return false;
+            if (!await changeFromUI(note,next=>{next.archivedAt = null;})) return false;
             renderCurrentView();
           });
           break;
         case 'unarchive':
-          note.archivedAt = null;
-          if (!await saveFromUI(note)) return false;
+          if (!await changeFromUI(note,next=>{next.archivedAt = null;})) return false;
           renderCurrentView();
           showToast(t('toast.noteUnarchived'));
           break;
         case 'trash':
-          note.deletedAt = Date.now();
-          if (!await saveFromUI(note)) return false;
+          if (!await changeFromUI(note,next=>{next.deletedAt = Date.now();})) return false;
           renderCurrentView();
           showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
-            note.deletedAt = null;
-            if (!await saveFromUI(note)) return false;
+            if (!await changeFromUI(note,next=>{next.deletedAt = null;})) return false;
             renderCurrentView();
           });
           break;
         case 'restore':
-          note.deletedAt = null;
-          note.archivedAt = null;
-          if (!await saveFromUI(note)) return false;
+          if (!await changeFromUI(note,next=>{next.deletedAt=null;next.archivedAt=null;})) return false;
           renderCurrentView();
           showToast(t('toast.noteRestored'));
           break;
@@ -958,7 +969,7 @@ function openTextModal(note) {
     if(ok){Object.assign(note,{updatedAt:snapshot.updatedAt,title:titleInput.value,content:editor.value});updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
     return ok;
   }});
-  activeEdit={...edit,id:note.id,cleanup:()=>history.clear()};
+  activeEdit={...edit,id:note.id,applyFields:fields=>Object.assign(note,fields),cleanup:()=>history.clear()};
   editor.addEventListener('input',edit.schedule);
   titleInput.addEventListener('input',edit.schedule);
   editor.addEventListener('blur',()=>void edit.flush());
@@ -980,8 +991,7 @@ function openTextModal(note) {
   // Pin
   document.getElementById('modal-pin').addEventListener('click', async (e) => {
     const pinButton=e.currentTarget;
-    note.pinned = !note.pinned;
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.pinned = !next.pinned;})) return false;
     pinButton.classList.toggle('pinned', note.pinned);
     pinButton.innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
@@ -991,8 +1001,7 @@ function openTextModal(note) {
 
   // Archive
   document.getElementById('modal-archive-btn').addEventListener('click', async () => {
-    note.archivedAt = Date.now();
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.archivedAt = Date.now();})) return false;
     if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteArchived'));
@@ -1000,13 +1009,11 @@ function openTextModal(note) {
 
   // Delete
   document.getElementById('modal-delete-btn').addEventListener('click', async () => {
-    note.deletedAt = Date.now();
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.deletedAt = Date.now();})) return false;
     if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteToTrash'), t('toast.undo'), async () => {
-      note.deletedAt = null;
-      if (!await saveFromUI(note)) return false;
+      if (!await changeFromUI(note,next=>{next.deletedAt = null;})) return false;
       renderCurrentView();
     });
   });
@@ -1056,7 +1063,7 @@ function openTodoModal(note) {
 
   renderTodoModalContent(note);
   let pendingTask=null;const pendingDraftId=crypto.randomUUID();
-  activeEdit={id:note.id,capture:()=>note,captureDraft:()=>captureTodoDraft(note,modal,pendingTask?.id||pendingDraftId),cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
+  activeEdit={id:note.id,applyFields:fields=>Object.assign(note,fields),capture:()=>note,captureDraft:()=>captureTodoDraft(note,modal,pendingTask?.id||pendingDraftId),cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
     const title=document.getElementById('modal-title');if(title)note.title=title.value;
     document.querySelectorAll('#modal-card .todo-text').forEach(input=>{const task=note.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;});
     const pending=document.getElementById('add-task-input')?.value.trim();
@@ -1369,8 +1376,7 @@ function initTodoModalListeners(note) {
   // Pin
   document.getElementById('modal-pin').addEventListener('click', async (e) => {
     const pinButton=e.currentTarget;
-    note.pinned = !note.pinned;
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.pinned = !next.pinned;})) return false;
     pinButton.classList.toggle('pinned', note.pinned);
     pinButton.innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
@@ -1380,8 +1386,7 @@ function initTodoModalListeners(note) {
 
   // Archive
   document.getElementById('modal-archive-btn').addEventListener('click', async () => {
-    note.archivedAt = Date.now();
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.archivedAt = Date.now();})) return false;
     if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteArchived'));
@@ -1389,8 +1394,7 @@ function initTodoModalListeners(note) {
 
   // Delete
   document.getElementById('modal-delete-btn').addEventListener('click', async () => {
-    note.deletedAt = Date.now();
-    if (!await saveFromUI(note)) return false;
+    if (!await changeFromUI(note,next=>{next.deletedAt = Date.now();})) return false;
     if(!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteToTrash'));
@@ -1483,14 +1487,9 @@ function openColorPicker(anchorBtn, note) {
   popup.addEventListener('click', async (e) => {
     const opt = e.target.closest('.color-opt');
     if (opt) {
-      note.color = opt.dataset.color;
+      if (!await changeFromUI(note,next=>{next.color=opt.dataset.color;})) return false;
       const modal = document.getElementById('modal-card');
-      if (modal && note.color && note.color !== 'default') {
-        modal.setAttribute('data-color', note.color);
-      } else if (modal) {
-        modal.removeAttribute('data-color');
-      }
-      if (!await saveFromUI(note)) return false;
+      if(activeEdit?.id===note.id&&modal){if(note.color!=='default')modal.setAttribute('data-color',note.color);else modal.removeAttribute('data-color');}
       popup.remove();
       renderCurrentView();
     }
@@ -1551,11 +1550,7 @@ function openLabelsPickerModal(note) {
     const opt = e.target.closest('.label-opt');
     if (opt) {
       const label = opt.dataset.label;
-      if (!note.labels) note.labels = [];
-      const idx = note.labels.indexOf(label);
-      if (idx >= 0) note.labels.splice(idx, 1);
-      else note.labels.push(label);
-      if (!await saveFromUI(note)) return false;
+      if (!await changeFromUI(note,next=>{const i=next.labels.indexOf(label);if(i>=0)next.labels.splice(i,1);else next.labels.push(label);} ))return false;
       renderPopup();
     }
   });
@@ -1564,12 +1559,8 @@ function openLabelsPickerModal(note) {
     if (e.key === 'Enter') {
       const input = popup.querySelector('#new-label-input');
       if (input && input.value.trim()) {
-        if (!note.labels) note.labels = [];
-        const newLabel = input.value.trim();
-        if (!note.labels.includes(newLabel)) {
-          note.labels.push(newLabel);
-        }
-        if (!await saveFromUI(note)) return false;
+        const newLabel=input.value.trim();
+        if (!await changeFromUI(note,next=>{if(!next.labels.includes(newLabel))next.labels.push(newLabel);} ))return false;
         renderPopup();
       }
     }
@@ -1659,15 +1650,9 @@ function openLabelsManager() {
       const oldName = input.dataset.old;
       const newName = input.value.trim();
       if (newName && newName !== oldName) {
-        row.querySelector('.label-delete-btn').dataset.label=newName;input.dataset.old=newName;
+        if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(oldName)),next=>{next.labels=[...new Set(next.labels.map(l=>l===oldName?newName:l))];})){input.value=oldName;return false;}
+        row.querySelector('.label-delete-btn').dataset.label=newName;
         if(currentLabel===oldName)currentLabel=newName;
-        for (const note of notes) {
-          if (note.labels?.includes(oldName)) {
-            const idx = note.labels.indexOf(oldName);
-            note.labels[idx] = newName;note.labels=[...new Set(note.labels)];
-            if (!await saveFromUI(note)) return false;
-          }
-        }
         input.dataset.old = newName;
       }
       })();
@@ -1678,14 +1663,9 @@ function openLabelsManager() {
   // Delete label
   document.querySelectorAll('.label-delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await btn.closest('.label-row')._renaming;
+      if(await btn.closest('.label-row')._renaming===false)return;
       const label = btn.dataset.label;
-      for (const note of notes) {
-        if (note.labels?.includes(label)) {
-          note.labels = note.labels.filter(l => l !== label);
-          if (!await saveFromUI(note)) return false;
-        }
-      }
+      if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(label)),next=>{next.labels=next.labels.filter(l=>l!==label);} ))return false;
       btn.closest('.label-row').remove();
       updateSidebarLabels();
     });
@@ -1821,7 +1801,8 @@ function initCardDragDrop() {
         const ordered=[...grid.querySelectorAll('.note-card')].map(c=>notes.find(n=>n.id===c.dataset.id)).filter(Boolean);
         const moved=ordered.splice(ordered.findIndex(n=>n.id===draggedId),1)[0];
         ordered.splice(ordered.findIndex(n=>n.id===targetId),0,moved);
-        for(const[index,n]of ordered.entries()){n.order=index;if(!await saveFromUI(n))return;}
+        const positions=new Map(ordered.map((n,index)=>[n.id,index]));
+        if(!await changeManyFromUI(ordered,next=>{next.order=positions.get(next.id);} ))return;
         renderCurrentView();
       });
     });
