@@ -1,7 +1,7 @@
 // auth.js — Password creation/validation, session management
 
-import { generateSalt, deriveKey, hashPassword, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault } from './db.js';
+import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
+import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck } from './db.js';
 import { t } from './i18n.js';
 
 const SESSION_KEY = 'keeplocal_session_key';
@@ -33,10 +33,10 @@ export function validatePassword(pw) {
 export async function createAccount(password) {
   const salt = generateSalt();
   const key = await deriveKey(password, salt, true);
-  const pwHash = await hashPassword(password, salt);
+  const keyCheck = await createKeyCheck(key);
 
   try {
-    await createVault({ salt: arrayToBase64(salt), passwordVerifier: pwHash });
+    await createVault({ salt: arrayToBase64(salt), keyCheck });
   } catch (error) {
     if (error.code === 'account.exists') throw new Error(t('account.exists'));
     throw error;
@@ -54,11 +54,13 @@ export async function login(password) {
 
   const salt = base64ToArray(saltB64);
   const key = await deriveKey(password, salt, true);
-  const pwHash = await hashPassword(password, salt);
-  const storedHash = await getMeta('passwordVerifier');
-
-  if (pwHash !== storedHash) {
-    throw new Error(t('login.wrongPassword'));
+  const check = await getMeta('keyCheck');
+  if (check) {
+    if (!await verifyKeyCheck(key, check)) throw new Error(t('login.wrongPassword'));
+  } else {
+    const storedHash = await getMeta('passwordVerifier');
+    if (!storedHash || await hashPassword(password, salt) !== storedHash) throw new Error(t('login.wrongPassword'));
+    await migrateKeyCheck(saltB64, await createKeyCheck(key));
   }
 
   await storeSessionKey(key);

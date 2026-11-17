@@ -88,3 +88,13 @@ export function arrayBufferToBase64(buffer) {
 export function base64ToArrayBuffer(b64) {
   return base64ToArray(b64).buffer;
 }
+
+const KEY_CHECK_TEXT = 'KeepLocal password key check v1';
+export async function createKeyCheck(key) {
+  const { iv, ciphertext } = await encrypt(key, KEY_CHECK_TEXT);
+  return { iv: arrayToBase64(iv), ct: arrayBufferToBase64(ciphertext) };
+}
+export async function verifyKeyCheck(key, check) {
+  try { return await decrypt(key, base64ToArray(check.iv), base64ToArray(check.ct)) === KEY_CHECK_TEXT; }
+  catch { return false; }
+}

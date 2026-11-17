@@ -1,7 +1,7 @@
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { getAllNoteRecords, getAllMetaRecords, clearAllNotes, clearAllMeta, saveNoteRecord, saveMeta, getMeta } from './db.js';
-import { deriveKey, hashPassword, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
+import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
 import { t } from './i18n.js';
 
 let unsavedChanges = false;
@@ -35,7 +35,7 @@ export async function exportBackup() {
     version: 1,
     exportedAt: new Date().toISOString(),
     app: 'KeepLocal',
-    meta: meta,
+    meta: meta.filter(m => m.key !== 'passwordVerifier'),
     notes: notes.map(n => ({
       id: n.id,
       iv: n.iv,
@@ -80,24 +80,18 @@ export async function importBackup(file, password) {
   const salt = base64ToArray(saltRecord.value);
   const key = await deriveKey(password, salt, true);
 
-  // Verify password by checking hash
-  const pwHash = await hashPassword(password, salt);
-  const storedHashRecord = backup.meta.find(m => m.key === 'passwordVerifier');
-  if (!storedHashRecord || pwHash !== storedHashRecord.value) {
-    throw new Error(t('backup.wrongPassword'));
+  const existingCheck = backup.meta.find(m => m.key === 'keyCheck')?.value;
+  if (existingCheck && !await verifyKeyCheck(key, existingCheck)) throw new Error(t('backup.wrongPassword'));
+  if (!existingCheck && backup.notes.length === 0) {
+    const verifier = backup.meta.find(m => m.key === 'passwordVerifier')?.value;
+    if (!verifier || await hashPassword(password, salt) !== verifier) throw new Error(t('backup.wrongPassword'));
   }
-
-  // Verify by trying to decrypt the first note
-  if (backup.notes.length > 0) {
-    const firstNote = backup.notes[0];
-    try {
-      const iv = base64ToArray(firstNote.iv);
-      const ct = base64ToArray(firstNote.ciphertext);
-      await decrypt(key, iv, ct.buffer ? ct : ct);
-    } catch {
-      throw new Error(t('backup.wrongPasswordOrCorrupted'));
-    }
+  for (const record of backup.notes) {
+    try { JSON.parse(await decrypt(key, base64ToArray(record.iv), base64ToArray(record.ciphertext))); }
+    catch { throw new Error(t('backup.wrongPasswordOrCorrupted')); }
   }
+  backup.meta = backup.meta.filter(m => !['passwordVerifier', 'keyCheck'].includes(m.key));
+  backup.meta.push({ key: 'keyCheck', value: existingCheck || await createKeyCheck(key) });
 
   // Clear existing data and import
   await clearAllNotes();
