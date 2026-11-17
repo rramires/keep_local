@@ -313,6 +313,7 @@ export async function saveNote(note) {
 }
 
 export async function permanentDeleteNote(id) {
+  if (!notes.find(n => n.id === id)?.deletedAt) throw new Error(t('security.trashOnly'));
   const { deleteNoteRecord } = await import('./db.js');
   const { setUnsaved } = await import('./backup.js');
 
@@ -379,13 +380,13 @@ function renderNotesView(searchQuery) {
   } else {
     if (pinned.length > 0) {
       html += `<div class="section-header">${t('notes.pinned')}</div>`;
-      html += `<div class="notes-grid" id="pinned-grid">${pinned.map(renderNoteCard).join('')}</div>`;
+      html += `<div class="notes-grid" id="pinned-grid">${pinned.map(n => renderNoteCard(n, { view: 'notes' })).join('')}</div>`;
     }
     if (pinned.length > 0 && unpinned.length > 0) {
       html += `<div class="section-header">${t('notes.others')}</div>`;
     }
     if (unpinned.length > 0) {
-      html += `<div class="notes-grid" id="unpinned-grid">${unpinned.map(renderNoteCard).join('')}</div>`;
+      html += `<div class="notes-grid" id="unpinned-grid">${unpinned.map(n => renderNoteCard(n, { view: 'notes' })).join('')}</div>`;
     }
   }
 
@@ -407,7 +408,7 @@ function renderArchiveView(searchQuery) {
       <div class="empty-text">${t('archive.empty')}</div>
     </div>`;
   } else {
-    html += `<div class="notes-grid">${filtered.map(n => renderNoteCard(n, true)).join('')}</div>`;
+    html += `<div class="notes-grid">${filtered.map(n => renderNoteCard(n, { view: 'archive' })).join('')}</div>`;
   }
 
   mainInner.innerHTML = html;
@@ -445,7 +446,7 @@ function renderTrashView(searchQuery) {
       <div class="empty-text">${t('trash.empty')}</div>
     </div>`;
   } else {
-    html += `<div class="notes-grid">${valid.map(n => renderNoteCard(n, false, true)).join('')}</div>`;
+    html += `<div class="notes-grid">${valid.map(n => renderNoteCard(n, { view: 'trash' })).join('')}</div>`;
   }
 
   mainInner.innerHTML = html;
@@ -476,7 +477,7 @@ function renderLabelView(label, searchQuery) {
       <div class="empty-text">${t('labels.empty')}</div>
     </div>`;
   } else {
-    html += `<div class="notes-grid">${filtered.map(renderNoteCard).join('')}</div>`;
+    html += `<div class="notes-grid">${filtered.map(n => renderNoteCard(n, { view: 'notes' })).join('')}</div>`;
   }
 
   mainInner.innerHTML = html;
@@ -485,7 +486,9 @@ function renderLabelView(label, searchQuery) {
 
 // --- Card Rendering ---
 
-function renderNoteCard(note, isArchiveView = false, isTrashView = false) {
+function renderNoteCard(note, { view = 'notes' } = {}) {
+  const isArchiveView = view === 'archive';
+  const isTrashView = view === 'trash';
   const colorAttr = note.color && note.color !== 'default' ? `data-color="${note.color}"` : '';
   const pinClass = note.pinned ? 'pinned' : '';
 
@@ -614,6 +617,7 @@ function initCardListeners() {
           showToast(t('toast.noteRestored'));
           break;
         case 'delete-forever':
+          if (!note.deletedAt) return;
           if (await showConfirm(t('confirm.deletePermanently'))) {
             await permanentDeleteNote(id);
             renderCurrentView();

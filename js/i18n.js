@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'security.trashOnly': 'Only notes already in Trash can be permanently deleted.',
   // App
   'app.title': 'KeepLocal — Secure Offline Notes',
 
@@ -152,6 +153,7 @@ const en = {
 };
 
 const ptBR = {
+  'security.trashOnly': 'Só notas que já estão na Lixeira podem ser excluídas definitivamente.',
   // App
   'app.title': 'KeepLocal — Notas Seguras Offline',
 
