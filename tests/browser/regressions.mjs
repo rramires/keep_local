@@ -13,3 +13,9 @@ scenario('T1.1 active/archive/trash/label actions and permanent-delete guard',as
  await p.eval("document.querySelector('[data-view=label]').click()");assert.equal(await p.eval("document.querySelectorAll('[data-action=delete-forever]').length"),0);assert.deepEqual(p.errors,[]);await p.close();
 });
 export async function run(context){for(const c of cases)await context.check(c.name,()=>c.run(context));}
+scenario('T1.2 account recreation refuses atomically and hides Create',async({browser,assert})=>{
+ const p=await browser.page();await create(p);await add(p);const before=await p.eval("JSON.stringify([await(await import('./js/db.js')).getAllMetaRecords(),await(await import('./js/db.js')).getAllNoteRecords()])");
+ assert.equal(await p.eval(`(async()=>{try{await(await import('./js/auth.js')).createAccount('Another Fictitious Phrase 43!');return false}catch{return true}})()`),true);
+ assert.equal(await p.eval("JSON.stringify([await(await import('./js/db.js')).getAllMetaRecords(),await(await import('./js/db.js')).getAllNoteRecords()])"),before);
+ await p.eval("document.querySelector('#lock-btn').click()");await p.until("!document.querySelector('#login-form').classList.contains('hidden')");assert.equal(await p.eval("getComputedStyle(document.querySelector('[data-tab=create]')).display"),'none');await p.close();
+});

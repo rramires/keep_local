@@ -1,7 +1,7 @@
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, hashPassword, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse } from './db.js';
+import { saveMeta, getMeta, isFirstUse, createVault } from './db.js';
 import { t } from './i18n.js';
 
 const SESSION_KEY = 'keeplocal_session_key';
@@ -35,8 +35,12 @@ export async function createAccount(password) {
   const key = await deriveKey(password, salt, true);
   const pwHash = await hashPassword(password, salt);
 
-  await saveMeta('salt', arrayToBase64(salt));
-  await saveMeta('passwordVerifier', pwHash);
+  try {
+    await createVault({ salt: arrayToBase64(salt), passwordVerifier: pwHash });
+  } catch (error) {
+    if (error.code === 'account.exists') throw new Error(t('account.exists'));
+    throw error;
+  }
 
   await storeSessionKey(key);
   return key;
@@ -228,6 +232,7 @@ async function checkExistingAccount(container) {
   const loginTab = container.querySelector('[data-tab="login"]');
 
   if (hasAccount) {
+    container.querySelector('[data-tab="create"]').style.display = 'none';
     // Show login tab by default if account exists
     switchTab(container, 'login');
   } else {

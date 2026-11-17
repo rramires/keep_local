@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'account.exists': 'A vault already exists. Unlock it or explicitly reset it; creating another account cannot replace it.',
   'security.trashOnly': 'Only notes already in Trash can be permanently deleted.',
   // App
   'app.title': 'KeepLocal — Secure Offline Notes',
@@ -153,6 +154,7 @@ const en = {
 };
 
 const ptBR = {
+  'account.exists': 'Já existe um cofre. Entre nele ou recomece explicitamente; criar outra conta não pode substituí-lo.',
   'security.trashOnly': 'Só notas que já estão na Lixeira podem ser excluídas definitivamente.',
   // App
   'app.title': 'KeepLocal — Notas Seguras Offline',

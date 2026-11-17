@@ -137,3 +137,33 @@ export async function isFirstUse() {
   const salt = await getMeta('salt');
   return salt === null;
 }
+
+export async function vaultTransaction(action) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['notes', 'meta'], 'readwrite');
+    let result, failure;
+    const fail = (error) => { failure = error; try { tx.abort(); } catch {} };
+    tx.oncomplete = () => resolve(result);
+    tx.onabort = () => reject(failure || tx.error || new Error('transaction.aborted'));
+    tx.onerror = () => {};
+    try { action({ tx, notes: tx.objectStore('notes'), meta: tx.objectStore('meta') }, value => { result = value; }, fail); }
+    catch (error) { fail(error); }
+  });
+}
+
+export function createVault(values) {
+  return vaultTransaction(({ meta }, done, fail) => {
+    const request = meta.getAll();
+    request.onsuccess = () => {
+      try {
+        if (request.result.some(r => ['salt', 'keyCheck'].includes(r.key))) {
+          fail(Object.assign(new Error('account.exists'), { code: 'account.exists' }));
+          return;
+        }
+        for (const [key, value] of Object.entries(values)) meta.put({ key, value });
+        done();
+      } catch (error) { fail(error); }
+    };
+  });
+}
