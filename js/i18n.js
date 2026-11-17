@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'note.deleteFailed': 'Could not delete the note. Its stored version was preserved; review it before retrying.',
   'backup.failed': 'Backup could not be exported. Your changes remain pending; try again.',
   "vault.changed": "The vault changed in another tab. Unlock the current vault before editing.",
   "note.conflict": "Another tab saved a newer version. Your draft is still open.",
@@ -183,6 +184,7 @@ const en = {
 };
 
 const ptBR = {
+  'note.deleteFailed': 'Não foi possível excluir a nota. A versão gravada foi preservada; confira antes de tentar novamente.',
   'backup.failed': 'Não foi possível exportar o backup. Suas alterações continuam pendentes; tente novamente.',
   "vault.changed": "O cofre foi alterado em outra aba. Desbloqueie o cofre atual antes de editar.",
   "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",

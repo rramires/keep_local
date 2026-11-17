@@ -154,7 +154,7 @@ export async function vaultTransaction(action) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['notes', 'meta'], 'readwrite');
     let result, failure;
-    const fail = (error) => { failure = error; try { tx.abort(); } catch {} };
+    const fail = (error) => { failure ||= error; try { tx.abort(); } catch {} };
     tx.oncomplete = () => resolve(result);
     tx.onabort = () => reject(failure || tx.error || new Error('transaction.aborted'));
     tx.onerror = () => {};
@@ -196,13 +196,7 @@ export function migrateKeyCheck(salt, keyCheck) {
 
 export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
   return vaultTransaction(({tx,notes,meta},done,fail)=>{
-    if(signal){
-      const cancel=()=>fail(new Error('session.ended'));
-      if(signal.aborted){cancel();return;}
-      signal.addEventListener('abort',cancel,{once:true});
-      const cleanup=()=>signal.removeEventListener('abort',cancel);
-      tx.addEventListener('complete',cleanup,{once:true});tx.addEventListener('abort',cleanup,{once:true});
-    }
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{
@@ -245,8 +239,9 @@ export function markVaultDirty(meta,values) {
   meta.put({key:'dirtySinceBackup',value:true});
   meta.put({key:'revision',value:(values.revision||0)+1});
 }
-export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt}) {
-  return vaultTransaction(({meta,notes},done,fail)=>{
+export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signal}) {
+  return vaultTransaction(({tx,meta,notes},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const m=meta.getAll(),n=notes.get(id);let ready=0;
     const finish=()=>{if(++ready!==2)return;try{
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
@@ -269,4 +264,14 @@ export function acknowledgeDownload(expected,at) {
       if(clean)meta.put({key:'dirtySinceBackup',value:false});done(clean);
     }catch(error){fail(error);}};
   });
+}
+
+function bindTransactionAbort(tx,signal,fail) {
+  if(!signal)return true;
+  const cancel=()=>fail(Object.assign(new Error('session.ended'),{code:'session.ended'}));
+  if(signal.aborted){cancel();return false;}
+  signal.addEventListener('abort',cancel,{once:true});
+  const cleanup=()=>signal.removeEventListener('abort',cancel);
+  tx.addEventListener('complete',cleanup,{once:true});tx.addEventListener('abort',cleanup,{once:true});
+  return true;
 }

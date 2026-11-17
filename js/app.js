@@ -25,6 +25,7 @@ let todoHistory = null;
 let activeEdit=null;
 let scope=null;
 let modalController=null;
+let sessionController=null;
 let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
@@ -66,7 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
-  stopSessionTimer();clearSession();modalController?.abort();modalController=null;scope?.dispose();scope=null;
+  stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
   activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
   const modal=document.querySelector('.modal-card');
@@ -86,10 +87,15 @@ function showAuth(message='') {
 
 // --- App View ---
 
-async function showApp() {
+async function showApp({reload=true}={}) {
+  const generation=sessionGeneration;
+  sessionController ||= new AbortController();
   scope?.dispose();scope=createScope();
-  loadedVaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
-  setSessionVaultId(loadedVaultId);
+  const vaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
+  const currentId=await getMeta('vaultId');
+  if(generation!==sessionGeneration)return;
+  if(vaultId!==currentId){showAuth(t('vault.changed'));return;}
+  loadedVaultId=vaultId;setSessionVaultId(vaultId);
   const unwatch=watchVaultEvents(event=>{
     if(event?.type==='vault-replaced'&&event.vaultId!==loadedVaultId)showAuth(t('vault.changed'));
     else if(event?.type==='note-changed')void refreshChangedNote(event.id);
@@ -98,9 +104,12 @@ async function showApp() {
   startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
 
   renderAppShell();
-  await loadNotes();
+  if(reload)await loadNotes();
+  if(generation!==sessionGeneration)return;
   await purgeExpiredTrash();
+  if(generation!==sessionGeneration)return;
   await refreshBackupState();
+  if(generation!==sessionGeneration)return;
   renderCurrentView();
   await requestPersistence();
 }
@@ -225,7 +234,7 @@ function initAppListeners() {
     const newLang = getLang() === 'pt-BR' ? 'en' : 'pt-BR';
     await setLang(newLang);
     document.title = t('app.title');
-    await showApp();
+    await showApp({reload:false});
   });
 
   document.getElementById('change-password-btn').addEventListener('click',async()=>{
@@ -318,31 +327,25 @@ function updateSidebarActive(activeItem) {
 // --- Notes Management ---
 
 async function loadNotes() {
-  const { getAllNoteRecords } = await import('./db.js');
-  const { decrypt } = await import('./crypto.js');
-  const { base64ToArray, base64ToArrayBuffer } = await import('./crypto.js');
-
-  const records = await getAllNoteRecords();
-  notes = [];
-  knownVersions.clear();
-  unreadableCount = 0;
-
-  for (const record of records) {
-    try {
-      const iv = base64ToArray(record.iv);
-      const ciphertext = base64ToArrayBuffer(record.ciphertext);
-      const json = await decrypt(cryptoKey, iv, ciphertext);
-      const note = validateNote(JSON.parse(json));
-      if (note.id !== record.id) throw new Error('note.invalid');
-      notes.push(note);knownVersions.set(note.id,record.updatedAt);
-    } catch (err) {
-      unreadableCount++;
-    }
+  const generation=sessionGeneration,key=cryptoKey;
+  const {getAllNoteRecords}=await import('./db.js');
+  const {decrypt,base64ToArray}=await import('./crypto.js');
+  const records=await getAllNoteRecords(),loaded=[],versions=new Map();let failures=0;
+  for(const record of records){
+    try{
+      const note=validateNote(JSON.parse(await decrypt(key,base64ToArray(record.iv),base64ToArray(record.ciphertext))));
+      if(note.id!==record.id||note.updatedAt!==record.updatedAt)throw new Error('note.invalid');
+      loaded.push(note);versions.set(note.id,record.updatedAt);
+    }catch{failures++;}
+    if(generation!==sessionGeneration)return;
   }
+  if(generation!==sessionGeneration)return;
+  notes=loaded;unreadableCount=failures;knownVersions.clear();
+  for(const[id,version]of versions)knownVersions.set(id,version);
 }
 
 export function saveNote(note) {
-  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId;
+  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId,signal=sessionController?.signal;
   return enqueueWrite(note.id,async()=>{
     if(!key || generation!==sessionGeneration)throw new Error('session.ended');
     snapshot.updatedAt=Math.max(Date.now(),(knownVersions.get(note.id)||0)+1);
@@ -352,9 +355,9 @@ export function saveNote(note) {
     const { setUnsaved }=await import('./backup.js');
     const {iv,ciphertext}=await encrypt(key,JSON.stringify(snapshot));
     if(generation!==sessionGeneration)throw new Error('session.ended');
-    try{await guardedNoteWrite({id:snapshot.id,record:{id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt},expectedVaultId:vaultId,knownUpdatedAt:knownVersions.get(snapshot.id)});}catch(error){if(error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
-    knownVersions.set(snapshot.id,snapshot.updatedAt);publishVaultEvent('note-changed',{id:snapshot.id});
+    try{await guardedNoteWrite({id:snapshot.id,record:{id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt},expectedVaultId:vaultId,knownUpdatedAt:knownVersions.get(snapshot.id),signal});}catch(error){if(generation===sessionGeneration&&error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
     if(generation!==sessionGeneration)return;
+    knownVersions.set(snapshot.id,snapshot.updatedAt);publishVaultEvent('note-changed',{id:snapshot.id});
     note.updatedAt=snapshot.updatedAt;
     const idx=notes.findIndex(n=>n.id===snapshot.id);
     if(idx>=0)notes[idx]=snapshot;else notes.push(snapshot);
@@ -365,7 +368,7 @@ async function saveFromUI(note) {
   const generation=sessionGeneration;
   if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
   if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
-  try { await saveNote(note);return true; }
+  try { await saveNote(note);return generation===sessionGeneration; }
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
@@ -380,13 +383,21 @@ async function saveFromUI(note) {
 
 export async function permanentDeleteNote(id) {
   if (!notes.find(n => n.id === id)?.deletedAt) throw new Error(t('security.trashOnly'));
+  const generation=sessionGeneration,vaultId=loadedVaultId,knownUpdatedAt=knownVersions.get(id),signal=sessionController?.signal;
   const { guardedNoteWrite } = await import('./db.js');
   const { setUnsaved } = await import('./backup.js');
 
-  try{await guardedNoteWrite({id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(id)});}catch(error){if(error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
+  try{await guardedNoteWrite({id,expectedVaultId:vaultId,knownUpdatedAt,signal});}catch(error){if(generation===sessionGeneration&&error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
+  if(generation!==sessionGeneration)return;
   knownVersions.delete(id);publishVaultEvent('note-changed',{id});
   notes = notes.filter(n => n.id !== id);
   setUnsaved();
+}
+
+async function deleteFromUI(id){
+  const generation=sessionGeneration;
+  try{await permanentDeleteNote(id);return generation===sessionGeneration;}
+  catch{if(generation===sessionGeneration)showToast(t('note.deleteFailed'));return false;}
 }
 
 async function refreshChangedNote(id) {
@@ -400,8 +411,8 @@ async function refreshChangedNote(id) {
     if(note&&note.id!==id)throw new Error('note.invalid');
     notes=notes.filter(n=>n.id!==id);
     if(note){notes.push(note);knownVersions.set(id,record.updatedAt);}else knownVersions.delete(id);
-    await refreshBackupState();renderCurrentView();
-  }catch{if(cryptoKey&&!activeEdit){await loadNotes();renderCurrentView();}}
+    await refreshBackupState();if(generation===sessionGeneration)renderCurrentView();
+  }catch{if(generation===sessionGeneration&&cryptoKey&&!activeEdit){await loadNotes();if(generation===sessionGeneration)renderCurrentView();}}
 }
 
 export function getNotes() {
@@ -540,7 +551,7 @@ function renderTrashView(searchQuery) {
     if (await showConfirm(t('trash.confirmEmpty'))) {
       const trashedNotes = notes.filter(n => n.deletedAt);
       for (const n of trashedNotes) {
-        await permanentDeleteNote(n.id);
+        if(!await deleteFromUI(n.id))return;
       }
       renderCurrentView();
       showToast(t('trash.emptied'));
@@ -703,7 +714,7 @@ function initCardListeners() {
         case 'delete-forever':
           if (!note.deletedAt) return;
           if (await showConfirm(t('confirm.deletePermanently'))) {
-            await permanentDeleteNote(id);
+            if(!await deleteFromUI(id))return;
             renderCurrentView();
             showToast(t('toast.noteDeletedForever'));
           }
@@ -1020,7 +1031,7 @@ function openTodoModal(note) {
     if(pending){if(pendingTask)pendingTask.text=pending;else{pendingTask={id:crypto.randomUUID(),text:pending,done:false,order:note.tasks.length,parentId:null};note.tasks.push(pendingTask);}}
     if(newTodoIds.has(note.id)&&isEmptyTodo(note)&&knownVersions.has(note.id)){
       const{guardedNoteWrite}=await import('./db.js');
-      try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id)});notes=notes.filter(n=>n.id!==note.id);knownVersions.delete(note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
+      try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id),signal:sessionController?.signal});notes=notes.filter(n=>n.id!==note.id);knownVersions.delete(note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
     }
     return saveFromUI(note);
   }};
