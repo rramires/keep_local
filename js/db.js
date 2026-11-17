@@ -191,3 +191,22 @@ export function replaceVault({ notes: records, meta: values }) {
     done();
   });
 }
+
+export async function readVault() {
+  const db=await openDB();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction(['notes','meta'],'readonly'),notes=tx.objectStore('notes').getAll(),meta=tx.objectStore('meta').getAll();
+    tx.oncomplete=()=>resolve({notes:notes.result,meta:Object.fromEntries(meta.result.map(r=>[r.key,r.value]))});
+    tx.onabort=()=>reject(tx.error);tx.onerror=()=>{};
+  });
+}
+export function recordExport(expected,rev,hash) {
+  return vaultTransaction(({meta},done,fail)=>{
+    const request=meta.getAll();
+    request.onsuccess=()=>{try{
+      const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
+      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('backup.concurrent');
+      meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
+    }catch(error){fail(error);}};
+  });
+}

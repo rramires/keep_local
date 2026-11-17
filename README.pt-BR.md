@@ -125,3 +125,38 @@ Chrome 120+, Firefox 117+, Edge 120+, Safari 17.2+
 ## 📄 Licença
 
 [MIT](LICENSE)
+
+## Formato binário do backup e recuperação
+
+Exportações novas usam `.keeplocal`: `[salt 16 bytes][iv 12 bytes][ciphertext+tag]`,
+sem magic, app, versão, parâmetros KDF ou cabeçalho JSON em claro. O perfil 2
+(único atual, tentado primeiro) usa PBKDF2-HMAC-SHA-256, 600000 iterações, senha
+UTF-8 sem normalização, chave AES-256-GCM e tag de 16 bytes no final. AAD =
+`[0x02] || salt[16] || iv[12]` (29 bytes). O salt é o do cofre e se repete entre
+exportações dele. O comprimento total do arquivo permanece observável.
+
+Decifre os bytes a partir do offset 28 com o nonce do offset 16. O JSON UTF-8
+cifrado contém `v:2`, `profile:2`, `rev`, `exportedAt`, `preferences`, `notes` e
+`manifest:{count,ids}`. Os IDs devem corresponder à ordem exata do array de notas.
+As notas são registros cifrados originais `{id,iv,ciphertext,updatedAt}`; IV e
+ciphertext internos são Base64, decifrados com a mesma chave, e ID/timestamp
+internos devem coincidir. Isso preserva registros ilegíveis na exportação; será
+necessário recuperá-los para importar integralmente um backup que os contenha.
+O README em inglês e `js/backup-v2.js` detalham o contrato para ferramentas futuras.
+Perfis ficam no código em ordem conhecida, limitados a 600000–5000000 iterações
+antes da derivação; nenhum byte do arquivo controla o custo do KDF. Limites:
+64 MiB por arquivo, 10000 notas, 2 MiB por nota serializada em UTF-8.
+
+JSON v1 continua importável, com aviso e substituição atômica. V1 não detecta
+remoção de registros inteiros. V2 autentica o conjunto e confere o manifesto.
+Uma cópia antiga válida continua aceita (rollback); revisão/merge pertencem à
+Fase 3, bloqueada.
+
+`rev` é inteiro seguro persistido em `meta.exportRev`, incrementado a cada
+exportação (primeira: 1). `parent` começa `null`; depois é o SHA-256 hexadecimal
+minúsculo dos **bytes UTF-8 exatos do JSON em claro** da exportação anterior,
+antes de cifrar (não do envelope). `meta.exportParent` guarda o hash do payload
+atual para a próxima. Contador e hash são gravados juntos, recusando pontas
+concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
+importado como próximo pai. São campos de linhagem reservados: não há merge,
+sincronização, escrita em nuvem nem proteção contra rollback nesta fase.

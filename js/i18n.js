@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'backup.legacyWarning': 'Legacy backup imported. Export a new v2 backup now; v1 cannot detect missing records.',
   'markdown.unavailable': 'Safe Markdown preview is unavailable. Showing plain text.',
   "validation.common": "Avoid common passwords and repeated characters.",
   "auth.passphraseHint": "Use a long, random passphrase. Uppercase letters and symbols are optional.",
@@ -169,6 +170,7 @@ const en = {
 };
 
 const ptBR = {
+  'backup.legacyWarning': 'Backup antigo importado. Exporte um novo backup v2 agora; o v1 não detecta registros removidos.',
   'markdown.unavailable': 'A prévia segura de Markdown está indisponível. Exibindo texto simples.',
   "validation.common": "Evite senhas comuns e caracteres repetidos.",
   "auth.passphraseHint": "Use uma frase-senha longa e aleatória. Maiúsculas e símbolos são opcionais.",

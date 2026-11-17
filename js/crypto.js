@@ -8,7 +8,8 @@ export function generateSalt() {
   return crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
 }
 
-export async function deriveKey(password, salt, extractable = false) {
+export async function deriveKey(password, salt, extractable = false, iterations = PBKDF2_ITERATIONS) {
+  if(!Number.isSafeInteger(iterations)||iterations<600000||iterations>5000000)throw new Error('backup.profile');
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -18,7 +19,7 @@ export async function deriveKey(password, salt, extractable = false) {
     ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     extractable,
@@ -26,21 +27,20 @@ export async function deriveKey(password, salt, extractable = false) {
   );
 }
 
-export async function encrypt(key, plaintext) {
+export async function encrypt(key, plaintext, additionalData, iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH))) {
   const enc = new TextEncoder();
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv, ...(additionalData?{additionalData}:{}) },
     key,
     enc.encode(plaintext)
   );
   return { iv, ciphertext };
 }
 
-export async function decrypt(key, iv, ciphertext) {
+export async function decrypt(key, iv, ciphertext, additionalData) {
   const dec = new TextDecoder();
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv, ...(additionalData?{additionalData}:{}) },
     key,
     ciphertext
   );
