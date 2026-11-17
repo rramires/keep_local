@@ -129,3 +129,7 @@ Chrome 120+, Firefox 117+, Edge 120+, Safari 17.2+
 ## 📄 Licença
 
 MIT
+
+## Tests
+
+Zero-dependency unit and Chromium regression tests: [tests/README.md](tests/README.md).
