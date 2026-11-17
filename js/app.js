@@ -348,7 +348,9 @@ export function saveNote(note) {
   const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId,signal=sessionController?.signal;
   return enqueueWrite(note.id,async()=>{
     if(!key || generation!==sessionGeneration)throw new Error('session.ended');
-    snapshot.updatedAt=Math.max(Date.now(),(knownVersions.get(note.id)||0)+1);
+    const known=knownVersions.get(note.id);
+    if(known!==undefined&&note.updatedAt!==known)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
+    snapshot.updatedAt=Math.max(Date.now(),(known||0)+1);
     validateNote(snapshot);
     const { encrypt, arrayToBase64, arrayBufferToBase64 }=await import('./crypto.js');
     const { guardedNoteWrite }=await import('./db.js');
@@ -372,9 +374,15 @@ async function saveFromUI(note) {
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
-      const copy={...structuredClone(note),id:crypto.randomUUID(),createdAt:Date.now()};
-      if(!await saveFromUI(copy))return;
-      activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;await closeModal();
+      if(generation!==sessionGeneration)return;
+      const edit=activeEdit?.id===note.id?activeEdit:null;
+      const source=edit?edit.capture():structuredClone(note),captured=JSON.stringify(source);
+      const copy={...source,id:crypto.randomUUID(),createdAt:Date.now(),order:Math.min(0,...notes.map(n=>n.order))-1};
+      if(!await saveFromUI(copy)||generation!==sessionGeneration)return;
+      if(edit&&activeEdit===edit&&JSON.stringify(edit.capture())===captured){
+        edit.cancel();edit.cleanup?.();activeEdit=null;await closeModal();
+      }
+      await refreshChangedNote(note.id);
     });
     else showToast(t(error.code||'note.saveFailed'));
     return false;
@@ -389,7 +397,7 @@ export async function permanentDeleteNote(id) {
 
   try{await guardedNoteWrite({id,expectedVaultId:vaultId,knownUpdatedAt,signal});}catch(error){if(generation===sessionGeneration&&error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
   if(generation!==sessionGeneration)return;
-  knownVersions.delete(id);publishVaultEvent('note-changed',{id});
+  publishVaultEvent('note-changed',{id});
   notes = notes.filter(n => n.id !== id);
   setUnsaved();
 }
@@ -410,7 +418,7 @@ async function refreshChangedNote(id) {
     if(generation!==sessionGeneration||activeEdit?.id===id||enqueueWrite.has(id))return;
     if(note&&note.id!==id)throw new Error('note.invalid');
     notes=notes.filter(n=>n.id!==id);
-    if(note){notes.push(note);knownVersions.set(id,record.updatedAt);}else knownVersions.delete(id);
+    if(note){notes.push(note);knownVersions.set(id,record.updatedAt);}
     await refreshBackupState();if(generation===sessionGeneration)renderCurrentView();
   }catch{if(generation===sessionGeneration&&cryptoKey&&!activeEdit){await loadNotes();if(generation===sessionGeneration)renderCurrentView();}}
 }
@@ -1031,7 +1039,7 @@ function openTodoModal(note) {
     if(pending){if(pendingTask)pendingTask.text=pending;else{pendingTask={id:crypto.randomUUID(),text:pending,done:false,order:note.tasks.length,parentId:null};note.tasks.push(pendingTask);}}
     if(newTodoIds.has(note.id)&&isEmptyTodo(note)&&knownVersions.has(note.id)){
       const{guardedNoteWrite}=await import('./db.js');
-      try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id),signal:sessionController?.signal});notes=notes.filter(n=>n.id!==note.id);knownVersions.delete(note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
+      try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id),signal:sessionController?.signal});notes=notes.filter(n=>n.id!==note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
     }
     return saveFromUI(note);
   }};
