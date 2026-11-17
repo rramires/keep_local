@@ -849,6 +849,7 @@ async function openNoteModal(note) {
   } else {
     openTodoModal(note);
   }
+  return note;
 }
 
 function openTextModal(note) {
@@ -951,7 +952,7 @@ function openTextModal(note) {
   bindTextLimits(note,titleInput,editor,()=>showToast(t('note.tooLarge')));
   const edit=createEditSession({capture,onDirty:dirty=>setDraftDirty('editor',dirty),save:async snapshot=>{
     const ok=await saveFromUI(snapshot);
-    if(ok){Object.assign(note,snapshot);updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
+    if(ok){Object.assign(note,{updatedAt:snapshot.updatedAt,title:titleInput.value,content:editor.value});updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
     return ok;
   }});
   activeEdit={...edit,id:note.id,cleanup:()=>history.clear()};
@@ -1008,8 +1009,11 @@ function openTextModal(note) {
 
   // Duplicate
   document.getElementById('modal-duplicate-btn').addEventListener('click', async () => {
+    const duplicateGeneration=sessionGeneration;
+    if(activeEdit&&!await activeEdit.flush())return;
     const { generateUUID } = await import('./utils.js');
     const { deepClone } = await import('./utils.js');
+    if(duplicateGeneration!==sessionGeneration)return;
     const dup = deepClone(note);
     dup.id = generateUUID();
     dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
@@ -1388,7 +1392,10 @@ function initTodoModalListeners(note) {
 
   // Duplicate
   document.getElementById('modal-duplicate-btn').addEventListener('click', async () => {
+    const duplicateGeneration=sessionGeneration;
+    if(activeEdit&&!await activeEdit.flush())return;
     const { generateUUID, deepClone } = await import('./utils.js');
+    if(duplicateGeneration!==sessionGeneration)return;
     const dup = deepClone(note);
     dup.id = generateUUID();
     dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
@@ -1693,6 +1700,7 @@ function openLabelsManager() {
 // --- Card Menu (More) ---
 
 function openCardMenu(anchorBtn, note) {
+  const menuGeneration=sessionGeneration;
   document.querySelectorAll('.card-menu-popup').forEach(p => p.remove());
 
   const popup = document.createElement('div');
@@ -1726,6 +1734,7 @@ function openCardMenu(anchorBtn, note) {
 
     if (action === 'duplicate') {
       const { generateUUID, deepClone } = await import('./utils.js');
+      if(menuGeneration!==sessionGeneration)return;
       const dup = deepClone(note);
       dup.id = generateUUID();
       dup.title = (dup.title || t('todo.noTitle')) + t('todo.copySuffix');
@@ -1745,8 +1754,9 @@ function openCardMenu(anchorBtn, note) {
       renderCurrentView();
       showToast(t('toast.noteDuplicated'));
     } else if (action === 'labels') {
-      openNoteModal(note);
-      scope.later(() => openLabelsPickerModal(note), 100);
+      const editing=await openNoteModal(note);
+      if(!editing||menuGeneration!==sessionGeneration)return;
+      scope.later(() => openLabelsPickerModal(editing), 100);
     }
   });
 
