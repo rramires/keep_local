@@ -42,10 +42,16 @@ Legacy JSON v1 goes through complete schema/crypto/model validation, then one
 - `vault-events.js`: cross-tab notifications; DB guards remain the authority.
 - `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
 - `recovery.js`: safe viewing and copying of preserved invalid data; typed discard requires a
-  fresh export and snapshot-guarded atomic deletion (`recovery-actions.js`). V2
+  separate export, explicit saved-file confirmation and typed word. Session-only
+  receipts fingerprint the whole vault; deletion rechecks every encrypted record
+  and meta atomically (`recovery-actions.js`). V2
   archive encode/decode must preserve unreadable records; strict record/model
   validation belongs to import, within the whole-file bound.
-- `note-actions.js`: copy-first actions and atomic collective label/order changes.
+- `note-write-queue.js`: resolve local intents inside the per-note queue, merge
+  only editor-owned title/content/tasks, retain local version ancestry and publish
+  after persistence. Remote versions still conflict; DB guards are authoritative.
+- `note-actions.js`: copy-first actions, atomic collective label/order changes,
+  target-presence checks and publication before releasing the note locks.
 - `record-health.js`: classify unreadable records before exports.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
@@ -73,6 +79,10 @@ diff -r lib chrome-extension/lib
 diff index.html chrome-extension/index.html
 git diff --check
 ```
+
+For phase 2c closing, run the browser command three consecutive times with no
+individual failure retries. Controlled tests plus 5000 fixed-seed interleavings
+cover the write queue; stress evidence is outside Git.
 
 A browser SKIP is not acceptance. Build reads manifest version, synchronizes the
 tracked copies and writes the matching ZIP. Include copied sources in the same

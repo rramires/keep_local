@@ -30,3 +30,32 @@ scripts are preserved under the owner's ignored `_temp/` folder.
 The File System Access spike is a separate disposable package outside Git. It
 adds no synchronization behavior to this app. Automatic folder writing and the
 password/key section remain blocked pending explicit owner authorization.
+
+## Phase 2c verification
+
+`tests/unit/note-write-queue.js` forces both action/editor orders for pin, color,
+archive, trash and labels against title/content/tasks, then runs 5000 schedules
+with seed `0x4b4c202c`. Persistence failures and remote/session guards are separate
+checks. The browser cases control promises and observe queued writes; the old
+2-second autosave race case no longer uses a 2100 ms sleep as synchronization.
+
+Repeat the complete browser command above **three times consecutively**, stopping
+on the first failure; do not retry individual cases to obtain a green gate.
+The independent review stress scripts live in the owner's ignored folder. From
+the repository checkout (not the worktree), run them with CHROME_BIN set:
+
+```bash
+node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/worktree-security-integrity timer 200
+node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/worktree-security-integrity close 100
+node _temp/revisao-claude-fase-2b/run-one.mjs /absolute/path/to/worktree-security-integrity 'review: queued toolbar writes' 5
+```
+
+Both stress JSON results must have `fail: 0` and `pass: N`. These review scripts
+report results rather than reliably returning a failing exit status: inspect the
+JSON. Store fresh review evidence separately from the completed execution logs.
+
+Recovery tests now export without deleting, require a saved-file checkbox and
+typed word, and invalidate the receipt on record, preference or unrelated-record
+changes. The last check injects a change after hashing the old snapshot and proves
+that the deletion transaction checks all records again. Todo metadata failures
+are covered separately from the task draft/retry model documented in the README.
