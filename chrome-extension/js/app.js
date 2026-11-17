@@ -1,6 +1,7 @@
+import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch } from './note-actions.js';
 import { requestPersistence } from './storage.js';
-import { setDraftDirty, clearDrafts, refreshBackupState } from './backup.js';
+import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
 import { ensureVaultId, getMeta } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
@@ -351,35 +352,38 @@ async function loadNotes() {
   for(const[id,version]of versions)knownVersions.set(id,version);
 }
 
-export function saveNote(note,{sourceEdit=null}={}) {
-  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId,signal=sessionController?.signal;
-  return enqueueWrite(note.id,async()=>{
-    if(!key || generation!==sessionGeneration)throw new Error('session.ended');
-    const known=knownVersions.get(note.id);
-    const baseVersion=sourceEdit&&sourceEdit===activeEdit?sourceEdit.capture().updatedAt:note.updatedAt;
-    if(known!==undefined&&baseVersion!==known)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
-    snapshot.updatedAt=Math.max(Date.now(),(known||0)+1);
-    validateNote(snapshot);
-    const { encrypt, arrayToBase64, arrayBufferToBase64 }=await import('./crypto.js');
-    const { guardedNoteWrite }=await import('./db.js');
-    const { setUnsaved }=await import('./backup.js');
+const noteWrites=createNoteWriteQueue({enqueue:enqueueWrite,read:id=>notes.find(n=>n.id===id),version:id=>knownVersions.get(id),session:()=>sessionGeneration,
+  persist:async(snapshot,{known,token})=>{
+    const key=cryptoKey,vaultId=loadedVaultId,signal=sessionController?.signal;
+    if(!key||token!==sessionGeneration)throw Error('session.ended');
+    snapshot.updatedAt=Math.max(Date.now(),(known||0)+1);validateNote(snapshot);
+    const {encrypt,arrayToBase64,arrayBufferToBase64}=await import('./crypto.js');
+    const {guardedNoteWrite}=await import('./db.js');
     const {iv,ciphertext}=await encrypt(key,JSON.stringify(snapshot));
-    if(generation!==sessionGeneration)throw new Error('session.ended');
-    try{await guardedNoteWrite({id:snapshot.id,record:{id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt},expectedVaultId:vaultId,knownUpdatedAt:knownVersions.get(snapshot.id),signal});}catch(error){if(generation===sessionGeneration&&error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
-    if(generation!==sessionGeneration)return;
-    knownVersions.set(snapshot.id,snapshot.updatedAt);publishVaultEvent('note-changed',{id:snapshot.id});
+    if(token!==sessionGeneration)throw Error('session.ended');
+    try{await guardedNoteWrite({id:snapshot.id,record:{id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt},expectedVaultId:vaultId,knownUpdatedAt:known,signal});}
+    catch(error){if(token===sessionGeneration&&error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
+    return snapshot;
+  },
+  publish:snapshot=>{
+    knownVersions.set(snapshot.id,snapshot.updatedAt);
+    const i=notes.findIndex(n=>n.id===snapshot.id);if(i>=0)notes[i]=snapshot;else notes.push(snapshot);
+    setUnsaved();publishVaultEvent('note-changed',{id:snapshot.id});
+  }
+});
+export function saveNote(note,{sourceEdit=null,fields=null,change=null}={}) {
+  return noteWrites(note,{fields,change,baseVersion:sourceEdit?.capture().updatedAt??note.updatedAt,committed:snapshot=>{
     note.updatedAt=snapshot.updatedAt;
-    const idx=notes.findIndex(n=>n.id===snapshot.id);
-    if(idx>=0)notes[idx]=snapshot;else notes.push(snapshot);
-    setUnsaved();
-  });
+    if(change)Object.assign(note,metadataFields(snapshot));
+    if(sourceEdit&&sourceEdit===activeEdit)sourceEdit.applyFields?.(metadataFields(snapshot));
+  }});
 }
-async function saveFromUI(note,{mergeDraft=true,context='editor'}={}) {
+async function saveFromUI(note,{mergeDraft=true,context='editor',change=null}={}) {
   const generation=sessionGeneration;
   const sourceEdit=activeEdit?.id===note.id?activeEdit:null;
   if(sourceEdit&&mergeDraft)Object.assign(note,sourceEdit.capture());
   if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
-  try { await saveNote(note,{sourceEdit});return generation===sessionGeneration; }
+  try { await saveNote(note,{sourceEdit,change,fields:context==='editor'&&sourceEdit?editorFields(note):null});return generation===sessionGeneration; }
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t('note.saveAsNew'),async()=>{
@@ -399,21 +403,18 @@ async function saveFromUI(note,{mergeDraft=true,context='editor'}={}) {
 }
 
 async function changeFromUI(source,change) {
-  const generation=sessionGeneration;
-  const plan=planNoteChange(source,change,activeEdit?.id===source.id?activeEdit.capture():null);
-  if(!await saveFromUI(plan.next,{mergeDraft:false,context:'action'})||generation!==sessionGeneration)return false;
-  Object.assign(source,plan.fields,{updatedAt:plan.next.updatedAt});
-  if(activeEdit?.id===source.id)activeEdit.applyFields?.({...plan.fields,updatedAt:plan.next.updatedAt});
-  return true;
+  if(newTodoIds.has(source.id)&&isEmptyTodo(source)&&activeEdit?.id===source.id){const draft=structuredClone(source);change(draft);activeEdit.applyFields?.(metadataFields(draft));return true;}
+  return saveFromUI(source,{mergeDraft:false,context:'action',change});
 }
 async function changeManyFromUI(sources,change) {
   const generation=sessionGeneration,plans=sources.map(n=>planNoteChange(n,change,activeEdit?.id===n.id?activeEdit.capture():null));
   if(!plans.length)return true;
-  try{await persistNoteBatch(plans,{enqueue:enqueueWrite,getVersion:id=>knownVersions.get(id),key:cryptoKey,vaultId:loadedVaultId,signal:sessionController?.signal});}
+  try{await persistNoteBatch(plans,{enqueue:enqueueWrite,getVersion:id=>knownVersions.get(id),key:cryptoKey,vaultId:loadedVaultId,signal:sessionController?.signal,onCommitted:()=>{
+    if(generation!==sessionGeneration)return;
+    for(const {next,fields} of plans){noteWrites.recordCommit(next.id,next.updatedAt,knownVersions.get(next.id));knownVersions.set(next.id,next.updatedAt);const i=notes.findIndex(n=>n.id===next.id);notes[i]=next;if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
+    setUnsaved();
+  }});return generation===sessionGeneration;}
   catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='note.conflict'?'note.actionConflict':'note.actionFailed'));}return false;}
-  if(generation!==sessionGeneration)return false;
-  for(const {next,fields} of plans){knownVersions.set(next.id,next.updatedAt);const i=notes.findIndex(n=>n.id===next.id);notes[i]=next;if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
-  (await import('./backup.js')).setUnsaved();return true;
 }
 
 export async function permanentDeleteNote(id) {

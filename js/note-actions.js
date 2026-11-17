@@ -6,7 +6,7 @@ export function planNoteChange(note,change,captured) {
   const fields=Object.fromEntries(Object.keys(next).filter(k=>JSON.stringify(next[k])!==JSON.stringify(before[k])).map(k=>[k,structuredClone(next[k])]));
   return {source:note,next,fields};
 }
-export async function persistNoteBatch(plans,{enqueue,getVersion,key,vaultId,signal}) {
+export async function persistNoteBatch(plans,{enqueue,getVersion,key,vaultId,signal,onCommitted=()=>{}}) {
   const ids=[...new Set(plans.map(p=>p.next.id))].sort();
   const lock=index=>index<ids.length?enqueue(ids[index],()=>lock(index+1)):write();
   const write=async()=>{
@@ -20,6 +20,7 @@ export async function persistNoteBatch(plans,{enqueue,getVersion,key,vaultId,sig
       records.push({id:next.id,knownUpdatedAt:known,record:{id:next.id,updatedAt:next.updatedAt,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext)}});
     }
     await guardedNoteBatch(records,{expectedVaultId:vaultId,signal});
+    onCommitted();
   };
   await lock(0);
 }

@@ -209,22 +209,6 @@ scenario('review: todo conflict copy includes pending task text',async({browser,
 scenario('review: failed refresh retains deletion versions for stale callers',async({browser,assert})=>{
  const a=await browser.page();await create(a);await add(a);await a.eval("window.oldNote=structuredClone((await import('./js/app.js')).getNotes()[0])");const b=await browser.page(a.contextId);await unlock(b);await b.eval("const app=await import('./js/app.js');const n=app.getNotes()[0];n.deletedAt=Date.now();await app.saveNote(n);await app.permanentDeleteNote(n.id)");await a.until("(await import('./js/app.js')).getNotes().length===0");await b.eval("const id=crypto.randomUUID();await(await import('./js/db.js')).saveNoteRecord({id,iv:'AAAA',ciphertext:'AAAA',updatedAt:1});const channel=new BroadcastChannel('keeplocal-vault');channel.postMessage({type:'note-changed',id});channel.close()");await a.until("!!document.querySelector('.unreadable-warning')");assert.equal(await a.eval("(async()=>{try{await(await import('./js/app.js')).saveNote(window.oldNote);return false}catch{return true}})()"),true);assert.equal(await a.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),1);await b.close();await a.close();
 });
-scenario('review: queued toolbar writes flush on close without false autosave conflicts',async({browser,assert})=>{
- for(const mode of ['close','timer','archive-lock']){
-  const p=await browser.page();await create(p);await add(p);await p.eval("document.querySelector('.note-card').click()");await p.until("!!document.querySelector('#modal-title')");
-  if(mode==='timer')await p.eval("document.querySelector('#modal-title').value='Pending title';document.querySelector('#modal-title').dispatchEvent(new Event('input'))");
-  await p.eval(`window.origEncrypt=crypto.subtle.encrypt.bind(crypto.subtle);let held=false;crypto.subtle.encrypt=async(...args)=>{if(!held){held=true;await new Promise(resolve=>window.resumeToolbar=resolve)}return window.origEncrypt(...args)};document.querySelector('${mode==='archive-lock'?'#modal-archive-btn':'#modal-pin'}').click()`);
-  await p.until("typeof window.resumeToolbar==='function'");
-  if(mode==='close'){await p.eval("document.querySelector('#modal-close').click()");await new Promise(r=>setTimeout(r,50));assert.equal(await p.eval("document.querySelector('#modal-overlay').classList.contains('open')"),true);}
-  else if(mode==='timer')await new Promise(r=>setTimeout(r,2100));
-  else await p.eval("document.querySelector('#lock-btn').click()");
-  await p.eval("crypto.subtle.encrypt=window.origEncrypt;window.resumeToolbar()");
-  if(mode==='archive-lock')await p.until("!!document.querySelector('.auth-view')");
-  else{
-   await p.until("(await import('./js/app.js')).getNotes()[0].pinned===true");await new Promise(r=>setTimeout(r,100));assert.equal(await p.eval("document.querySelectorAll('.toast-action').length"),0);
-   if(mode==='close')await p.until("!document.querySelector('#modal-overlay').classList.contains('open')");
-   else assert.equal(await p.eval("(await import('./js/app.js')).getNotes()[0].title"),'Pending title');
-  }
-  assert.deepEqual(p.errors,[]);await p.close();
- }
+scenario('review: queued toolbar writes flush on close without false autosave conflicts',async ctx=>{
+ const {controlledToolbarRegression}=await import('./phase-2c.mjs');await controlledToolbarRegression(ctx);
 });
