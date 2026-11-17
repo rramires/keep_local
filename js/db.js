@@ -277,3 +277,16 @@ function bindTransactionAbort(tx,signal,fail) {
   tx.addEventListener('complete',cleanup,{once:true});tx.addEventListener('abort',cleanup,{once:true});
   return true;
 }
+
+export function discardPreservedRecord(record,expected,{signal}={}) {
+  return vaultTransaction(({tx,notes,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const m=meta.getAll(),n=notes.get(record.id);let ready=0;
+    const finish=()=>{if(++ready!==2)return;try{
+      const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
+      if(values.vaultId!==expected.vaultId||values.salt!==expected.salt||(values.revision||0)!==(expected.revision||0)||(values.exportRev||0)!==(expected.exportRev||0)||values.exportParent!==expected.exportParent||JSON.stringify(n.result)!==JSON.stringify(record))throw Error('recovery.changed');
+      notes.delete(record.id);markVaultDirty(meta,values);done();
+    }catch(error){fail(error);}};
+    m.onsuccess=finish;n.onsuccess=finish;
+  });
+}

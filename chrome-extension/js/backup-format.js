@@ -37,8 +37,11 @@ export function validateRecords(records) {
 export async function decryptRecords(records,key) {
   const notes=[];
   for (const r of records) {
-    const note=validateNote(JSON.parse(await decrypt(key,base64ToArray(r.iv),base64ToArray(r.ciphertext))));
-    if (note.id !== r.id || note.updatedAt !== r.updatedAt) invalid();
+    let text,note;
+    try{text=await decrypt(key,base64ToArray(r.iv),base64ToArray(r.ciphertext));}
+    catch{throw Object.assign(new Error('record.decrypt'),{code:'record.decrypt'});}
+    try{note=validateNote(JSON.parse(text));if(note.id!==r.id||note.updatedAt!==r.updatedAt)invalid();}
+    catch{throw Object.assign(new Error('record.unreadable'),{code:'record.unreadable'});}
     notes.push(note);
   }
   return notes;

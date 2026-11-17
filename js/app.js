@@ -244,7 +244,7 @@ function initAppListeners() {
     const {renderPasswordChange}=await import('./account.js');
     const controller=new AbortController();modalController=controller;
     scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
-    renderPasswordChange(document.getElementById('modal-card'),async key=>{if(controller.signal.aborted)return;cryptoKey=key;await closeModal();await showApp();},{signal:controller.signal});
+    renderPasswordChange(document.getElementById('modal-card'),async key=>{if(controller.signal.aborted)return;cryptoKey=key;await closeModal();await showApp();},{signal:controller.signal,onRecovery:()=>document.getElementById('recover-notes-btn')?.click()});
     document.getElementById('modal-overlay').classList.add('open');
   });
 
@@ -289,7 +289,7 @@ function initAppListeners() {
   document.getElementById('backup-btn').addEventListener('click', async () => {
     const { exportBackup } = await import('./backup.js');
     if(!await flushNewNoteBar()||activeEdit&&!await activeEdit.flush())return;
-    try{await exportBackup();showToast(t('toast.backupExported'));}catch(error){showToast(t('backup.failed'));}
+    try{const result=await exportBackup();if(result)showToast(t(result.unreadableCount?'backup.unreadableExported':'toast.backupExported'));}catch(error){showToast(t('backup.failed'));}
     closeMobileSidebar();
   });
 
@@ -472,7 +472,7 @@ function renderCurrentView() {
       scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
       const {renderRecovery}=await import('./recovery.js');
       if(controller.signal.aborted||!cryptoKey)return;
-      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal});
+      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
       document.getElementById('modal-overlay').classList.add('open');
     });
     warning.append(recover);document.getElementById('main-inner').prepend(warning);

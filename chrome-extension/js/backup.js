@@ -6,6 +6,7 @@ import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
 import { getSessionKey, getSessionVaultId, storeSessionKey, getSessionSignal } from './session.js';
 import { t } from './i18n.js';
+import { unreadableRecords } from './record-health.js';
 import { MAX_BACKUP_BYTES, validateV1, decryptRecords, validateRecords } from './backup-format.js';
 
 let unsavedChanges = false;
@@ -43,6 +44,9 @@ export async function exportBackup() {
   const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};
   const {notes,meta}=await readVault();
   if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
+  const unreadableCount=(await unreadableRecords(notes,key)).length;
+  await assertCurrent();
+  if(unreadableCount&&!window.confirm(t('backup.unreadableConfirm',{count:unreadableCount})))return null;
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
@@ -58,6 +62,7 @@ export async function exportBackup() {
   await assertCurrent();
   const clean=await acknowledgeDownload(meta,Date.now(),{signal});
   unsavedChanges=!clean;
+  return {unreadableCount,meta:{...meta,exportRev:rev,exportParent:hash},notes};
 }
 
 export async function importBackup(file, password) {
@@ -83,7 +88,7 @@ export async function importBackup(file, password) {
     meta={...decoded.payload.preferences,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
   }
   try {validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
-  catch {throw new Error(t('backup.wrongPasswordOrCorrupted'));}
+  catch(error){throw new Error(t(legacy&&!meta.keyCheck&&error.code!=='record.unreadable'?'backup.wrongPasswordOrCorrupted':'backup.unreadableRecords'));}
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();
   const local=previous.notes;
