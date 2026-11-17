@@ -206,7 +206,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await createAccount(createPw.value);
       onAuthenticated(key);
     } catch (err) {
-      createError.textContent = err.message;
+      createError.textContent = t(typeof err.code==='string'?err.code:err.message);
       createBtn.disabled = false;
     }
   });
@@ -222,7 +222,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await login(loginPw.value);
       onAuthenticated(key);
     } catch (err) {
-      loginError.textContent = err.message;
+      loginError.textContent = t(typeof err.code==='string'?err.code:err.message);
     }
   });
 
@@ -286,7 +286,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await importBackup(selectedFile, importPw.value);
       onAuthenticated(key);
     } catch (err) {
-      importError.textContent = err.message || t('import.importError');
+      importError.textContent = t(typeof err.code==='string'?err.code:err.message||'import.importError');
       importBtn.disabled = false;
     }
   });

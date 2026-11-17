@@ -2,7 +2,7 @@ import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState } from './backup.js';
 import { purgeTrash } from './trash.js';
 import { ensureVaultId, getMeta } from './db.js';
-import { getSessionVaultId, setSessionVaultId } from './session.js';
+import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
@@ -39,6 +39,7 @@ let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let sidebarCollapsed = false;
 let unreadableCount = 0;
+let unreadableRecords=[];
 let notes = []; // Decrypted notes in memory
 
 // DOM references
@@ -74,7 +75,7 @@ function teardownSession() {
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
   newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';
-  cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;
+  cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
 function showAuth(message='') {
   teardownSession();
@@ -90,6 +91,7 @@ function showAuth(message='') {
 async function showApp({reload=true}={}) {
   const generation=sessionGeneration;
   sessionController ||= new AbortController();
+  setSessionSignal(sessionController.signal);
   scope?.dispose();scope=createScope();
   const vaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
   const currentId=await getMeta('vaultId');
@@ -248,7 +250,8 @@ function initAppListeners() {
 
   // Lock
   document.getElementById('lock-btn').addEventListener('click', async () => {
-    if(!await flushNewNoteBar()||!await closeModal())return;
+    const saved=await flushNewNoteBar()&&await closeModal();
+    if(!saved&&!window.confirm(t('session.discardAndLock')))return;
     logout();
   });
 
@@ -330,17 +333,20 @@ async function loadNotes() {
   const generation=sessionGeneration,key=cryptoKey;
   const {getAllNoteRecords}=await import('./db.js');
   const {decrypt,base64ToArray}=await import('./crypto.js');
-  const records=await getAllNoteRecords(),loaded=[],versions=new Map();let failures=0;
+  const records=await getAllNoteRecords(),loaded=[],versions=new Map(),failed=[];let failures=0;
   for(const record of records){
+    let reason='decrypt';
     try{
-      const note=validateNote(JSON.parse(await decrypt(key,base64ToArray(record.iv),base64ToArray(record.ciphertext))));
+      const text=await decrypt(key,base64ToArray(record.iv),base64ToArray(record.ciphertext));reason='json';
+      const value=JSON.parse(text);reason='model';
+      const note=validateNote(value);
       if(note.id!==record.id||note.updatedAt!==record.updatedAt)throw new Error('note.invalid');
       loaded.push(note);versions.set(note.id,record.updatedAt);
-    }catch{failures++;}
+    }catch(error){failures++;failed.push({record,reason:error.code==='note.tooLarge'?'limit':reason});}
     if(generation!==sessionGeneration)return;
   }
   if(generation!==sessionGeneration)return;
-  notes=loaded;unreadableCount=failures;knownVersions.clear();
+  notes=loaded;unreadableCount=failures;unreadableRecords=failed;knownVersions.clear();
   for(const[id,version]of versions)knownVersions.set(id,version);
 }
 
@@ -456,7 +462,17 @@ function renderCurrentView() {
     warning.className = 'unreadable-warning';
     warning.setAttribute('role', 'alert');
     warning.textContent = t('notes.unreadable', { count: unreadableCount });
-    document.getElementById('main-inner').prepend(warning);
+    const recover=document.createElement('button');recover.id='recover-notes-btn';recover.className='btn-secondary';recover.textContent=t('recovery.open');
+    recover.addEventListener('click',async()=>{
+      if(!await closeModal())return;
+      const controller=new AbortController();modalController=controller;
+      scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
+      const {renderRecovery}=await import('./recovery.js');
+      if(controller.signal.aborted||!cryptoKey)return;
+      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal});
+      document.getElementById('modal-overlay').classList.add('open');
+    });
+    warning.append(recover);document.getElementById('main-inner').prepend(warning);
   }
   updateSidebarLabels();
 }

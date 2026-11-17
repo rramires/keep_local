@@ -95,7 +95,7 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `index.html`, `css/`: entrada, CSP e estilos (tokens em `css/base.css`).
 - `js/app.js`: telas e integração; `auth.js`, `session.js`, `lifecycle.js`: login,
   sessão em memória e descarte de callbacks.
-- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`: cifra, transações,
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`, `recovery.js`: cifra, transações,
   validação e fila de gravação/rascunho.
 - `js/backup.js`, `backup-format.js`, `backup-v2.js`: importação, download e formato.
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,
@@ -148,3 +148,19 @@ O gate de unidade confere `lib/SHA256SUMS`.
 ## Licença
 
 [MIT](LICENSE)
+
+## Registros ilegíveis e antigos
+
+O aviso persistente abre **Recuperação somente leitura**. Ele distingue falha de
+cifra, JSON inválido, modelo/limites incompatíveis e notas antigas acima do limite.
+Dados decifráveis aparecem somente para leitura; nada é alterado ou apagado.
+Bloquear limpa essa tela. Limites de edição/importação: título 4096 caracteres,
+texto de tarefa 65536, rótulo 200, 100 rótulos e 10000 tarefas por nota, além dos
+2 MiB da nota serializada em UTF-8. Registros cifrados existentes acima desses
+limites ou com IV/dados danificados continuam intactos nos arquivos v2, dentro
+dos 64 MiB/10000 registros por arquivo. Decodificar o envelope preserva esses
+registros para recuperação; **importar** valida tudo estritamente e rejeita o
+conjunto sem alterar o banco. Repare dados antigos antes de reimportar ou trocar
+a senha. Bloqueio automático limpa texto não salvo; falha no bloqueio manual
+oferece cancelar ou descartar explicitamente. Exportação em andamento é cancelada
+se a sessão terminar ou mudar.

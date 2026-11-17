@@ -1,10 +1,11 @@
 const TIMEOUT=5*60*1000;
 const keyVaults=new WeakMap();
+let activeSignal=null;
 let vaultId=null;
 let key=null,deadline=0,lastActivity=0,timer=null,controller=null,onExpired=null;
 export function storeSessionKey(value,id=keyVaults.get(value)||null){key=value;vaultId=id;if(id)keyVaults.set(value,id);deadline=Date.now()+TIMEOUT;lastActivity=0;}
 export async function getSessionKey(){checkDeadline();return key;}
-export function clearSession(){key=null;vaultId=null;deadline=0;}
+export function clearSession(){activeSignal=null;key=null;vaultId=null;deadline=0;}
 export function checkDeadline(){
   if(key&&Date.now()>=deadline){const callback=onExpired;clearSession();stopSessionTimer();callback?.(true);return false;}
   return !!key;
@@ -27,3 +28,6 @@ export function logout(){const callback=onExpired;clearSession();stopSessionTime
 
 export const getSessionVaultId=()=>vaultId;
 export function setSessionVaultId(id){vaultId=id;}
+
+export const getSessionSignal=()=>activeSignal;
+export function setSessionSignal(signal){activeSignal=signal;}

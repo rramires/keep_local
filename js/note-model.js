@@ -1,6 +1,7 @@
 export const MAX_NOTE_BYTES = 2 * 1024 * 1024;
 export const COLORS = ['default','coral','peach','sand','mint','sage','fog','storm','dusk','blossom','clay','chalk'];
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const tooLarge=()=>{throw Object.assign(new Error('note.tooLarge'),{code:'note.tooLarge'});};
 const invalid = () => { throw Object.assign(new Error('note.invalid'), {code:'note.invalid'}); };
 const string = (v, max) => typeof v === 'string' && v.length <= max;
 const time = v => Number.isSafeInteger(v) && v >= 0;
@@ -10,6 +11,7 @@ export function validateNote(n) {
   if (!Array.isArray(n.labels) || n.labels.length > 100 || n.labels.some(l=>!string(l,200))) invalid();
   if (!time(n.createdAt) || !time(n.updatedAt) || !Number.isSafeInteger(n.order)) invalid();
   if (![n.deletedAt,n.archivedAt].every(v=>v===null||time(v))) invalid();
+  if(n.type==='text'&&typeof n.content==='string'&&n.content.length>MAX_NOTE_BYTES)tooLarge();
   if (n.type==='text' && !string(n.content,MAX_NOTE_BYTES)) invalid();
   if (n.type==='todo') {
     if (!Array.isArray(n.tasks) || n.tasks.length>10000) invalid();
@@ -20,6 +22,6 @@ export function validateNote(n) {
     }
     for(const task of n.tasks)if(task.parentId && (!ids.has(task.parentId)||task.parentId===task.id||n.tasks.find(t=>t.id===task.parentId)?.parentId))invalid();
   }
-  if(new TextEncoder().encode(JSON.stringify(n)).length>MAX_NOTE_BYTES)throw Object.assign(new Error('note.tooLarge'),{code:'note.tooLarge'});
+  if(new TextEncoder().encode(JSON.stringify(n)).length>MAX_NOTE_BYTES)tooLarge();
   return n;
 }

@@ -41,6 +41,9 @@ Legacy JSON v1 goes through complete schema/crypto/model validation, then one
   file UI and pending state. Download initiation never confirms disk/cloud sync.
 - `vault-events.js`: cross-tab notifications; DB guards remain the authority.
 - `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
+- `recovery.js`: safe read-only recovery of preserved, invalid legacy data. V2
+  archive encode/decode must preserve unreadable records; strict record/model
+  validation belongs to import, within the whole-file bound.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
 

@@ -95,7 +95,7 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `index.html`, `css/`: entry point, CSP and styles (tokens in `css/base.css`).
 - `js/app.js`: screens and integration; `auth.js`, `session.js`, `lifecycle.js`:
   authentication, in-memory session and callback disposal.
-- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`: crypto, transactions,
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`, `recovery.js`: crypto, transactions,
   validation and serialized writes/drafts.
 - `js/backup.js`, `backup-format.js`, `backup-v2.js`: import, download and format.
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: rotation/reset,
@@ -133,7 +133,7 @@ backup requires recovery of those records before a complete import can succeed.
 No plaintext record identifiers, timestamps, counts or per-note lengths are in
 the outer envelope. Total ciphertext length and the salt remain observable;
 exports from the same vault share a salt. A file is limited to 64 MiB, 10,000
-notes and 2 MiB per serialized UTF-8 note. Profiles must enforce 600000–5000000
+notes and 2 MiB per serialized UTF-8 note for editing/import. Profiles must enforce 600000–5000000
 iterations **before** deriving; file bytes never select an arbitrary KDF cost.
 Future profiles must preserve profile 2 and append a documented recovery path.
 
@@ -159,3 +159,19 @@ Versions, upstream release review and download integrity are recorded in
 ## License
 
 [MIT](LICENSE)
+
+## Unreadable and legacy records
+
+The persistent warning opens **Read-only recovery**. It distinguishes failed
+decryption from invalid JSON, incompatible models/field limits and over-limit
+legacy notes. Decryptable text is displayed safely as read-only data; nothing is
+rewritten or deleted. Locking clears the recovery view. Editing/import limits are
+4096 title characters, 65536 task-text characters, 200 label characters, 100
+labels and 10000 tasks per note, plus the 2 MiB serialized UTF-8 note limit.
+Existing encrypted records that violate those limits or have damaged IVs/data
+still go unchanged into v2 archives, within the 64 MiB file/10000-record bound.
+Envelope decoding preserves such records for recovery tools; **import** still
+validates every record strictly and rejects the complete import without mutation.
+Repair legacy data before full reimport or password rotation. Automatic locks
+clear unsaved plaintext; a failed manual lock offers cancel or explicit discard.
+An export in flight is cancelled when its session ends or changes.

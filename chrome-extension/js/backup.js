@@ -4,9 +4,9 @@ import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload } f
 import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
-import { getSessionKey, getSessionVaultId, storeSessionKey } from './session.js';
+import { getSessionKey, getSessionVaultId, storeSessionKey, getSessionSignal } from './session.js';
 import { t } from './i18n.js';
-import { MAX_BACKUP_BYTES, validateV1, decryptRecords } from './backup-format.js';
+import { MAX_BACKUP_BYTES, validateV1, decryptRecords, validateRecords } from './backup-format.js';
 
 let unsavedChanges = false;
 const drafts=new Set();
@@ -38,7 +38,9 @@ export async function initBeforeUnload() {
 }
 
 export async function exportBackup() {
-  const key=await getSessionKey();if(!key)throw new Error(t('login.noAccount'));
+  const key=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
+  if(!key)throw new Error(t('login.noAccount'));
+  const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};
   const {notes,meta}=await readVault();
   if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
@@ -46,11 +48,15 @@ export async function exportBackup() {
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
   const payload=makePayload(notes,preferences,rev,meta.exportParent||null);
   const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
-  await recordExport(meta,rev,await payloadHash(JSON.stringify(payload)));
+  const hash=await payloadHash(JSON.stringify(payload));
+  await assertCurrent();
+  await recordExport(meta,rev,hash,{signal});
+  await assertCurrent();
   const blob=new Blob([bytes],{type:'application/octet-stream'}),url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`keeplocal-backup-${new Date().toISOString().slice(0,10)}.keeplocal`;
-  document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
-  const clean=await acknowledgeDownload(meta,Date.now());
+  try{document.body.appendChild(a);a.click();}finally{a.remove();URL.revokeObjectURL(url);}
+  await assertCurrent();
+  const clean=await acknowledgeDownload(meta,Date.now(),{signal});
   unsavedChanges=!clean;
 }
 
@@ -76,7 +82,7 @@ export async function importBackup(file, password) {
     key=decoded.key;backup={notes:decoded.payload.notes};
     meta={...decoded.payload.preferences,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
   }
-  try {await decryptRecords(backup.notes,key);}
+  try {validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
   catch {throw new Error(t('backup.wrongPasswordOrCorrupted'));}
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();

@@ -1,5 +1,5 @@
 import { deriveKey, encrypt, decrypt, base64ToArray } from './crypto.js';
-import { validateRecords, MAX_BACKUP_BYTES } from './backup-format.js';
+import { MAX_BACKUP_NOTES, MAX_BACKUP_BYTES } from './backup-format.js';
 
 export const BACKUP_PROFILES=Object.freeze([Object.freeze({id:2,iterations:600000})]);
 export function validateProfile(profile) {
@@ -10,7 +10,8 @@ export function validatePayload(payload,profile) {
   if(!payload||payload.v!==2||payload.profile!==profile.id||!Number.isSafeInteger(payload.rev)||payload.rev<0||(payload.parent!==null&&!/^[a-f0-9]{64}$/.test(payload.parent))||typeof payload.exportedAt!=='string'||!Number.isFinite(Date.parse(payload.exportedAt)))throw new Error('backup.invalidFile');
   const prefs=payload.preferences;
   if(!prefs||Object.keys(prefs).some(k=>!['theme','lang'].includes(k))||(prefs.lang!==undefined&&!['en','pt-BR'].includes(prefs.lang))||(prefs.theme!==undefined&&!['light','dark'].includes(prefs.theme)))throw new Error('backup.invalidFile');
-  validateRecords(payload.notes);
+  // Archive decoding preserves damaged records; strict record checks belong to import.
+  if(!Array.isArray(payload.notes)||payload.notes.length>MAX_BACKUP_NOTES||payload.notes.some(n=>!n||typeof n!=='object'))throw new Error('backup.invalidFile');
   const manifest=payload.manifest,ids=payload.notes.map(n=>n.id);
   if(!manifest||manifest.count!==ids.length||JSON.stringify(manifest.ids)!==JSON.stringify(ids))throw new Error('backup.manifest');
   return payload;
@@ -18,7 +19,9 @@ export function validatePayload(payload,profile) {
 export async function encodeV2(key,salt,payload,profile=BACKUP_PROFILES[0]) {
   validateProfile(profile);validatePayload(payload,profile);
   const iv=crypto.getRandomValues(new Uint8Array(12));
-  const {ciphertext}=await encrypt(key,JSON.stringify(payload),backupAAD(profile,salt,iv),iv);
+  const text=JSON.stringify(payload);
+  if(new TextEncoder().encode(text).length+44>MAX_BACKUP_BYTES)throw new Error('backup.tooLarge');
+  const {ciphertext}=await encrypt(key,text,backupAAD(profile,salt,iv),iv);
   const bytes=new Uint8Array(28+ciphertext.byteLength);bytes.set(salt);bytes.set(iv,16);bytes.set(new Uint8Array(ciphertext),28);
   if(bytes.length>MAX_BACKUP_BYTES)throw new Error('backup.tooLarge');
   return bytes;

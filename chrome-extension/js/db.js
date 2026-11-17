@@ -215,8 +215,9 @@ export async function readVault() {
     tx.onabort=()=>reject(tx.error);tx.onerror=()=>{};
   });
 }
-export function recordExport(expected,rev,hash) {
-  return vaultTransaction(({meta},done,fail)=>{
+export function recordExport(expected,rev,hash,{signal}={}) {
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
@@ -254,8 +255,9 @@ export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signa
   });
 }
 
-export function acknowledgeDownload(expected,at) {
-  return vaultTransaction(({meta},done,fail)=>{
+export function acknowledgeDownload(expected,at,{signal}={}) {
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       if(values.vaultId!==expected.vaultId)throw new Error('vault.changed');

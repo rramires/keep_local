@@ -43,6 +43,6 @@ export function renderPasswordChange(container,onChanged,{signal}={}) {
       const key=await changePassword(container.querySelector('#current-password').value,container.querySelector('#next-password').value,{signal});
       if(signal?.aborted||!form.isConnected)return;
       await onChanged(key);window.alert(t('account.rotateWarning'));
-    }catch(error){if(signal?.aborted||!form.isConnected)return;form.querySelector('#change-password-error').textContent=error.message;button.disabled=false;}
+    }catch(error){if(signal?.aborted||!form.isConnected)return;form.querySelector('#change-password-error').textContent=t(typeof error.code==='string'?error.code:error.message);button.disabled=false;}
   });
 }

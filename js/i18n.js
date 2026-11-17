@@ -5,6 +5,18 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  "recovery.open": "Read-only recovery",
+  "recovery.title": "Preserved records",
+  "recovery.help": "These records were preserved unchanged. You can read data that decrypts, without editing it. Backups include the encrypted records; repair invalid or oversized data before a complete import or password change.",
+  "recovery.record": "Record {number}",
+  "recovery.reason.decrypt": "Cannot decrypt this record. Keep an encrypted backup for recovery.",
+  "recovery.reason.json": "Decryption succeeded, but the text is not valid note JSON.",
+  "recovery.reason.model": "Decryption succeeded, but the data does not meet the note model or field limits.",
+  "recovery.reason.limit": "Decryption succeeded, but this legacy note exceeds the editing size limit.",
+  "recovery.content": "Decrypted data for recovery, read-only",
+  "session.exportCancelled": "Export cancelled because the session ended or changed.",
+  "session.discardAndLock": "Some edits could not be saved. Cancel to retry or use Save as a new note. OK discards the unsaved drafts and locks; stored notes are preserved.",
+
   'note.deleteFailed': 'Could not delete the note. Its stored version was preserved; review it before retrying.',
   'backup.failed': 'Backup could not be exported. Your changes remain pending; try again.',
   "vault.changed": "The vault changed in another tab. Unlock the current vault before editing.",
@@ -32,7 +44,7 @@ const en = {
   "backup.replaceConfirm": "Replace {local} local notes with {incoming} backup notes? Export the current vault first if you need to keep it.",
   "backup.cancelled": "Import cancelled. Your vault was preserved.",
 
-  'notes.unreadable': '{count} notes could not be opened. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
+  'notes.unreadable': '{count} notes could not be opened for editing. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
   'note.invalid': 'Invalid note data. The record was not changed.',
   'note.tooLarge': 'This note exceeds the 2 MiB limit. Shorten it before saving.',
   'account.exists': 'A vault already exists. Unlock it or explicitly reset it; creating another account cannot replace it.',
@@ -184,6 +196,18 @@ const en = {
 };
 
 const ptBR = {
+  "recovery.open": "Recuperação somente leitura",
+  "recovery.title": "Registros preservados",
+  "recovery.help": "Estes registros foram preservados sem alteração. Você pode ler dados decifráveis, sem editar. Backups incluem os registros cifrados; repare dados inválidos ou grandes demais antes de importar integralmente ou trocar a senha.",
+  "recovery.record": "Registro {number}",
+  "recovery.reason.decrypt": "Não foi possível decifrar este registro. Guarde um backup cifrado para recuperação.",
+  "recovery.reason.json": "A decifragem funcionou, mas o texto não é um JSON de nota válido.",
+  "recovery.reason.model": "A decifragem funcionou, mas os dados não atendem ao modelo ou aos limites dos campos.",
+  "recovery.reason.limit": "A decifragem funcionou, mas esta nota antiga excede o limite de tamanho para edição.",
+  "recovery.content": "Dados decifrados para recuperação, somente leitura",
+  "session.exportCancelled": "Exportação cancelada porque a sessão terminou ou mudou.",
+  "session.discardAndLock": "Algumas alterações não foram salvas. Cancele para tentar novamente ou salvar como nova nota. OK descarta os rascunhos não salvos e bloqueia; as notas gravadas são preservadas.",
+
   'note.deleteFailed': 'Não foi possível excluir a nota. A versão gravada foi preservada; confira antes de tentar novamente.',
   'backup.failed': 'Não foi possível exportar o backup. Suas alterações continuam pendentes; tente novamente.',
   "vault.changed": "O cofre foi alterado em outra aba. Desbloqueie o cofre atual antes de editar.",
@@ -211,7 +235,7 @@ const ptBR = {
   "backup.replaceConfirm": "Substituir {local} notas locais por {incoming} notas do backup? Exporte o cofre atual antes se precisar preservá-lo.",
   "backup.cancelled": "Importação cancelada. Seu cofre foi preservado.",
 
-  'notes.unreadable': '{count} notas não puderam ser abertas. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',
+  'notes.unreadable': '{count} notas não puderam ser abertas para edição. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',
   'note.invalid': 'Dados da nota inválidos. O registro não foi alterado.',
   'note.tooLarge': 'Esta nota ultrapassa o limite de 2 MiB. Reduza o conteúdo antes de salvar.',
   'account.exists': 'Já existe um cofre. Entre nele ou recomece explicitamente; criar outra conta não pode substituí-lo.',
