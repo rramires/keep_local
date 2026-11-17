@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'note.actionLocalConflict': 'Another action in this tab changed the note. Review its current state and try again; this action was not applied.',
   'note.actionFailed': 'Could not apply this action. The stored note and its displayed state were preserved; retry.',
   'note.actionConflict': 'Another tab changed this note. This action was not applied; review the current version.',
   'recovery.copy': 'Create note with this content',
@@ -212,6 +213,7 @@ const en = {
 };
 
 const ptBR = {
+  'note.actionLocalConflict': 'Outra ação desta aba alterou a nota. Confira o estado atual e tente novamente; esta ação não foi aplicada.',
   'note.actionFailed': 'Não foi possível aplicar esta ação. A nota armazenada e seu estado exibido foram preservados; tente novamente.',
   'note.actionConflict': 'Outra aba alterou esta nota. A ação não foi aplicada; confira a versão atual.',
   'recovery.copy': 'Criar nota com este conteúdo',

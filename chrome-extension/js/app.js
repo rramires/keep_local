@@ -386,6 +386,7 @@ async function saveFromUI(note,{mergeDraft=true,context='editor',change=null}={}
   try { await saveNote(note,{sourceEdit,change,fields:context==='editor'&&sourceEdit?editorFields(note):null});return generation===sessionGeneration; }
   catch(error){
     if(generation!==sessionGeneration)return false;
+    if(error.code==='note.conflict'&&context==='action'&&error.origin==='local'){showToast(t('note.actionLocalConflict'));return false;}
     if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t('note.saveAsNew'),async()=>{
       if(generation!==sessionGeneration)return;
       const edit=activeEdit?.id===note.id?activeEdit:null;

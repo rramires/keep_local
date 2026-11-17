@@ -38,3 +38,17 @@ export async function controlledToolbarRegression({browser,assert}) {
   assert.deepEqual(p.errors,[]);await p.close();
  }
 }
+
+scenario('T2.21 rapid toggles, colors and archive undo are local ordered actions',async({browser,assert})=>{
+ for(const action of ['pin','colors','undo']){
+  const p=await browser.page();await create(p);await add(p);await p.eval("window.puts=[];const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(v,...a){if(this.name==='notes')puts.push(v.updatedAt);return put.call(this,v,...a)}");
+  if(action==='pin')await p.eval("const b=document.querySelector('[data-action=pin]');b.click();b.click()");
+  else if(action==='colors'){await p.eval("document.querySelector('[data-action=color]').click()");await p.until("!!document.querySelector('.color-picker-popup')");await p.eval("document.querySelector('.color-opt[data-color=coral]').click();document.querySelector('.color-opt[data-color=mint]').click()");}
+  else{await p.eval("document.querySelector('[data-action=archive]').click()");await p.until("!!document.querySelector('.toast-action')");await p.eval("document.querySelector('.toast-action').click()");}
+  await p.until("puts.length===2&&(await import('./js/app.js')).getNotes()[0].updatedAt===puts.at(-1)");
+  const state=await p.eval("const a=await import('./js/app.js'),d=await import('./js/db.js'),c=await import('./js/crypto.js');const r=(await d.getAllNoteRecords())[0];({memory:a.getNotes()[0],db:JSON.parse(await c.decrypt(a.getCryptoKey(),c.base64ToArray(r.iv),c.base64ToArray(r.ciphertext)))})");assert.deepEqual(state.memory,state.db);if(action==='pin')assert.equal(state.db.pinned,false);else if(action==='colors')assert.equal(state.db.color,'mint');else assert.equal(state.db.archivedAt,null);assert.doesNotMatch(await p.eval("[...document.querySelectorAll('.toast')].map(t=>t.textContent).join(' ')"),/Another tab|Save as a new note|Could not/);assert.deepEqual(p.errors,[]);await p.close();
+ }
+});
+scenario('T2.21 stale local action has specific feedback without duplicate recovery',async({browser,assert})=>{
+ const p=await browser.page();await create(p);await add(p);await p.eval("document.querySelector('[data-action=color]').click()");await p.until("!!document.querySelector('.color-picker-popup')");await p.eval("const a=await import('./js/app.js');await a.saveNote({...a.getNotes()[0],title:'Newer local version'});document.querySelector('.color-opt[data-color=coral]').click()");await p.until("!!document.querySelector('.toast')");const text=await p.eval("document.querySelector('.toast').textContent");assert.match(text,/this tab/i);assert.doesNotMatch(text,/Another tab|Save as a new note/);assert.equal(await p.eval("document.querySelectorAll('.toast-action').length"),0);assert.equal(await p.eval("(await import('./js/app.js')).getNotes()[0].color"),'default');assert.deepEqual(p.errors,[]);await p.close();
+});
