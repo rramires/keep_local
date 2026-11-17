@@ -1,115 +1,75 @@
-# KeepLocal — Copilot Instructions
+# KeepLocal working context
 
-## Project Overview
+Vanilla ES modules, HTML/CSS, local Marked 18.2.1 and DOMPurify 3.4.18. No runtime
+npm packages, bundler, CDN or data server. Chromium/Node test harness has no npm
+dependencies. Browser tests use fictional data in disposable contexts only.
 
-KeepLocal is a Google Keep-inspired Single Page Application (SPA) for secure, 100% offline, encrypted note-taking. It also ships as a Chrome Extension (Manifest V3, zero permissions).
+## Data and security
 
-**Repository:** `git@github.com:rramires/keep_local.git` (branch `master`)
+IndexedDB `KeepLocalDB` v1 has `notes` and `meta`. Note records are
+`{id,iv,ciphertext,updatedAt}`; IV/ciphertext are Base64 AES-256-GCM values. Decrypted
+notes are UUID `text|todo`, validated by `note-model.js`. Local outer IDs/timestamps
+and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`,
+preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
+attempt), `exportRev` and `exportParent` (export lineage). `passwordVerifier` is
+legacy-only and is deleted atomically after successful migration.
 
-## Tech Stack
+Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
+5-minute deadline is checked on intervals, focus and visibility, with activity
+throttled to 1 second. Never persist a key or password. A typed reset is explicit.
+New passphrases require 14 characters, no composition rules, a short denylist.
 
-- **HTML5 + CSS (native nesting) + Vanilla JS (ES modules)** — No bundler, no npm, no framework
-- **Web Crypto API:** PBKDF2 (600K iterations) + AES-256-GCM (12-byte IV per record)
-- **IndexedDB:** Database `KeepLocalDB` v1, stores: `notes`, `meta`
-- **Vendor libs (local copies in `lib/`):** marked.js v15.0.12, DOMPurify v3.3.3
-- **Chrome Extension:** Manifest V3, zero permissions, `minimum_chrome_version: "120"`
-- **Environment:** Ubuntu on WSL2, Node.js v22, zip installed, no sudo needed
+Backup v2 is raw `[salt16][iv12][ciphertext+tag]`, no plaintext magic/header.
+Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD
+`[0x02] || salt || iv`. The encrypted UTF-8 JSON payload carries `v`, `profile`,
+`rev`, `parent`, `exportedAt`, preferences, records and ordered count/ID manifest.
+`parent` hashes the previous exact plaintext JSON bytes using SHA-256 hex.
+Export lineage is recorded atomically; no merge or cloud writing is implemented.
+README documents the recovery contract. Preserve profile 2 for future readers.
+Legacy JSON v1 goes through complete schema/crypto/model validation, then one
+`replaceVault` transaction. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
 
-## Project Structure
+## Modules
 
-```
-.github/copilot-instructions.md   ← this file
-index.html                         ← SPA entry point
-css/
-  variables.css                    ← CSS custom properties, color palette, themes
-  base.css                         ← Reset, typography, scrollbar
-  layout.css                       ← Header, sidebar, main grid
-  cards.css                        ← Note cards, drag & drop
-  modal.css                        ← Text/todo modal, color picker
-  auth.css                         ← Auth view, import dropzone
-  components.css                   ← Toast, confirm dialog, buttons
-js/
-  app.js                           ← Bootstrap, SPA router, views, modals, CRUD, drag & drop (~1970 lines)
-  auth.js                          ← Password creation/validation, session management, auth UI (~450 lines)
-  backup.js                        ← Export/import encrypted backups (~110 lines)
-  crypto.js                        ← Web Crypto wrappers (PBKDF2, AES-256-GCM, hashing)
-  db.js                            ← IndexedDB open/CRUD (notes + meta stores)
-  history.js                       ← Undo/redo stack for editors
-  i18n.js                          ← Internationalization EN/PT-BR (~350 lines)
-  icons.js                         ← Material Design SVG icons (~31 icons)
-  theme.js                         ← Dark/light theme toggle, persists in IndexedDB
-  utils.js                         ← UUID generation, debounce, deepClone
-lib/
-  marked.min.js                    ← Markdown parser (local copy)
-  purify.min.js                    ← HTML sanitizer (local copy)
-chrome-extension/
-  manifest.json                    ← MV3 manifest with _locales i18n
-  service-worker.js                ← Empty SW (required by MV3)
-  privacy.html                     ← Privacy policy (bilingual EN/PT)
-  icons/                           ← 16/48/128 PNG icons
-  _locales/en/ & _locales/pt_BR/   ← Chrome manifest i18n
-  (js/, css/, lib/ are copied by build script)
-build-extension.sh                 ← Copies app files → chrome-extension/, creates ZIP in dist/
-```
+- `app.js`: integration/views; avoid broad refactors or further growth here.
+- `auth.js`, `password-policy.js`, `account.js`: login, policy, atomic rotation/reset.
+- `session.js`, `lifecycle.js`, `edit-session.js`: memory session, disposal,
+  local edit references and serialized per-note writes/flushes.
+- `db.js`: transaction primitives, vault replacement, identity/version guards,
+  dirty state, export compare-and-swap and download acknowledgement.
+- `backup-format.js`, `backup-v2.js`, `backup.js`: bounds/schema, binary crypto,
+  file UI and pending state. Download initiation never confirms disk/cloud sync.
+- `vault-events.js`: cross-tab notifications; DB guards remain the authority.
+- `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
+- `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
+- `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
 
-## Architecture & Conventions
+All new app user strings go through `t()/tp()` with EN and pt-BR keys. Editor
+fields disable spellcheck, capitalization and autocomplete. Preserve CSP. Extension
+version stays 1.0.0 and `permissions: []`; extension copies are tracked.
 
-### General
-- Pure vanilla JS with ES modules (`import`/`export`). No transpilation.
-- All JS files use `type="module"` in the HTML script tag.
-- No external CDN — all dependencies are local copies in `lib/`.
-- App is 100% offline, no network requests whatsoever.
+## Git and gate
 
-### Encryption
-- User creates a password → PBKDF2 derives a CryptoKey → notes are individually AES-256-GCM encrypted.
-- Each note record in IndexedDB stores: `{ id, iv (base64), ciphertext (base64), updatedAt }`.
-- Password hash (for verification only) is stored in the `meta` store.
-- Session key is stored in `sessionStorage` with 5-minute inactivity timeout.
+Use a task branch, never commit master, merge, push or rewrite history without
+an explicit new instruction. Stage by explicit paths. `_temp` is owner-ignored.
+One coherent task/group per commit, immediately after the complete gate:
 
-### i18n
-- `js/i18n.js` exports: `t(key, params?)`, `tp(key, count, params?)`, `getLang()`, `setLang(lang)`, `initI18n()`
-- Two languages: `en` (English) and `pt-BR` (Brazilian Portuguese)
-- Flat dot-notation keys (e.g., `sidebar.notes`, `toast.noteArchived`)
-- `tp()` handles plurals by appending `Plural` to the key when count ≠ 1
-- Language is auto-detected from `navigator.language` and persisted in IndexedDB `meta` store
-- Language toggle button (globe icon) in the header re-renders the entire app via `showApp()`
-
-### CSS
-- Uses native CSS nesting (no preprocessor)
-- Theme via CSS custom properties in `variables.css` (`[data-theme="dark"]` / `[data-theme="light"]`)
-- 12 note colors defined as CSS variables (`--note-coral`, `--note-peach`, etc.)
-- Mobile-first responsive with sidebar collapse at 768px
-
-### Notes Data Model
-```js
-{
-  id: string (UUID),
-  type: 'text' | 'todo',
-  title: string,
-  content: string,          // text notes only
-  tasks: Task[],            // todo notes only — { id, text, done, order, parentId }
-  color: string,            // 'default' | 'coral' | 'peach' | ...
-  pinned: boolean,
-  labels: string[],
-  createdAt: number,
-  updatedAt: number,
-  deletedAt: number | null,
-  archivedAt: number | null,
-  order: number
-}
+```bash
+node --test tests/unit
+CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
+bash build-extension.sh
+diff -r js chrome-extension/js
+diff -r css chrome-extension/css
+diff -r lib chrome-extension/lib
+diff index.html chrome-extension/index.html
+git diff --check
 ```
 
-### Chrome Extension
-- Build with `bash build-extension.sh` → produces `dist/keep_local_extension_v1.0.0.zip`
-- The script copies `css/`, `js/`, `lib/`, `index.html`, `_locales/` into `chrome-extension/` then zips
-- Extension uses zero permissions — everything runs locally
+A browser SKIP is not acceptance. Build reads manifest version, synchronizes the
+tracked copies and writes the matching ZIP. Include copied sources in the same
+commit. Verify vendor SHA256SUMS in unit tests. No real vault, browser profile,
+Mega account or synchronized data folder in tests.
 
-## Coding Style
-
-- **Language:** User communicates in Brazilian Portuguese
-- **Commits:** Conventional commits in English (`feat:`, `fix:`, `refactor:`, etc.)
-- **Strings:** All user-facing strings go through `t()` or `tp()` from `i18n.js` — never hardcode
-- **No npm/node_modules** — this is a zero-dependency browser app
-- **Icons:** SVG icons are defined as template literals in `js/icons.js`
-- **Error handling:** Only at system boundaries (user input, crypto operations, file parsing)
-- **No comments on obvious code** — only where logic isn't self-evident
+Phases 3 (automatic synchronized-folder writing/merge) and 4 (password/key notes)
+remain blocked until explicit owner authorization. Reserving encrypted export
+`rev`/`parent` fields does not authorize either phase.

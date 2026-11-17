@@ -1,138 +1,110 @@
-# 📝 KeepLocal — Secure Offline Notes
+# KeepLocal — Secure Offline Notes
 
-> 🇧🇷 [Leia em Português](README.pt-BR.md)
+[Português](README.pt-BR.md)
 
-A Google Keep-inspired notes and task list SPA, 100% client-side with AES-256-GCM encryption. No data ever leaves your browser.
+Encrypted notes and task lists stored locally in the browser. No data server,
+cloud account, analytics or runtime package installation. Exporting a backup and
+opening external links are explicit user actions.
 
-![KeepLocal running as a Chrome Extension](assets/KeepLocal.jpg)
+![KeepLocal as a Chrome extension](assets/KeepLocal.jpg)
 
-## ✨ Features
+## Features
 
-- **Text notes** with Markdown support (rendering + preview)
-- **Task lists** with sub-items (1 level), drag & drop to reorder and move between pending/done
-- **AES-256-GCM encryption** via Web Crypto API — each record individually encrypted in IndexedDB
-- **100% offline** — no external requests, all dependencies are local
-- **Themes** — dark and light
-- **Colors** — 12 note colors inspired by Google Keep
-- **Labels** for organization
-- **Pin** to keep important notes on top
-- **Archive** to store notes without deleting
-- **Trash** with automatic purge after 7 days
-- **Search** by title and content
-- **Duplicate** notes
-- **Undo/Redo** in editing modals (Ctrl+Z / Ctrl+Y)
-- **Drag & drop** to reorder cards on the grid
-- **Backup** — export/import encrypted data (JSON)
-- **Secure session** — 5-minute idle timeout, key kept only in sessionStorage
+Safe Markdown preview, tasks with one subtask level, colors, labels, search,
+pinning, archive, 7-day Trash, duplication and undo/redo. New notes appear first;
+dragging moves and normalizes their order. Empty lists stay transient until they
+contain text. Choose color/labels after creation in the card/editor; the inactive
+draft buttons were removed.
 
-## 🔐 Security
+## Security
 
 | Aspect | Implementation |
 |---|---|
-| Key derivation | PBKDF2 — 600,000 iterations, SHA-256 |
-| Encryption | AES-256-GCM — random 12-byte IV per record |
-| Storage | IndexedDB — only encrypted data persists |
-| Session | CryptoKey exported as JWK in sessionStorage |
-| Sanitization | DOMPurify applied to all Markdown output |
-| Password | Minimum 8 characters, 1 uppercase, 1 special character |
-| No recovery | No "forgot password" — no backdoors |
+| Key | PBKDF2-HMAC-SHA-256, 600000 iterations, random 16-byte salt |
+| Cipher | AES-256-GCM, random 12-byte IV and 16-byte authentication tag |
+| Password check | Encrypted known block (`keyCheck`); no fast verifier in new/migrated vaults |
+| Session | Nonextractable key only in memory; reload requires password; lock after 5 idle minutes |
+| New password | At least 14 characters, no composition rules; short common-password denylist; prefer a long random phrase |
+| Disk | Encrypted notes in IndexedDB; local preferences and metadata (salt, outer IDs, timestamps, backup state) are not secret |
+| Backup | Authenticated binary v2 envelope; legacy JSON v1 only through validated atomic import |
+| Markdown | Raw HTML becomes text, images are removed, restrictive DOMPurify and CSP; missing libraries fall back to plain text |
+| Tabs | Vault identity and record version checked atomically; conflicts offer saving as a new note |
+| Recovery | No password recovery; reset requires typed confirmation and erases everything |
 
-## 🚀 Getting Started
+App code can access plaintext while unlocked. Anyone who can alter its scripts
+can capture the password and notes. **Serve code separately from the data/backup
+folder and protect it against writes by others.** Avoid writable shared folders
+for scripts. Protect the browser profile and operating system as well. Browser
+storage persistence is requested once and may be denied; it does not replace an
+external backup.
 
-No build tools, bundlers, or dependency installation required. Just serve the files:
+## Run
 
-```bash
-# With Python
-python3 -m http.server 8080
-
-# With Node.js
-npx serve .
-
-# Or any static HTTP server
-```
-
-Open `http://localhost:8080` and create your password on first use.
-
-## 🧩 Chrome Extension
-
-Also available as a Chrome Extension (Manifest V3):
+No npm, bundler or app package installation. From a directory containing code only:
 
 ```bash
-# Build the package
-./build-extension.sh
-
-# Or load manually:
-# 1. Open chrome://extensions
-# 2. Enable "Developer mode"
-# 3. Click "Load unpacked"
-# 4. Select the chrome-extension/ folder
+python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-## 📁 Project Structure
+Open `http://127.0.0.1:8080`. Keep the same origin and port for the same IndexedDB.
+The server requires Python 3; Web Crypto requires a secure context (localhost or
+HTTPS). This execution validated Chromium; other browsers were not validated.
+The extension requires Chrome 120+.
 
+## Backup and migration
+
+1. Before upgrading, export using the old version and keep a copy outside the app
+   and synchronized folder. Never overwrite your only recovery copy.
+2. Log into the new version: it atomically migrates the legacy verifier. Existing
+   account passwords still work; the new policy applies to creation and rotation.
+3. Use **Change master password**, entering the current password and a new long
+   random passphrase.
+4. Click **Backup** to start a `.keeplocal` download. Verify the saved file:
+   the app cannot confirm the browser wrote it. `lastBackupAt` means a download
+   attempt, and the pending warning tracks changes since that attempt.
+5. Store the export in a separate data folder synchronized by your chosen service.
+   **KeepLocal does not write automatically to Mega or synchronize files** in this
+   phase. Merge and automatic file writing belong to blocked Phase 3.
+6. Remove old backups including cloud version history: they still use the old
+   password, and v1 may include the fast verifier. Verify the new backup before
+   deleting copies needed for recovery.
+
+Import accepts binary v2 or JSON v1, asks for the file password, validates every
+record, confirms the replacement counts and commits in one transaction. Cancel,
+wrong password, invalid data and write failure preserve the previous vault.
+Unreadable local records stay stored, produce a warning and remain in exports;
+recover them before expecting a complete reimport of that backup.
+
+## Extension and tests
+
+```bash
+bash build-extension.sh
+node --test tests/unit
+CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
 ```
-keep_local/
-├── index.html              # Entry point
-├── css/
-│   ├── variables.css       # Theme tokens (dark/light, colors)
-│   ├── base.css            # Reset, typography, buttons
-│   ├── auth.css            # Login/signup screen
-│   ├── layout.css          # Sidebar, header, grid
-│   ├── cards.css           # Note cards (masonry)
-│   ├── modal.css           # Edit modals
-│   └── components.css      # Checkbox, toast, tooltip
-├── js/
-│   ├── app.js              # Bootstrap, SPA router, views, modals
-│   ├── auth.js             # Authentication, session, timer
-│   ├── crypto.js           # PBKDF2, AES-256-GCM, import/export
-│   ├── db.js               # IndexedDB wrapper
-│   ├── backup.js           # Backup export/import
-│   ├── theme.js            # Dark/light toggle
-│   ├── history.js          # Undo/redo stack
-│   ├── icons.js            # Inline SVG icons
-│   └── utils.js            # UUID, debounce, formatDate, etc.
-├── lib/
-│   ├── marked.min.js       # Markdown parser (v15.0.12)
-│   └── purify.min.js       # DOMPurify (v3.3.3)
-├── chrome-extension/       # Chrome Extension package
-│   ├── manifest.json       # Manifest V3
-│   ├── service-worker.js   # Background script
-│   ├── privacy.html        # Privacy policy
-│   └── icons/              # Icons 16/48/128 PNG
-└── docs/
-    └── Prompt.txt          # Original project prompt
-```
 
-## 🛠️ Stack
+The build reads the manifest version (currently 1.0.0), synchronizes tracked copies
+and creates `dist/keep_local_extension_v1.0.0.zip`. Manual test: open
+`chrome://extensions` → Developer mode → Load unpacked → `chrome-extension/`.
+The manifest keeps `permissions: []`. [Test instructions](tests/README.md).
+The runner uses disposable profiles and fictional data only; a missing-Chromium
+`SKIP` does not establish browser acceptance.
 
-- **HTML5** + **CSS** (native CSS Nesting) + **Vanilla JavaScript** (ES Modules)
-- **Web Crypto API** — native browser cryptography
-- **IndexedDB** — structured local storage
-- **marked.js** — Markdown rendering
-- **DOMPurify** — XSS sanitization
-- **No frameworks, bundlers, or build dependencies**
+## Files
 
-## 📋 Browser Requirements
-
-Modern browsers with support for:
-- CSS Nesting
-- Web Crypto API
-- IndexedDB
-- ES Modules
-
-Chrome 120+, Firefox 117+, Edge 120+, Safari 17.2+
-
-## 📄 License
-
-[MIT](LICENSE)
-
-## 📄 Licença
-
-MIT
-
-## Tests
-
-Zero-dependency unit and Chromium regression tests: [tests/README.md](tests/README.md).
+- `index.html`, `css/`: entry point, CSP and styles (tokens in `css/base.css`).
+- `js/app.js`: screens and integration; `auth.js`, `session.js`, `lifecycle.js`:
+  authentication, in-memory session and callback disposal.
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`: crypto, transactions,
+  validation and serialized writes/drafts.
+- `js/backup.js`, `backup-format.js`, `backup-v2.js`: import, download and format.
+- `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: rotation/reset,
+  cross-tab events, retention and persistence.
+- `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI helpers.
+- `lib/`: local libraries, hashes and provenance.
+- `chrome-extension/`: manifest, worker, privacy, icons, locales and tracked copies
+  of `js/`, `css/`, `lib/`, `index.html` synchronized by the build.
+- `tests/unit/`, `tests/browser/`, `tests/fixtures/`: gate without npm dependencies.
 
 ## Binary backup format and recovery
 
@@ -183,3 +155,7 @@ only; they perform no merge, cloud write, rollback protection or synchronization
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
 Versions, upstream release review and download integrity are recorded in
 [`lib/VENDOR.md`](lib/VENDOR.md); `lib/SHA256SUMS` is verified by the unit gate.
+
+## License
+
+[MIT](LICENSE)

@@ -1,130 +1,110 @@
-# 📝 KeepLocal — Notas Seguras Offline
+# KeepLocal — Notas Seguras Offline
 
-> 🇺🇸 [Read in English](README.md)
+[English](README.md)
 
-Uma SPA de notas e listas de tarefas inspirada no Google Keep, 100% client-side com criptografia AES-256-GCM. Nenhum dado sai do seu navegador.
+Notas e listas de tarefas com criptografia local no navegador. O app funciona
+sem servidor de dados, conta na nuvem, analytics ou dependências de runtime.
+Exportar um backup e abrir links externos são ações explícitas do usuário.
 
-![KeepLocal rodando como extensão Chrome](assets/KeepLocal.jpg)
+![KeepLocal como extensão](assets/KeepLocal.jpg)
 
-## ✨ Funcionalidades
+## Recursos
 
-- **Notas de texto** com suporte a Markdown (rendering + preview)
-- **Listas de tarefas** com subitens (1 nível), drag & drop para reordenar e mover entre pendentes/concluídas
-- **Criptografia AES-256-GCM** via Web Crypto API — cada registro criptografado individualmente no IndexedDB
-- **100% offline** — nenhuma requisição externa, todas as dependências são locais
-- **Temas** dark e light
-- **Cores** nas notas (12 opções inspiradas no Google Keep)
-- **Labels** para organização
-- **Pin** para fixar notas importantes
-- **Arquivo** para guardar notas sem deletar
-- **Lixeira** com purge automático após 7 dias
-- **Busca** por título e conteúdo
-- **Duplicar** notas
-- **Undo/Redo** nos modais de edição (Ctrl+Z / Ctrl+Y)
-- **Drag & drop** para reordenar cards na grade
-- **Backup** — exportar/importar dados criptografados (JSON)
-- **Sessão segura** — timeout de 5 minutos de inatividade, chave mantida apenas em sessionStorage
+Notas com prévia segura de Markdown, tarefas com um nível de subtarefas, cores,
+rótulos, busca, fixação, arquivo, lixeira de 7 dias, duplicação e desfazer/refazer.
+Novas notas aparecem no topo; arrastar move e normaliza a ordem. Listas vazias
+ficam temporárias até conterem texto. Cor/rótulo são escolhidos após criar a nota,
+no card ou editor; os botões inativos do rascunho foram removidos.
 
-## 🔐 Segurança
+## Segurança
 
 | Aspecto | Implementação |
 |---|---|
-| Derivação de chave | PBKDF2 — 600.000 iterações, SHA-256 |
-| Criptografia | AES-256-GCM — IV aleatório de 12 bytes por registro |
-| Armazenamento | IndexedDB — apenas dados cifrados persistem |
-| Sessão | CryptoKey exportada como JWK em sessionStorage |
-| Sanitização | DOMPurify aplicado em todo output Markdown |
-| Senha | Mínimo 8 caracteres, 1 maiúscula, 1 caractere especial |
-| Sem recuperação | Não existe "esqueci a senha" — sem backdoors |
+| Chave | PBKDF2-HMAC-SHA-256, 600000 iterações, salt aleatório de 16 bytes |
+| Cifra | AES-256-GCM, IV aleatório de 12 bytes e tag de 16 bytes |
+| Verificação | Bloco conhecido cifrado (`keyCheck`); sem verificador rápido em cofres novos/migrados |
+| Sessão | Chave não exportável somente em memória; recarregar exige senha; bloqueio após 5 min de inatividade |
+| Senha nova | 14 caracteres no mínimo, sem composição obrigatória; bloqueio de lista curta de senhas comuns; prefira frase longa aleatória |
+| Disco | Notas cifradas no IndexedDB; preferências e metadados locais (salt, IDs externos, timestamps, estado de backup) não são secretos |
+| Backup | Envelope binário v2 autenticado; JSON v1 somente na importação legada validada e atômica |
+| Markdown | HTML bruto exibido como texto, imagens removidas, DOMPurify restritivo e CSP; falta de biblioteca resulta em texto simples |
+| Abas | Identidade do cofre e versão da nota conferidas atomicamente; conflitos oferecem salvar como nova nota |
+| Recuperação | Não existe recuperação da senha; reset apaga tudo mediante confirmação digitada |
 
-## 🚀 Como usar
+O código do app pode acessar o texto enquanto o cofre está aberto. Quem altera os
+scripts pode capturar senha e notas. **Sirva somente o código, separado da pasta
+de backups/dados, e proteja-o contra escrita por terceiros.** Não coloque os
+scripts numa pasta compartilhada gravável por outras pessoas. Proteja também o
+perfil do navegador e o sistema operacional. A persistência de armazenamento é
+solicitada uma vez e pode ser recusada; ela não substitui um backup externo.
 
-Não requer build, bundler, nem instalação de dependências. Basta servir os arquivos:
+## Executar
 
-```bash
-# Com Python
-python3 -m http.server 8080
-
-# Com Node.js
-npx serve .
-
-# Ou qualquer servidor HTTP estático
-```
-
-Acesse `http://localhost:8080` e crie sua senha na primeira utilização.
-
-## 🧩 Extensão Chrome
-
-Também disponível como extensão Chrome (Manifest V3):
+Sem npm, bundler ou instalação de pacotes do app. Num diretório que contenha
+somente os arquivos de código:
 
 ```bash
-# Gerar o pacote
-./build-extension.sh
-
-# Ou carregar manualmente:
-# 1. Abra chrome://extensions
-# 2. Ative "Modo desenvolvedor"
-# 3. Clique "Carregar sem compactação"
-# 4. Selecione a pasta chrome-extension/
+python3 -m http.server 8080 --bind 127.0.0.1
 ```
 
-## 📁 Estrutura do projeto
+Abra `http://127.0.0.1:8080`. Mantenha a mesma origem/porta para acessar o mesmo
+IndexedDB. O servidor requer Python 3; Web Crypto requer contexto seguro (localhost
+ou HTTPS). Desenvolvimento validado em Chromium; outros navegadores não foram
+validados nesta execução. A extensão requer Chrome 120+.
 
+## Backup e migração
+
+1. Antes da atualização, exporte com a versão antiga e guarde fora da pasta do
+   app e da pasta sincronizada. Nunca substitua sua única cópia de segurança.
+2. Entre na versão nova: o verificador legado é migrado atomicamente. Senhas de
+   contas antigas continuam aceitas; a política nova vale para criar/trocar senha.
+3. Use **Trocar senha mestra**, com senha atual e uma nova frase longa aleatória.
+4. Clique **Backup** para iniciar o download `.keeplocal`. Confira o arquivo:
+   o app não confirma que o navegador o gravou. `lastBackupAt` registra a tentativa
+   de download, e o aviso pendente acompanha alterações desde essa tentativa.
+5. Guarde o arquivo em uma pasta de dados separada, sincronizada pelo seu serviço
+   de preferência. **Não existe escrita automática no Mega ou sincronização pelo
+   app** nesta fase. Merge e escrita automática pertencem à Fase 3, bloqueada.
+6. Apague backups antigos, incluindo versões retidas na nuvem: continuam usando
+   a senha antiga e os v1 podem conter o verificador rápido. Verifique seu backup
+   novo antes de remover cópias necessárias para recuperação.
+
+A aba Importar aceita v2 binário ou JSON v1, pede a senha do arquivo, valida tudo,
+confirma quantas notas serão substituídas e grava numa transação. Cancelamento,
+senha incorreta, modelo inválido e falha de gravação preservam o cofre anterior.
+Registros locais ilegíveis ficam no banco, geram aviso e são preservados no export;
+recupere-os antes de esperar uma importação integral desse backup.
+
+## Extensão e testes
+
+```bash
+bash build-extension.sh
+node --test tests/unit
+CHROME_BIN=/caminho/chromium node tests/browser/run.mjs
 ```
-keep_local/
-├── index.html              # Entry point
-├── css/
-│   ├── variables.css       # Tokens de tema (dark/light, cores)
-│   ├── base.css            # Reset, tipografia, botões
-│   ├── auth.css            # Tela de login/cadastro
-│   ├── layout.css          # Sidebar, header, grid
-│   ├── cards.css           # Cards de notas (masonry)
-│   ├── modal.css           # Modais de edição
-│   └── components.css      # Checkbox, toast, tooltip
-├── js/
-│   ├── app.js              # Bootstrap, SPA router, views, modais
-│   ├── auth.js             # Autenticação, sessão, timer
-│   ├── crypto.js           # PBKDF2, AES-256-GCM, import/export
-│   ├── db.js               # IndexedDB wrapper
-│   ├── backup.js           # Export/import de backups
-│   ├── theme.js            # Dark/light toggle
-│   ├── history.js          # Undo/redo stack
-│   ├── icons.js            # Ícones SVG inline
-│   └── utils.js            # UUID, debounce, formatDate, etc.
-├── lib/
-│   ├── marked.min.js       # Markdown parser (v15.0.12)
-│   └── purify.min.js       # DOMPurify (v3.3.3)
-├── chrome-extension/       # Extensão Chrome empacotada
-│   ├── manifest.json       # Manifest V3
-│   ├── service-worker.js   # Background script
-│   ├── privacy.html        # Política de privacidade
-│   └── icons/              # Ícones 16/48/128 PNG
-└── docs/
-    └── Prompt.txt          # Prompt original do projeto
-```
 
-## 🛠️ Stack
+O build lê a versão do manifest (atualmente 1.0.0), sincroniza as cópias versionadas
+e gera `dist/keep_local_extension_v1.0.0.zip`. Para teste manual, use
+`chrome://extensions` → Modo desenvolvedor → Carregar sem compactação →
+`chrome-extension/`. O manifest mantém `permissions: []`.
+[Instruções dos testes](tests/README.md). O runner usa apenas perfis descartáveis
+com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios visuais.
 
-- **HTML5** + **CSS** (com CSS Nesting nativo) + **JavaScript** puro (ES Modules)
-- **Web Crypto API** — criptografia nativa do navegador
-- **IndexedDB** — armazenamento local estruturado
-- **marked.js** — rendering de Markdown
-- **DOMPurify** — sanitização contra XSS
-- **Nenhum framework, bundler ou dependência de build**
+## Arquivos
 
-## 📋 Requisitos do navegador
-
-Navegadores modernos com suporte a:
-- CSS Nesting
-- Web Crypto API
-- IndexedDB
-- ES Modules
-
-Chrome 120+, Firefox 117+, Edge 120+, Safari 17.2+
-
-## 📄 Licença
-
-[MIT](LICENSE)
+- `index.html`, `css/`: entrada, CSP e estilos (tokens em `css/base.css`).
+- `js/app.js`: telas e integração; `auth.js`, `session.js`, `lifecycle.js`: login,
+  sessão em memória e descarte de callbacks.
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`: cifra, transações,
+  validação e fila de gravação/rascunho.
+- `js/backup.js`, `backup-format.js`, `backup-v2.js`: importação, download e formato.
+- `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,
+  comunicação entre abas, retenção e persistência.
+- `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: utilitários da UI.
+- `lib/`: bibliotecas locais, hashes e procedência.
+- `chrome-extension/`: manifest, service worker, privacidade, ícones, locales e
+  cópias de `js/`, `css/`, `lib/`, `index.html` sincronizadas pelo build.
+- `tests/unit/`, `tests/browser/`, `tests/fixtures/`: gate sem dependências npm.
 
 ## Formato binário do backup e recuperação
 
@@ -164,3 +144,7 @@ sincronização, escrita em nuvem nem proteção contra rollback nesta fase.
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).
 O gate de unidade confere `lib/SHA256SUMS`.
+
+## Licença
+
+[MIT](LICENSE)
