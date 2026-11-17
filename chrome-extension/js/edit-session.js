@@ -7,6 +7,7 @@ export function serialQueue() {
     return result;
   };
   enqueue.has=id=>pending.has(id);
+  enqueue.drain=id=>pending.get(id)||Promise.resolve();
   return enqueue;
 }
 export function createEditSession({capture,save,delay=2000,onDirty=()=>{}}) {
@@ -34,4 +35,18 @@ export function limitText(element,maxBytes,onLimit,measure=s=>new TextEncoder().
     if(e.data!==null&&e.data!==undefined){const next=element.value.slice(0,element.selectionStart)+e.data+element.value.slice(element.selectionEnd);if(bytes(next)>maxBytes){e.preventDefault();onLimit();}}
   });
   element.addEventListener('input',()=>{if(bytes(element.value)>maxBytes){element.value=previous;onLimit();}else previous=element.value;});
+}
+
+export function captureTodoDraft(note,modal,pendingId) {
+  const draft=structuredClone(note);
+  draft.title=modal.querySelector('#modal-title')?.value??note.title;
+  for(const input of modal.querySelectorAll('.todo-text')){
+    const task=draft.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;
+  }
+  const text=modal.querySelector('#add-task-input')?.value.trim();
+  if(text){
+    const task=draft.tasks.find(t=>t.id===pendingId);
+    if(task)task.text=text;else draft.tasks.push({id:pendingId,text,done:false,order:draft.tasks.length,parentId:null});
+  }
+  return draft;
 }

@@ -7,7 +7,7 @@ import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
 import { clearSession, storeSessionKey } from './session.js';
-import { createEditSession, serialQueue } from './edit-session.js';
+import { createEditSession, serialQueue, captureTodoDraft } from './edit-session.js';
 import { bindDraftLimits, bindTextLimits, bindTodoLimits } from './editor-limits.js';
 import { validateNote } from './note-model.js';
 // app.js — Bootstrap, SPA router, view switching
@@ -346,16 +346,17 @@ async function loadNotes() {
     if(generation!==sessionGeneration)return;
   }
   if(generation!==sessionGeneration)return;
-  notes=loaded;unreadableCount=failures;unreadableRecords=failed;knownVersions.clear();
+  notes=loaded;unreadableCount=failures;unreadableRecords=failed;
   for(const[id,version]of versions)knownVersions.set(id,version);
 }
 
-export function saveNote(note) {
+export function saveNote(note,{sourceEdit=null}={}) {
   const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId,signal=sessionController?.signal;
   return enqueueWrite(note.id,async()=>{
     if(!key || generation!==sessionGeneration)throw new Error('session.ended');
     const known=knownVersions.get(note.id);
-    if(known!==undefined&&note.updatedAt!==known)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
+    const baseVersion=sourceEdit&&sourceEdit===activeEdit?sourceEdit.capture().updatedAt:note.updatedAt;
+    if(known!==undefined&&baseVersion!==known)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
     snapshot.updatedAt=Math.max(Date.now(),(known||0)+1);
     validateNote(snapshot);
     const { encrypt, arrayToBase64, arrayBufferToBase64 }=await import('./crypto.js');
@@ -374,18 +375,19 @@ export function saveNote(note) {
 }
 async function saveFromUI(note) {
   const generation=sessionGeneration;
-  if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
+  const sourceEdit=activeEdit?.id===note.id?activeEdit:null;
+  if(sourceEdit)Object.assign(note,sourceEdit.capture());
   if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
-  try { await saveNote(note);return generation===sessionGeneration; }
+  try { await saveNote(note,{sourceEdit});return generation===sessionGeneration; }
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
       if(generation!==sessionGeneration)return;
       const edit=activeEdit?.id===note.id?activeEdit:null;
-      const source=edit?edit.capture():structuredClone(note),captured=JSON.stringify(source);
+      const source=edit?(edit.captureDraft?.()||edit.capture()):structuredClone(note),captured=JSON.stringify(source);
       const copy={...source,id:crypto.randomUUID(),createdAt:Date.now(),order:Math.min(0,...notes.map(n=>n.order))-1};
       if(!await saveFromUI(copy)||generation!==sessionGeneration)return;
-      if(edit&&activeEdit===edit&&JSON.stringify(edit.capture())===captured){
+      if(edit&&activeEdit===edit&&JSON.stringify(edit.captureDraft?.()||edit.capture())===captured){
         edit.cancel();edit.cleanup?.();activeEdit=null;await closeModal();
       }
       await refreshChangedNote(note.id);
@@ -440,6 +442,7 @@ export function getCryptoKey() {
 // --- View Rendering ---
 
 function renderCurrentView() {
+  if(!cryptoKey||!document.getElementById('main-inner'))return;
   const searchQuery = document.getElementById('search-input')?.value?.trim().toLowerCase() || '';
 
   switch (currentView) {
@@ -975,11 +978,12 @@ function openTextModal(note) {
   });
 
   // Pin
-  document.getElementById('modal-pin').addEventListener('click', async () => {
+  document.getElementById('modal-pin').addEventListener('click', async (e) => {
+    const pinButton=e.currentTarget;
     note.pinned = !note.pinned;
     if (!await saveFromUI(note)) return false;
-    document.getElementById('modal-pin').classList.toggle('pinned', note.pinned);
-    document.getElementById('modal-pin').innerHTML = note.pinned ? icons.pin_filled : icons.pin;
+    pinButton.classList.toggle('pinned', note.pinned);
+    pinButton.innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
 
   // Close
@@ -1009,7 +1013,7 @@ function openTextModal(note) {
 
   // Duplicate
   document.getElementById('modal-duplicate-btn').addEventListener('click', async () => {
-    const duplicateGeneration=sessionGeneration;
+    const duplicateGeneration=sessionGeneration,duplicating=activeEdit;
     if(activeEdit&&!await activeEdit.flush())return;
     const { generateUUID } = await import('./utils.js');
     const { deepClone } = await import('./utils.js');
@@ -1021,7 +1025,7 @@ function openTextModal(note) {
     dup.updatedAt = Date.now();
     dup.pinned = false;
     if (!await saveFromUI(dup)) return false;
-    if(!await closeModal())return;
+    if(duplicating===activeEdit&&!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteDuplicated'));
   });
@@ -1051,8 +1055,8 @@ function openTodoModal(note) {
   todoHistory = createHistory({ title: note.title || '', tasks: deepClone(note.tasks || []) });
 
   renderTodoModalContent(note);
-  let pendingTask=null;
-  activeEdit={id:note.id,capture:()=>note,cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
+  let pendingTask=null;const pendingDraftId=crypto.randomUUID();
+  activeEdit={id:note.id,capture:()=>note,captureDraft:()=>captureTodoDraft(note,modal,pendingTask?.id||pendingDraftId),cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
     const title=document.getElementById('modal-title');if(title)note.title=title.value;
     document.querySelectorAll('#modal-card .todo-text').forEach(input=>{const task=note.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;});
     const pending=document.getElementById('add-task-input')?.value.trim();
@@ -1083,6 +1087,7 @@ function openTodoModal(note) {
 
 function renderTodoModalContent(note) {
   const modal = document.getElementById('modal-card');
+  if(!cryptoKey||!modal)return;
   const tasks = note.tasks || [];
   const pending = tasks.filter(t => !t.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const done = tasks.filter(t => t.done).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -1362,11 +1367,12 @@ function initTodoModalListeners(note) {
   });
 
   // Pin
-  document.getElementById('modal-pin').addEventListener('click', async () => {
+  document.getElementById('modal-pin').addEventListener('click', async (e) => {
+    const pinButton=e.currentTarget;
     note.pinned = !note.pinned;
     if (!await saveFromUI(note)) return false;
-    document.getElementById('modal-pin').classList.toggle('pinned', note.pinned);
-    document.getElementById('modal-pin').innerHTML = note.pinned ? icons.pin_filled : icons.pin;
+    pinButton.classList.toggle('pinned', note.pinned);
+    pinButton.innerHTML = note.pinned ? icons.pin_filled : icons.pin;
   });
 
   // Close
@@ -1392,7 +1398,7 @@ function initTodoModalListeners(note) {
 
   // Duplicate
   document.getElementById('modal-duplicate-btn').addEventListener('click', async () => {
-    const duplicateGeneration=sessionGeneration;
+    const duplicateGeneration=sessionGeneration,duplicating=activeEdit;
     if(activeEdit&&!await activeEdit.flush())return;
     const { generateUUID, deepClone } = await import('./utils.js');
     if(duplicateGeneration!==sessionGeneration)return;
@@ -1408,7 +1414,7 @@ function initTodoModalListeners(note) {
     note.tasks.forEach((t, i) => { idMap[t.id] = dup.tasks[i].id; });
     dup.tasks.forEach(t => { if (t.parentId) t.parentId = idMap[t.parentId] || null; });
     if (!await saveFromUI(dup)) return false;
-    if(!await closeModal())return;
+    if(duplicating===activeEdit&&!await closeModal())return;
     renderCurrentView();
     showToast(t('toast.noteDuplicated'));
   });
@@ -1430,6 +1436,7 @@ function initTodoModalListeners(note) {
 async function closeModal() {
   const edit=activeEdit;
   if(edit && !await edit.flush())return false;
+  try{if(edit)await enqueueWrite.drain(edit.id);}catch{return false;}
   if(edit!==activeEdit)return false;
   modalController?.abort();modalController=null;
   activeEdit=null;edit?.cancel();edit?.cleanup?.();todoHistory=null;setDraftDirty('editor',false);
