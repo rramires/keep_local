@@ -41,9 +41,12 @@ Legacy JSON v1 goes through complete schema/crypto/model validation, then one
   file UI and pending state. Download initiation never confirms disk/cloud sync.
 - `vault-events.js`: cross-tab notifications; DB guards remain the authority.
 - `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
-- `recovery.js`: safe read-only recovery of preserved, invalid legacy data. V2
+- `recovery.js`: safe viewing and copying of preserved invalid data; typed discard requires a
+  fresh export and snapshot-guarded atomic deletion (`recovery-actions.js`). V2
   archive encode/decode must preserve unreadable records; strict record/model
   validation belongs to import, within the whole-file bound.
+- `note-actions.js`: copy-first actions and atomic collective label/order changes.
+- `record-health.js`: classify unreadable records before exports.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
 
@@ -53,6 +56,8 @@ version stays 1.0.0 and `permissions: []`; extension copies are tracked.
 
 ## Git and gate
 
+Browser runs also require KL_BASE_ROOT from `git archive 571fcb7`, even with fixtures.
+
 Use a task branch, never commit master, merge, push or rewrite history without
 an explicit new instruction. Stage by explicit paths. `_temp` is owner-ignored.
 One coherent task/group per commit, immediately after the complete gate:
@@ -61,6 +66,7 @@ One coherent task/group per commit, immediately after the complete gate:
 node --test tests/unit
 CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
 bash build-extension.sh
+node tests/build/extension.mjs
 diff -r js chrome-extension/js
 diff -r css chrome-extension/css
 diff -r lib chrome-extension/lib

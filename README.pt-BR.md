@@ -24,12 +24,12 @@ no card ou editor; os botões inativos do rascunho foram removidos.
 | Cifra | AES-256-GCM, IV aleatório de 12 bytes e tag de 16 bytes |
 | Verificação | Bloco conhecido cifrado (`keyCheck`); sem verificador rápido em cofres novos/migrados |
 | Sessão | Chave não exportável somente em memória; recarregar exige senha; bloqueio após 5 min de inatividade |
-| Senha nova | 14 caracteres no mínimo, sem composição obrigatória; bloqueio de lista curta de senhas comuns; prefira frase longa aleatória |
+| Senha nova | 14 caracteres no mínimo, sem composição obrigatória; lista embutida de senhas comuns e verificação de sequências/padrões; prefira 5+ palavras sorteadas |
 | Disco | Notas cifradas no IndexedDB; preferências e metadados locais (salt, IDs externos, timestamps, estado de backup) não são secretos |
 | Backup | Envelope binário v2 autenticado; JSON v1 somente na importação legada validada e atômica |
 | Markdown | HTML bruto exibido como texto, imagens removidas, DOMPurify restritivo e CSP; falta de biblioteca resulta em texto simples |
 | Abas | Identidade do cofre e versão da nota conferidas atomicamente; conflitos oferecem salvar como nova nota |
-| Recuperação | Não existe recuperação da senha; reset apaga tudo mediante confirmação digitada |
+| Recuperação | Registros ilegíveis podem ser copiados quando decifráveis ou descartados após confirmação digitada e export obrigatório; não existe recuperação da senha |
 
 O código do app pode acessar o texto enquanto o cofre está aberto. Quem altera os
 scripts pode capturar senha e notas. **Sirva somente o código, separado da pasta
@@ -164,3 +164,15 @@ conjunto sem alterar o banco. Repare dados antigos antes de reimportar ou trocar
 a senha. Bloqueio automático limpa texto não salvo; falha no bloqueio manual
 oferece cancelar ou descartar explicitamente. Exportação em andamento é cancelada
 se a sessão terminar ou mudar.
+
+## Recuperação de registros ilegíveis
+
+O export avisa antes quando houver registros ilegíveis e informa que o arquivo
+não pode ser restaurado integralmente nesse estado. A Recuperação permite criar
+uma nota válida contendo o texto bruto decifrado; conteúdo acima do limite fica
+somente para leitura e cópia manual. Para descartar, digite DESCARTAR e inicie um
+novo export imediatamente antes da exclusão atômica. Confira se o download foi
+salvo: o app não consegue confirmar. Export cancelado, falha no download ou
+alteração concorrente impedem a exclusão. Depois de resolver todos os registros
+ilegíveis, importação integral e troca de senha voltam a funcionar. O indicador
+de força de senha é uma heurística; ele não mede a aleatoriedade das palavras.

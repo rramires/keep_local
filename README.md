@@ -24,12 +24,12 @@ draft buttons were removed.
 | Cipher | AES-256-GCM, random 12-byte IV and 16-byte authentication tag |
 | Password check | Encrypted known block (`keyCheck`); no fast verifier in new/migrated vaults |
 | Session | Nonextractable key only in memory; reload requires password; lock after 5 idle minutes |
-| New password | At least 14 characters, no composition rules; short common-password denylist; prefer a long random phrase |
+| New password | At least 14 characters, no composition rules; embedded common-password list and sequence/pattern checks; prefer 5+ randomly chosen words |
 | Disk | Encrypted notes in IndexedDB; local preferences and metadata (salt, outer IDs, timestamps, backup state) are not secret |
 | Backup | Authenticated binary v2 envelope; legacy JSON v1 only through validated atomic import |
 | Markdown | Raw HTML becomes text, images are removed, restrictive DOMPurify and CSP; missing libraries fall back to plain text |
 | Tabs | Vault identity and record version checked atomically; conflicts offer saving as a new note |
-| Recovery | No password recovery; reset requires typed confirmation and erases everything |
+| Recovery | Unreadable records can be copied when decryptable or discarded after typed confirmation and a required export; no password recovery |
 
 App code can access plaintext while unlocked. Anyone who can alter its scripts
 can capture the password and notes. **Serve code separately from the data/backup
@@ -130,6 +130,14 @@ in their exact array order. Notes are the original encrypted IndexedDB records
 same derived key and validate the note and its matching ID/timestamp. Keeping
 inner records also preserves unreadable local records in an export; such a
 backup requires recovery of those records before a complete import can succeed.
+Export asks for confirmation when unreadable records exist and reports a partial
+recovery archive, rather than a fully restorable backup. Recovery can create a valid
+text note containing decrypted raw content; oversized content stays read-only for
+manual copying. Discard requires typing DISCARD and initiating a fresh export
+immediately before atomic deletion. Verify that download was saved: the app cannot
+confirm it. Failed/cancelled exports or concurrent record changes prevent deletion.
+After every unreadable record has been resolved, full import and password rotation
+work again. Password strength labels are heuristics, not measured entropy.
 No plaintext record identifiers, timestamps, counts or per-note lengths are in
 the outer envelope. Total ciphertext length and the salt remain observable;
 exports from the same vault share a salt. A file is limited to 64 MiB, 10,000
