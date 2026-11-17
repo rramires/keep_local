@@ -1,3 +1,4 @@
+import { validateNote } from './note-model.js';
 // app.js — Bootstrap, SPA router, view switching
 
 import { openDB, isFirstUse } from './db.js';
@@ -14,6 +15,7 @@ let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let sidebarCollapsed = false;
+let unreadableCount = 0;
 let notes = []; // Decrypted notes in memory
 
 // DOM references
@@ -271,15 +273,18 @@ async function loadNotes() {
 
   const records = await getAllNoteRecords();
   notes = [];
+  unreadableCount = 0;
 
   for (const record of records) {
     try {
       const iv = base64ToArray(record.iv);
       const ciphertext = base64ToArrayBuffer(record.ciphertext);
       const json = await decrypt(cryptoKey, iv, ciphertext);
-      notes.push(JSON.parse(json));
+      const note = validateNote(JSON.parse(json));
+      if (note.id !== record.id) throw new Error('note.invalid');
+      notes.push(note);
     } catch (err) {
-      console.error('Failed to decrypt note:', record.id, err);
+      unreadableCount++;
     }
   }
 }
@@ -350,6 +355,13 @@ function renderCurrentView() {
       break;
   }
 
+  if (unreadableCount) {
+    const warning = document.createElement('div');
+    warning.className = 'unreadable-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent = t('notes.unreadable', { count: unreadableCount });
+    document.getElementById('main-inner').prepend(warning);
+  }
   updateSidebarLabels();
 }
 
@@ -489,7 +501,7 @@ function renderLabelView(label, searchQuery) {
 function renderNoteCard(note, { view = 'notes' } = {}) {
   const isArchiveView = view === 'archive';
   const isTrashView = view === 'trash';
-  const colorAttr = note.color && note.color !== 'default' ? `data-color="${note.color}"` : '';
+  const colorAttr = note.color && note.color !== 'default' ? `data-color="${escapeAttr(note.color)}"` : '';
   const pinClass = note.pinned ? 'pinned' : '';
 
   let contentHtml = '';
@@ -521,26 +533,26 @@ function renderNoteCard(note, { view = 'notes' } = {}) {
   let toolbarHtml = '';
   if (isTrashView) {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="restore" data-id="${note.id}" data-tooltip="${t('card.restore')}">${icons.restore}</button>
-      <button class="icon-btn card-action" data-action="delete-forever" data-id="${note.id}" data-tooltip="${t('card.deletePermanently')}">${icons.delete_forever}</button>
+      <button class="icon-btn card-action" data-action="restore" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.restore')}">${icons.restore}</button>
+      <button class="icon-btn card-action" data-action="delete-forever" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.deletePermanently')}">${icons.delete_forever}</button>
     `;
   } else if (isArchiveView) {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="unarchive" data-id="${note.id}" data-tooltip="${t('card.unarchive')}">${icons.unarchive}</button>
-      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
+      <button class="icon-btn card-action" data-action="unarchive" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.unarchive')}">${icons.unarchive}</button>
+      <button class="icon-btn card-action" data-action="trash" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
     `;
   } else {
     toolbarHtml = `
-      <button class="icon-btn card-action" data-action="color" data-id="${note.id}" data-tooltip="${t('card.color')}">${icons.palette}</button>
-      <button class="icon-btn card-action" data-action="archive" data-id="${note.id}" data-tooltip="${t('card.archive')}">${icons.archive}</button>
-      <button class="icon-btn card-action" data-action="trash" data-id="${note.id}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
-      <button class="icon-btn card-action" data-action="more" data-id="${note.id}" data-tooltip="${t('card.more')}">${icons.more_vert}</button>
+      <button class="icon-btn card-action" data-action="color" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.color')}">${icons.palette}</button>
+      <button class="icon-btn card-action" data-action="archive" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.archive')}">${icons.archive}</button>
+      <button class="icon-btn card-action" data-action="trash" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.delete')}">${icons.delete_icon}</button>
+      <button class="icon-btn card-action" data-action="more" data-id="${escapeAttr(note.id)}" data-tooltip="${t('card.more')}">${icons.more_vert}</button>
     `;
   }
 
   return `
-    <div class="note-card" data-id="${note.id}" ${colorAttr} draggable="true">
-      <button class="icon-btn card-pin ${pinClass} card-action" data-action="pin" data-id="${note.id}" data-tooltip="${note.pinned ? t('card.unpin') : t('card.pin')}">
+    <div class="note-card" data-id="${escapeAttr(note.id)}" ${colorAttr} draggable="true">
+      <button class="icon-btn card-pin ${pinClass} card-action" data-action="pin" data-id="${escapeAttr(note.id)}" data-tooltip="${note.pinned ? t('card.unpin') : t('card.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
       <div class="card-inner">
@@ -770,7 +782,7 @@ function openNoteModal(note) {
 
 function openTextModal(note) {
   const modal = document.getElementById('modal-card');
-  const colorAttr = note.color && note.color !== 'default' ? `data-color="${note.color}"` : '';
+  const colorAttr = note.color && note.color !== 'default' ? `data-color="${escapeAttr(note.color)}"` : '';
 
   modal.innerHTML = `
     <div class="modal-header">
@@ -966,7 +978,7 @@ function openTextModal(note) {
 
 function openTodoModal(note) {
   const modal = document.getElementById('modal-card');
-  const colorAttr = note.color && note.color !== 'default' ? `data-color="${note.color}"` : '';
+  const colorAttr = note.color && note.color !== 'default' ? `data-color="${escapeAttr(note.color)}"` : '';
 
   if (colorAttr) modal.setAttribute('data-color', note.color);
   else modal.removeAttribute('data-color');
@@ -1009,11 +1021,11 @@ function renderTodoModalContent(note) {
     const textClass = isDone ? 'todo-text-done' : '';
 
     let html = `
-      <div class="todo-item ${isDone ? '' : ''}" data-task-id="${task.id}" draggable="true">
+      <div class="todo-item ${isDone ? '' : ''}" data-task-id="${escapeAttr(task.id)}" draggable="true">
         <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
-        <span class="todo-checkbox ${checkedClass}" data-task-id="${task.id}"></span>
-        <input class="todo-text ${textClass}" value="${escapeAttr(task.text)}" data-task-id="${task.id}" ${isDone ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
-        <span class="todo-item-delete" data-task-id="${task.id}" title="${t('todo.deleteTask')}">✕</span>
+        <span class="todo-checkbox ${checkedClass}" data-task-id="${escapeAttr(task.id)}"></span>
+        <input class="todo-text ${textClass}" value="${escapeAttr(task.text)}" data-task-id="${escapeAttr(task.id)}" ${isDone ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
+        <span class="todo-item-delete" data-task-id="${escapeAttr(task.id)}" title="${t('todo.deleteTask')}">✕</span>
       </div>
     `;
 
@@ -1021,11 +1033,11 @@ function renderTodoModalContent(note) {
       const childChecked = child.done ? 'checked' : '';
       const childTextClass = child.done ? 'todo-text-done' : '';
       html += `
-        <div class="todo-item subitem" data-task-id="${child.id}" draggable="true">
+        <div class="todo-item subitem" data-task-id="${escapeAttr(child.id)}" draggable="true">
           <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
-          <span class="todo-checkbox ${childChecked}" data-task-id="${child.id}"></span>
-          <input class="todo-text ${childTextClass}" value="${escapeAttr(child.text)}" data-task-id="${child.id}" ${child.done ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
-          <span class="todo-item-delete" data-task-id="${child.id}" title="${t('todo.deleteTask')}">✕</span>
+          <span class="todo-checkbox ${childChecked}" data-task-id="${escapeAttr(child.id)}"></span>
+          <input class="todo-text ${childTextClass}" value="${escapeAttr(child.text)}" data-task-id="${escapeAttr(child.id)}" ${child.done ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
+          <span class="todo-item-delete" data-task-id="${escapeAttr(child.id)}" title="${t('todo.deleteTask')}">✕</span>
         </div>
       `;
     }
@@ -1930,7 +1942,7 @@ function escapeHTMLString(str) {
 
 function escapeAttr(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function formatDateShort(ts) {

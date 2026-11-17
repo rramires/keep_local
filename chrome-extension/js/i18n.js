@@ -5,6 +5,9 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'notes.unreadable': '{count} notes could not be opened. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
+  'note.invalid': 'Invalid note data. The record was not changed.',
+  'note.tooLarge': 'This note exceeds the 2 MiB limit. Shorten it before saving.',
   'account.exists': 'A vault already exists. Unlock it or explicitly reset it; creating another account cannot replace it.',
   'security.trashOnly': 'Only notes already in Trash can be permanently deleted.',
   // App
@@ -154,6 +157,9 @@ const en = {
 };
 
 const ptBR = {
+  'notes.unreadable': '{count} notas não puderam ser abertas. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',
+  'note.invalid': 'Dados da nota inválidos. O registro não foi alterado.',
+  'note.tooLarge': 'Esta nota ultrapassa o limite de 2 MiB. Reduza o conteúdo antes de salvar.',
   'account.exists': 'Já existe um cofre. Entre nele ou recomece explicitamente; criar outra conta não pode substituí-lo.',
   'security.trashOnly': 'Só notas que já estão na Lixeira podem ser excluídas definitivamente.',
   // App

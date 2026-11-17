@@ -19,3 +19,9 @@ scenario('T1.2 account recreation refuses atomically and hides Create',async({br
  assert.equal(await p.eval("JSON.stringify([await(await import('./js/db.js')).getAllMetaRecords(),await(await import('./js/db.js')).getAllNoteRecords()])"),before);
  await p.eval("document.querySelector('#lock-btn').click()");await p.until("!document.querySelector('#login-form').classList.contains('hidden')");assert.equal(await p.eval("getComputedStyle(document.querySelector('[data-tab=create]')).display"),'none');await p.close();
 });
+scenario('T1.3/T1.7 unreadable decrypt, JSON and hostile model are retained and reported',async({browser,assert})=>{
+ const p=await browser.page();await create(p);await add(p);const hostile=note({color:'"><img src=x onerror=window.injected=true>'});
+ await p.eval(`const d=await import('./js/db.js'),c=await import('./js/crypto.js'),a=await import('./js/app.js');for(const value of ['not-json',JSON.stringify(${JSON.stringify(hostile)})]){const {iv,ciphertext}=await c.encrypt(a.getCryptoKey(),value);await d.saveNoteRecord({id:crypto.randomUUID(),iv:c.arrayToBase64(iv),ciphertext:c.arrayBufferToBase64(ciphertext),updatedAt:1});}await d.saveNoteRecord({id:crypto.randomUUID(),iv:'AAAA',ciphertext:'AAAA',updatedAt:1});`);
+ await p.reload();if(await p.eval("!!document.querySelector('.auth-view')"))await unlock(p);await p.until("!!document.querySelector('.unreadable-warning')");
+ assert.match(await p.eval("document.querySelector('.unreadable-warning').textContent"),/3/);assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),4);assert.equal(await p.eval("!!window.injected||!!document.querySelector('img[onerror]')"),false);await p.close();
+});
