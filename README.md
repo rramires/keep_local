@@ -133,9 +133,11 @@ backup requires recovery of those records before a complete import can succeed.
 Export asks for confirmation when unreadable records exist and reports a partial
 recovery archive, rather than a fully restorable backup. Recovery can create a valid
 text note containing decrypted raw content; oversized content stays read-only for
-manual copying. Discard requires typing DISCARD and initiating a fresh export
-immediately before atomic deletion. Verify that download was saved: the app cannot
-confirm it. Failed/cancelled exports or concurrent record changes prevent deletion.
+manual copying. Discard has two steps: Export now preserves the record without deleting it;
+then verify the saved file, check the explicit saved-file confirmation and type
+DISCARD. The app cannot confirm disk writes. The receipt is session-only, and any
+change to the vault snapshot requires another export. The complete snapshot is
+checked again atomically before deletion, including unrelated records.
 After every unreadable record has been resolved, full import and password rotation
 work again. Password strength labels are heuristics, not measured entropy.
 No plaintext record identifiers, timestamps, counts or per-note lengths are in

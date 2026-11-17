@@ -38,7 +38,7 @@ export async function initBeforeUnload() {
   });
 }
 
-export async function exportBackup() {
+export async function exportBackup({recovery=false}={}) {
   const key=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
   if(!key)throw new Error(t('login.noAccount'));
   const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};
@@ -46,7 +46,7 @@ export async function exportBackup() {
   if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
   const unreadableCount=(await unreadableRecords(notes,key)).length;
   await assertCurrent();
-  if(unreadableCount&&!window.confirm(t('backup.unreadableConfirm',{count:unreadableCount})))return null;
+  if(unreadableCount&&!recovery&&!window.confirm(t('backup.unreadableConfirm',{count:unreadableCount})))return null;
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));

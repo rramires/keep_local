@@ -331,7 +331,7 @@ function updateSidebarActive(activeItem) {
 
 // --- Notes Management ---
 
-async function loadNotes() {
+async function loadNotes({refreshNotes=true}={}) {
   const generation=sessionGeneration,key=cryptoKey;
   const {getAllNoteRecords}=await import('./db.js');
   const {decrypt,base64ToArray}=await import('./crypto.js');
@@ -348,8 +348,8 @@ async function loadNotes() {
     if(generation!==sessionGeneration)return;
   }
   if(generation!==sessionGeneration)return;
-  notes=loaded;unreadableCount=failures;unreadableRecords=failed;
-  for(const[id,version]of versions)knownVersions.set(id,version);
+  unreadableCount=failures;unreadableRecords=failed;
+  if(refreshNotes){notes=loaded;for(const[id,version]of versions)knownVersions.set(id,version);}
 }
 
 const noteWrites=createNoteWriteQueue({enqueue:enqueueWrite,read:id=>notes.find(n=>n.id===id),version:id=>knownVersions.get(id),session:()=>sessionGeneration,
@@ -492,7 +492,10 @@ function renderCurrentView() {
       const controller=new AbortController();modalController=controller;
       scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
       const {renderRecovery}=await import('./recovery.js');
+      await loadNotes({refreshNotes:false});
       if(controller.signal.aborted||!cryptoKey)return;
+      renderCurrentView();
+      if(!unreadableRecords.length){await closeModal();return;}
       renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
       document.getElementById('modal-overlay').classList.add('open');
     });

@@ -5,6 +5,12 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'recovery.changed': 'The vault or record changed. Nothing was discarded. Close and reopen Recovery, review the record and export again.',
+  'recovery.exported': 'Download started with {count} unreadable records. No record was discarded. Verify that the file was saved before confirming below.',
+  'recovery.confirmSavedRequired': 'Confirm that you verified the saved file before discarding.',
+  'recovery.confirmSaved': 'I confirmed that the file was saved',
+  'recovery.exportNow': '1. Export now',
+  'recovery.exportWarning': 'This export preserves unreadable records and cannot be restored in full until they are repaired or discarded. Exporting alone never discards records.',
   'note.actionLocalConflict': 'Another action in this tab changed the note. Review its current state and try again; this action was not applied.',
   'note.actionFailed': 'Could not apply this action. The stored note and its displayed state were preserved; retry.',
   'note.actionConflict': 'Another tab changed this note. This action was not applied; review the current version.',
@@ -14,7 +20,7 @@ const en = {
   'recovery.copied': 'A valid note was created. The original record is still preserved.',
   'recovery.discard': 'Discard record',
   'recovery.discardWord': 'DISCARD',
-  'recovery.discardPrompt': 'Type {word} to discard this record permanently. An encrypted export must start immediately before deletion; verify you saved it.',
+  'recovery.discardPrompt': 'After verifying the exported file, confirm it was saved and type {word} to discard this record permanently.',
   'recovery.confirmRequired': 'Type the confirmation word exactly; the record was preserved.',
   'recovery.failed': 'Recovery action failed or the vault changed. The stored records were preserved; reopen Recovery before retrying.',
   'backup.unreadableConfirm': '{count} unreadable records will be preserved in this export. This file cannot be restored in full until they are repaired or discarded. Start the download anyway?',
@@ -24,7 +30,7 @@ const en = {
   'account.failed': 'Could not change the password. Your vault was preserved. Retry after unlocking the current vault.',
   "recovery.open": "Recovery",
   "recovery.title": "Preserved records",
-  "recovery.help": 'Read preserved data, create a valid copy, or discard a record. Discard requires typed confirmation and starts an encrypted export first. Verify the download was saved; the app cannot confirm it.',
+  'recovery.help': 'Read preserved data or create a valid copy. To discard: first export this snapshot, verify the saved file, then confirm and type the discard word. Changes to the vault require a new export.',
   "recovery.record": "Record {number}",
   "recovery.reason.decrypt": "Cannot decrypt this record. Keep an encrypted backup for recovery.",
   "recovery.reason.json": "Decryption succeeded, but the text is not valid note JSON.",
@@ -213,6 +219,12 @@ const en = {
 };
 
 const ptBR = {
+  'recovery.changed': 'O cofre ou o registro mudou. Nada foi descartado. Feche e reabra a Recuperação, confira o registro e exporte novamente.',
+  'recovery.exported': 'Download iniciado com {count} registros ilegíveis. Nenhum registro foi descartado. Confira se o arquivo foi salvo antes de confirmar abaixo.',
+  'recovery.confirmSavedRequired': 'Confirme que conferiu o arquivo salvo antes de descartar.',
+  'recovery.confirmSaved': 'Confirmei que o arquivo foi salvo',
+  'recovery.exportNow': '1. Exportar agora',
+  'recovery.exportWarning': 'Este export preserva registros ilegíveis e não pode ser restaurado integralmente até serem reparados ou descartados. Exportar sozinho nunca descarta registros.',
   'note.actionLocalConflict': 'Outra ação desta aba alterou a nota. Confira o estado atual e tente novamente; esta ação não foi aplicada.',
   'note.actionFailed': 'Não foi possível aplicar esta ação. A nota armazenada e seu estado exibido foram preservados; tente novamente.',
   'note.actionConflict': 'Outra aba alterou esta nota. A ação não foi aplicada; confira a versão atual.',
@@ -222,7 +234,7 @@ const ptBR = {
   'recovery.copied': 'Uma nota válida foi criada. O registro original continua preservado.',
   'recovery.discard': 'Descartar registro',
   'recovery.discardWord': 'DESCARTAR',
-  'recovery.discardPrompt': 'Digite {word} para descartar permanentemente este registro. Um export cifrado deve iniciar imediatamente antes da exclusão; confira se você o salvou.',
+  'recovery.discardPrompt': 'Depois de conferir o arquivo exportado, confirme que foi salvo e digite {word} para descartar permanentemente este registro.',
   'recovery.confirmRequired': 'Digite a palavra de confirmação exatamente; o registro foi preservado.',
   'recovery.failed': 'A ação falhou ou o cofre mudou. Os registros armazenados foram preservados; reabra a Recuperação antes de tentar novamente.',
   'backup.unreadableConfirm': '{count} registros ilegíveis serão preservados neste export. Este arquivo não poderá ser restaurado integralmente até que sejam reparados ou descartados. Iniciar o download mesmo assim?',
@@ -232,7 +244,7 @@ const ptBR = {
   'account.failed': 'Não foi possível trocar a senha. Seu cofre foi preservado. Tente novamente após desbloquear o cofre atual.',
   "recovery.open": "Recuperação",
   "recovery.title": "Registros preservados",
-  "recovery.help": 'Leia os dados preservados, crie uma cópia válida ou descarte um registro. O descarte exige confirmação digitada e inicia um export cifrado antes. Confira se o download foi salvo; o app não consegue confirmar.',
+  'recovery.help': 'Leia os dados preservados ou crie uma cópia válida. Para descartar: primeiro exporte este snapshot, confira o arquivo salvo, depois confirme e digite a palavra. Alterações no cofre exigem novo export.',
   "recovery.record": "Registro {number}",
   "recovery.reason.decrypt": "Não foi possível decifrar este registro. Guarde um backup cifrado para recuperação.",
   "recovery.reason.json": "A decifragem funcionou, mas o texto não é um JSON de nota válido.",

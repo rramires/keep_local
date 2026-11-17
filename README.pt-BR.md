@@ -170,9 +170,10 @@ se a sessão terminar ou mudar.
 O export avisa antes quando houver registros ilegíveis e informa que o arquivo
 não pode ser restaurado integralmente nesse estado. A Recuperação permite criar
 uma nota válida contendo o texto bruto decifrado; conteúdo acima do limite fica
-somente para leitura e cópia manual. Para descartar, digite DESCARTAR e inicie um
-novo export imediatamente antes da exclusão atômica. Confira se o download foi
-salvo: o app não consegue confirmar. Export cancelado, falha no download ou
-alteração concorrente impedem a exclusão. Depois de resolver todos os registros
+somente para leitura e cópia manual. O descarte tem dois passos: Exportar agora preserva o registro sem excluir;
+depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR.
+O app não confirma gravação no disco. O comprovante fica somente nesta sessão e
+qualquer alteração do snapshot do cofre exige novo export. O snapshot completo
+é conferido novamente na transação de exclusão, incluindo outros registros. Depois de resolver todos os registros
 ilegíveis, importação integral e troca de senha voltam a funcionar. O indicador
 de força de senha é uma heurística; ele não mede a aleatoriedade das palavras.

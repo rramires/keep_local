@@ -1,45 +1,63 @@
 import { decrypt,base64ToArray } from './crypto.js';
-import { recoveredNote,discardRecord } from './recovery-actions.js';
+import { recoveredNote,discardRecord,exportForDiscard,validateDiscardReceipt,forgetDiscardReceipt } from './recovery-actions.js';
 import { t } from './i18n.js';
 export function renderRecovery(container,issues,key,{signal,onClose,onCreate,onDiscard}) {
   container.replaceChildren();
   const title=document.createElement('h2');title.textContent=t('recovery.title');
   const help=document.createElement('p');help.textContent=t('recovery.help');
+  const warning=document.createElement('p');warning.textContent=t('recovery.exportWarning');warning.role='note';
   const list=document.createElement('div');
-  const status=document.createElement('p');status.role='status';
+  const status=document.createElement('p');status.id='recovery-status';status.role='status';
   const content=document.createElement('textarea');content.id='recovery-content';content.className='note-editor';content.readOnly=true;
   content.spellcheck=false;content.setAttribute('autocapitalize','off');content.setAttribute('autocomplete','off');content.setAttribute('aria-label',t('recovery.content'));
   const close=document.createElement('button');close.className='btn-secondary';close.id='modal-close';close.textContent=t('modal.close');close.addEventListener('click',onClose);
-  signal.addEventListener('abort',()=>{content.value='';status.textContent='';},{once:true});
   const copy=document.createElement('button');copy.id='recovery-copy';copy.className='btn-secondary';copy.textContent=t('recovery.copy');copy.disabled=true;
+  const exportButton=document.createElement('button');exportButton.id='recovery-export';exportButton.className='btn-secondary';exportButton.textContent=t('recovery.exportNow');exportButton.disabled=true;
+  const saved=document.createElement('input');saved.type='checkbox';saved.id='recovery-saved';
+  const savedLabel=document.createElement('label');savedLabel.append(saved,document.createTextNode(t('recovery.confirmSaved')));
   const confirmation=document.createElement('input');confirmation.id='recovery-confirmation';confirmation.autocomplete='off';confirmation.spellcheck=false;
   const label=document.createElement('label');label.textContent=t('recovery.discardPrompt',{word:t('recovery.discardWord')});label.append(confirmation);
   const discard=document.createElement('button');discard.id='recovery-discard';discard.className='btn-secondary';discard.textContent=t('recovery.discard');discard.disabled=true;
-  let selected=0,active=null,note=null,busy=false;
+  let selected=0,active=null,note=null,busy=false,receipt=null,checks=0;
+  const invalidate=()=>{forgetDiscardReceipt(receipt);receipt=null;saved.checked=false;confirmation.value='';checks++;discard.disabled=true;};
+  const refresh=async()=>{
+    const request=++checks;copy.disabled=busy||!note;exportButton.disabled=busy||!active;discard.disabled=true;
+    if(busy||signal.aborted||!receipt||!active||!saved.checked||confirmation.value!==t('recovery.discardWord'))return;
+    try{await validateDiscardReceipt(active.record,receipt,{key,signal});if(request===checks&&!signal.aborted)discard.disabled=false;}
+    catch{if(request===checks&&!signal.aborted){invalidate();status.textContent=t('recovery.changed');}}
+  };
+  saved.addEventListener('change',()=>void refresh());confirmation.addEventListener('input',()=>void refresh());
+  signal.addEventListener('abort',()=>{invalidate();content.value='';status.textContent='';note=null;active=null;},{once:true});
   copy.addEventListener('click',async()=>{
-    if(busy||!note||signal.aborted)return;busy=true;copy.disabled=discard.disabled=true;
-    try{if(await onCreate(note))status.textContent=t('recovery.copied');else status.textContent=t('recovery.failed');}
+    if(busy||!note||signal.aborted)return;busy=true;void refresh();
+    try{if(await onCreate(note)){invalidate();status.textContent=t('recovery.copied');}else status.textContent=t('recovery.failed');}
     catch{if(!signal.aborted)status.textContent=t('recovery.failed');}
-    finally{busy=false;if(!signal.aborted){copy.disabled=!note;discard.disabled=!active;}}
+    finally{busy=false;if(!signal.aborted)void refresh();}
+  });
+  exportButton.addEventListener('click',async()=>{
+    if(busy||!active||signal.aborted)return;busy=true;invalidate();void refresh();
+    try{receipt=await exportForDiscard(active.record,{key,signal});if(!signal.aborted)status.textContent=t('recovery.exported',{count:receipt.unreadableCount});}
+    catch(error){if(!signal.aborted)status.textContent=t(error.code==='recovery.changed'?'recovery.changed':'recovery.failed');}
+    finally{busy=false;if(!signal.aborted)void refresh();else invalidate();}
   });
   discard.addEventListener('click',async()=>{
-    if(busy||!active||signal.aborted)return;
-    if(confirmation.value!==t('recovery.discardWord')){status.textContent=t('recovery.confirmRequired');return;}
-    busy=true;copy.disabled=discard.disabled=true;
-    try{if(await discardRecord(active.record,confirmation.value,{signal,key})){if(!signal.aborted)await onDiscard(active.record);}}
-    catch{if(!signal.aborted)status.textContent=t('recovery.failed');}
-    finally{busy=false;if(!signal.aborted){copy.disabled=!note;discard.disabled=!active;}}
+    if(busy||!active||signal.aborted||!receipt||!saved.checked||confirmation.value!==t('recovery.discardWord'))return;
+    busy=true;void refresh();
+    try{await discardRecord(active.record,confirmation.value,{signal,key,receipt,confirmedSaved:saved.checked});if(!signal.aborted)await onDiscard(active.record);}
+    catch(error){if(!signal.aborted)status.textContent=t(error.code==='recovery.changed'?'recovery.changed':'recovery.failed');}
+    finally{invalidate();busy=false;if(!signal.aborted)void refresh();}
   });
   issues.forEach((issue,index)=>{
     const button=document.createElement('button');button.className='btn-secondary recovery-record';button.dataset.reason=issue.reason;button.textContent=t('recovery.record',{number:index+1});
     button.addEventListener('click',async()=>{
-      if(busy)return;active=issue;note=null;confirmation.value='';copy.disabled=true;discard.disabled=false;
+      if(busy)return;invalidate();active=issue;note=null;void refresh();
       const request=++selected;content.value='';status.textContent=t('recovery.reason.'+issue.reason);
       try{
         const text=await decrypt(key,base64ToArray(issue.record.iv),base64ToArray(issue.record.ciphertext));
-        if(!signal.aborted&&request===selected&&container.isConnected){content.value=text;try{note=recoveredNote(text);copy.disabled=false;}catch{status.textContent=t('recovery.copyTooLarge');}}
+        if(!signal.aborted&&request===selected&&container.isConnected){content.value=text;try{note=recoveredNote(text);}catch{status.textContent=t('recovery.copyTooLarge');}}
       }catch{if(!signal.aborted&&request===selected)status.textContent=t('recovery.reason.decrypt');}
+      if(!signal.aborted&&request===selected)void refresh();
     });list.append(button);
   });
-  container.append(title,help,list,status,content,copy,label,discard,close);
+  container.append(title,help,list,status,content,copy,warning,exportButton,savedLabel,label,discard,close);
 }
