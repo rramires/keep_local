@@ -182,3 +182,12 @@ export function migrateKeyCheck(salt, keyCheck) {
     };
   });
 }
+
+export function replaceVault({ notes: records, meta: values }) {
+  return vaultTransaction(({ notes, meta }, done) => {
+    notes.clear();meta.clear();
+    for (const r of records) notes.put(r);
+    for (const [key,value] of Object.entries(values)) meta.put({key,value});
+    done();
+  });
+}

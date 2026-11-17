@@ -5,6 +5,10 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
+  "backup.replaceConfirm": "Replace {local} local notes with {incoming} backup notes? Export the current vault first if you need to keep it.",
+  "backup.cancelled": "Import cancelled. Your vault was preserved.",
+
   'notes.unreadable': '{count} notes could not be opened. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
   'note.invalid': 'Invalid note data. The record was not changed.',
   'note.tooLarge': 'This note exceeds the 2 MiB limit. Shorten it before saving.',
@@ -157,6 +161,10 @@ const en = {
 };
 
 const ptBR = {
+  "backup.tooLarge": "O backup excede o limite de 64 MiB.",
+  "backup.replaceConfirm": "Substituir {local} notas locais por {incoming} notas do backup? Exporte o cofre atual antes se precisar preservá-lo.",
+  "backup.cancelled": "Importação cancelada. Seu cofre foi preservado.",
+
   'notes.unreadable': '{count} notas não puderam ser abertas. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',
   'note.invalid': 'Dados da nota inválidos. O registro não foi alterado.',
   'note.tooLarge': 'Esta nota ultrapassa o limite de 2 MiB. Reduza o conteúdo antes de salvar.',

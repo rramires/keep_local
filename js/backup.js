@@ -1,8 +1,9 @@
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
-import { getAllNoteRecords, getAllMetaRecords, clearAllNotes, clearAllMeta, saveNoteRecord, saveMeta, getMeta } from './db.js';
+import { getAllNoteRecords, getAllMetaRecords, replaceVault, getMeta } from './db.js';
 import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
 import { t } from './i18n.js';
+import { MAX_BACKUP_BYTES, validateV1, decryptRecords } from './backup-format.js';
 
 let unsavedChanges = false;
 
@@ -60,53 +61,21 @@ export async function exportBackup() {
 }
 
 export async function importBackup(file, password) {
-  const text = await file.text();
-  let backup;
-
-  try {
-    backup = JSON.parse(text);
-  } catch {
-    throw new Error(t('backup.invalidFile'));
-  }
-
-  if (!backup.app || backup.app !== 'KeepLocal' || !backup.meta || !backup.notes) {
-    throw new Error(t('backup.unrecognizedFormat'));
-  }
-
-  // Find salt from meta
-  const saltRecord = backup.meta.find(m => m.key === 'salt');
-  if (!saltRecord) throw new Error(t('backup.corruptedSalt'));
-
-  const salt = base64ToArray(saltRecord.value);
-  const key = await deriveKey(password, salt, true);
-
-  const existingCheck = backup.meta.find(m => m.key === 'keyCheck')?.value;
-  if (existingCheck && !await verifyKeyCheck(key, existingCheck)) throw new Error(t('backup.wrongPassword'));
-  if (!existingCheck && backup.notes.length === 0) {
-    const verifier = backup.meta.find(m => m.key === 'passwordVerifier')?.value;
-    if (!verifier || await hashPassword(password, salt) !== verifier) throw new Error(t('backup.wrongPassword'));
-  }
-  for (const record of backup.notes) {
-    try { JSON.parse(await decrypt(key, base64ToArray(record.iv), base64ToArray(record.ciphertext))); }
-    catch { throw new Error(t('backup.wrongPasswordOrCorrupted')); }
-  }
-  backup.meta = backup.meta.filter(m => !['passwordVerifier', 'keyCheck'].includes(m.key));
-  backup.meta.push({ key: 'keyCheck', value: existingCheck || await createKeyCheck(key) });
-
-  // Clear existing data and import
-  await clearAllNotes();
-  await clearAllMeta();
-
-  // Import meta
-  for (const m of backup.meta) {
-    await saveMeta(m.key, m.value);
-  }
-
-  // Import notes
-  for (const n of backup.notes) {
-    await saveNoteRecord(n);
-  }
-
-  // Return derived key for session
+  if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
+  let backup,meta;
+  try { backup=JSON.parse(await file.text());meta=validateV1(backup); }
+  catch { throw new Error(t('backup.unrecognizedFormat')); }
+  const salt=base64ToArray(meta.salt);
+  const key=await deriveKey(password,salt,true);
+  if (meta.keyCheck && !await verifyKeyCheck(key,meta.keyCheck)) throw new Error(t('backup.wrongPassword'));
+  if (!meta.keyCheck && !backup.notes.length && await hashPassword(password,salt)!==meta.passwordVerifier) throw new Error(t('backup.wrongPassword'));
+  try { await decryptRecords(backup.notes,key); }
+  catch { throw new Error(t('backup.wrongPasswordOrCorrupted')); }
+  delete meta.passwordVerifier;
+  meta.keyCheck ||= await createKeyCheck(key);
+  const local=await getAllNoteRecords();
+  if ((local.length || await getMeta('salt')) && !window.confirm(t('backup.replaceConfirm',{local:local.length,incoming:backup.notes.length}))) throw new Error(t('backup.cancelled'));
+  // V1 cannot authenticate removal of whole records; only v2 authenticates the set.
+  await replaceVault({notes:backup.notes,meta});
   return key;
 }
