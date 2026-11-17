@@ -1,3 +1,4 @@
+import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState } from './backup.js';
 import { purgeTrash } from './trash.js';
 import { ensureVaultId, getMeta } from './db.js';
@@ -100,6 +101,7 @@ async function showApp() {
   await purgeExpiredTrash();
   await refreshBackupState();
   renderCurrentView();
+  await requestPersistence();
 }
 
 function renderAppShell() {
