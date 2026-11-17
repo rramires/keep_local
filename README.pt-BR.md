@@ -95,7 +95,7 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `index.html`, `css/`: entrada, CSP e estilos (tokens em `css/base.css`).
 - `js/app.js`: telas e integração; `auth.js`, `session.js`, `lifecycle.js`: login,
   sessão em memória e descarte de callbacks.
-- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`: cifra, transações,
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`: cifra, transações,
   validação e fila de gravação/rascunho.
 - `js/backup.js`, `backup-format.js`, `backup-v2.js`: importação, download e formato.
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,

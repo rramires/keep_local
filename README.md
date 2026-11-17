@@ -95,7 +95,7 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `index.html`, `css/`: entry point, CSP and styles (tokens in `css/base.css`).
 - `js/app.js`: screens and integration; `auth.js`, `session.js`, `lifecycle.js`:
   authentication, in-memory session and callback disposal.
-- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`: crypto, transactions,
+- `js/crypto.js`, `db.js`, `note-model.js`, `edit-session.js`, `editor-limits.js`: crypto, transactions,
   validation and serialized writes/drafts.
 - `js/backup.js`, `backup-format.js`, `backup-v2.js`: import, download and format.
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: rotation/reset,

@@ -7,8 +7,8 @@ import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
 import { clearSession, storeSessionKey } from './session.js';
-import { createEditSession, serialQueue, limitText } from './edit-session.js';
-import { MAX_NOTE_BYTES } from './note-model.js';
+import { createEditSession, serialQueue } from './edit-session.js';
+import { bindDraftLimits, bindTextLimits, bindTodoLimits } from './editor-limits.js';
 import { validateNote } from './note-model.js';
 // app.js — Bootstrap, SPA router, view switching
 
@@ -770,7 +770,7 @@ function initNewNoteBar() {
   bar.querySelector('.new-note-collapsed').addEventListener('click',e=>{if(e.target.closest('#new-todo-btn'))return;bar.classList.add('expanded');newDraft.expanded=true;title.focus();});
   bar.querySelector('#new-todo-btn').addEventListener('click',async e=>{e.stopPropagation();if(await flushNewNoteBar())await createNewNote('todo');});
   bar.querySelector('#new-note-close').addEventListener('click',async()=>{capture();if(await flushNewNoteBar())bar.classList.remove('expanded');});
-  limitText(body,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));title.maxLength=4096;
+  bindDraftLimits(title,body,()=>showToast(t('note.tooLarge')));
   for(const input of [title,body])input.addEventListener('input',capture);
   body.addEventListener('input',()=>{body.style.height='auto';body.style.height=body.scrollHeight+'px';});
   scope.listen('click',e=>{if(!cryptoKey||!bar.isConnected||!bar.classList.contains('expanded')||bar.contains(e.target)||e.target.closest('#search-input,#search-clear,#lang-toggle'))return;capture();void flushNewNoteBar();},'new-note-outside');
@@ -913,8 +913,7 @@ function openTextModal(note) {
   const mdToggle = document.getElementById('modal-md-toggle');
   let previewMode = false;
   const capture=()=>({...note,title:titleInput.value,content:editor.value});
-  limitText(editor,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));
-  titleInput.maxLength=4096;
+  bindTextLimits(note,titleInput,editor,()=>showToast(t('note.tooLarge')));
   const edit=createEditSession({capture,onDirty:dirty=>setDraftDirty('editor',dirty),save:async snapshot=>{
     const ok=await saveFromUI(snapshot);
     if(ok){Object.assign(note,snapshot);updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
@@ -1143,6 +1142,7 @@ function renderTodoModalContent(note) {
   `;
 
   modal.querySelectorAll('input').forEach(input=>input.addEventListener('input',()=>setDraftDirty('editor',true)));
+  bindTodoLimits(note,modal,()=>showToast(t('note.tooLarge')));
   initTodoModalListeners(note);
 }
 

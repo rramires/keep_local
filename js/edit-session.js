@@ -26,9 +26,9 @@ export function createEditSession({capture,save,delay=2000,onDirty=()=>{}}) {
   return {schedule(){if(ended)return;dirty=true;onDirty(true);version++;clearTimeout(timer);timer=setTimeout(flush,delay);},flush,
     cancel(){ended=true;dirty=false;onDirty(false);clearTimeout(timer);},isDirty:()=>dirty,capture};
 }
-export function limitText(element,maxBytes,onLimit) {
+export function limitText(element,maxBytes,onLimit,measure=s=>new TextEncoder().encode(s).length) {
   let previous=element.value;
-  const bytes=s=>new TextEncoder().encode(s).length;
+  const bytes=measure;
   element.addEventListener('beforeinput',e=>{
     if(e.inputType?.startsWith('delete'))return;
     if(e.data!==null&&e.data!==undefined){const next=element.value.slice(0,element.selectionStart)+e.data+element.value.slice(element.selectionEnd);if(bytes(next)>maxBytes){e.preventDefault();onLimit();}}

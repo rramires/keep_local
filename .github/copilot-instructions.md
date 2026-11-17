@@ -33,7 +33,7 @@ Legacy JSON v1 goes through complete schema/crypto/model validation, then one
 
 - `app.js`: integration/views; avoid broad refactors or further growth here.
 - `auth.js`, `password-policy.js`, `account.js`: login, policy, atomic rotation/reset.
-- `session.js`, `lifecycle.js`, `edit-session.js`: memory session, disposal,
+- `session.js`, `lifecycle.js`, `edit-session.js`, `editor-limits.js`: memory session, disposal,
   local edit references and serialized per-note writes/flushes.
 - `db.js`: transaction primitives, vault replacement, identity/version guards,
   dirty state, export compare-and-swap and download acknowledgement.
