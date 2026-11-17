@@ -5,6 +5,18 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  "vault.changed": "The vault changed in another tab. Unlock the current vault before editing.",
+  "note.conflict": "Another tab saved a newer version. Your draft is still open.",
+  "note.saveAsNew": "Save as a new note",
+  "account.change": "Change master password",
+  "account.current": "Current password",
+  "account.new": "New passphrase",
+  "account.rotateWarning": "Export a new backup now and delete old backups, including cloud version history. Old backups still require the old password and may contain the legacy fast verifier.",
+  "account.reset": "Erase everything and start again",
+  "account.resetWord": "ERASE",
+  "account.resetPrompt": "Export and safely store a backup before erasing. This permanently removes all local notes. Type ERASE to start again.",
+  "account.resetCancelled": "Reset cancelled; the vault was preserved.",
+
   'backup.legacyWarning': 'Legacy backup imported. Export a new v2 backup now; v1 cannot detect missing records.',
   'markdown.unavailable': 'Safe Markdown preview is unavailable. Showing plain text.',
   "validation.common": "Avoid common passwords and repeated characters.",
@@ -170,6 +182,18 @@ const en = {
 };
 
 const ptBR = {
+  "vault.changed": "O cofre foi alterado em outra aba. Desbloqueie o cofre atual antes de editar.",
+  "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",
+  "note.saveAsNew": "Salvar como nova nota",
+  "account.change": "Trocar senha mestra",
+  "account.current": "Senha atual",
+  "account.new": "Nova frase-senha",
+  "account.rotateWarning": "Exporte um novo backup agora e apague os antigos, incluindo o histórico de versões na nuvem. Backups antigos continuam exigindo a senha antiga e podem conter o verificador rápido legado.",
+  "account.reset": "Apagar tudo e recomeçar",
+  "account.resetWord": "APAGAR",
+  "account.resetPrompt": "Exporte e guarde um backup seguro antes de apagar. Todas as notas locais serão removidas definitivamente. Digite APAGAR para recomeçar.",
+  "account.resetCancelled": "Redefinição cancelada; o cofre foi preservado.",
+
   'backup.legacyWarning': 'Backup antigo importado. Exporte um novo backup v2 agora; o v1 não detecta registros removidos.',
   'markdown.unavailable': 'A prévia segura de Markdown está indisponível. Exibindo texto simples.',
   "validation.common": "Evite senhas comuns e caracteres repetidos.",

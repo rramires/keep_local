@@ -3,7 +3,8 @@
 import { getAllNoteRecords, getAllMetaRecords, replaceVault, getMeta, readVault, recordExport } from './db.js';
 import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
-import { getSessionKey } from './session.js';
+import { publishVaultEvent } from './vault-events.js';
+import { getSessionKey, getSessionVaultId, storeSessionKey } from './session.js';
 import { t } from './i18n.js';
 import { MAX_BACKUP_BYTES, validateV1, decryptRecords } from './backup-format.js';
 
@@ -33,6 +34,7 @@ export function initBeforeUnload() {
 export async function exportBackup() {
   const key=await getSessionKey();if(!key)throw new Error(t('login.noAccount'));
   const {notes,meta}=await readVault();
+  if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
@@ -70,10 +72,13 @@ export async function importBackup(file, password) {
   try {await decryptRecords(backup.notes,key);}
   catch {throw new Error(t('backup.wrongPasswordOrCorrupted'));}
   meta.keyCheck=await createKeyCheck(key);
-  const local=await getAllNoteRecords();
+  const previous=await readVault();
+  const local=previous.notes;
   if ((local.length || await getMeta('salt')) && !window.confirm(t('backup.replaceConfirm',{local:local.length,incoming:backup.notes.length}))) throw new Error(t('backup.cancelled'));
   // V1 cannot authenticate removal of whole records; only v2 authenticates the set.
-  await replaceVault({notes:backup.notes,meta});
+  meta.vaultId=crypto.randomUUID();meta.dirtySinceBackup=true;
+  await replaceVault({notes:backup.notes,meta},previous.meta);
+  storeSessionKey(key,meta.vaultId);publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
   if(legacy)window.alert(t('backup.legacyWarning'));
   return key;
 }

@@ -1,8 +1,9 @@
 const TIMEOUT=5*60*1000;
+let vaultId=null;
 let key=null,deadline=0,lastActivity=0,timer=null,controller=null,onExpired=null;
-export function storeSessionKey(value){key=value;deadline=Date.now()+TIMEOUT;lastActivity=0;}
+export function storeSessionKey(value,id=null){key=value;vaultId=id;deadline=Date.now()+TIMEOUT;lastActivity=0;}
 export async function getSessionKey(){checkDeadline();return key;}
-export function clearSession(){key=null;deadline=0;}
+export function clearSession(){key=null;vaultId=null;deadline=0;}
 export function checkDeadline(){
   if(key&&Date.now()>=deadline){const callback=onExpired;clearSession();stopSessionTimer();callback?.(true);return false;}
   return !!key;
@@ -22,3 +23,6 @@ export function startSessionTimer(onExpire){
   timer=setInterval(checkDeadline,1000);
 }
 export function logout(){const callback=onExpired;clearSession();stopSessionTimer();callback?.(false);}
+
+export const getSessionVaultId=()=>vaultId;
+export function setSessionVaultId(id){vaultId=id;}

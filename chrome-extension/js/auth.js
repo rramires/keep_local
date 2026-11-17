@@ -1,7 +1,7 @@
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck } from './db.js';
+import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 
 import { storeSessionKey } from './session.js';
@@ -20,14 +20,15 @@ export async function createAccount(password) {
   const key = await deriveKey(password, salt, false);
   const keyCheck = await createKeyCheck(key);
 
+  const vaultId=crypto.randomUUID();
   try {
-    await createVault({ salt: arrayToBase64(salt), keyCheck });
+    await createVault({ salt: arrayToBase64(salt), keyCheck,vaultId,dirtySinceBackup:true });
   } catch (error) {
     if (error.code === 'account.exists') throw new Error(t('account.exists'));
     throw error;
   }
 
-  await storeSessionKey(key);
+  await storeSessionKey(key,vaultId);
   return key;
 }
 
@@ -48,7 +49,8 @@ export async function login(password) {
     await migrateKeyCheck(saltB64, await createKeyCheck(key));
   }
 
-  await storeSessionKey(key);
+  const vaultId=await ensureVaultId(saltB64);
+  await storeSessionKey(key,vaultId);
   return key;
 }
 
@@ -108,6 +110,7 @@ export function renderAuthView(container, { onAuthenticated }) {
             <div class="form-actions">
               <button type="submit" class="btn-primary">${t('auth.login')}</button>
             </div>
+            <button type="button" class="btn-secondary" id="reset-vault">${t('account.reset')}</button>
           </form>
 
           <!-- Import Tab -->
@@ -221,6 +224,12 @@ function initAuthListeners(container, onAuthenticated) {
     } catch (err) {
       loginError.textContent = err.message;
     }
+  });
+
+  container.querySelector('#reset-vault').addEventListener('click',async()=>{
+    const {resetVault}=await import('./account.js');
+    const confirmation=window.prompt(t('account.resetPrompt'));
+    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
   });
 
   // --- Import ---

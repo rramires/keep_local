@@ -183,12 +183,15 @@ export function migrateKeyCheck(salt, keyCheck) {
   });
 }
 
-export function replaceVault({ notes: records, meta: values }) {
-  return vaultTransaction(({ notes, meta }, done) => {
-    notes.clear();meta.clear();
-    for (const r of records) notes.put(r);
-    for (const [key,value] of Object.entries(values)) meta.put({key,value});
-    done();
+export function replaceVault({notes:records,meta:values},expected) {
+  return vaultTransaction(({notes,meta},done,fail)=>{
+    const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
+    if(!expected){replace();return;}
+    const request=meta.getAll();request.onsuccess=()=>{try{
+      const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
+      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.revision||0)!==(expected.revision||0)||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('vault.changed');
+      replace();
+    }catch(error){fail(error);}};
   });
 }
 
@@ -208,5 +211,32 @@ export function recordExport(expected,rev,hash) {
       if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('backup.concurrent');
       meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
     }catch(error){fail(error);}};
+  });
+}
+
+export function ensureVaultId(expectedSalt) {
+  return vaultTransaction(({meta},done,fail)=>{
+    const request=meta.getAll();request.onsuccess=()=>{try{
+      const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
+      if(expectedSalt&&values.salt!==expectedSalt)throw new Error('vault.changed');
+      const id=values.vaultId||crypto.randomUUID();meta.put({key:'vaultId',value:id});done(id);
+    }catch(error){fail(error);}};
+  });
+}
+export function markVaultDirty(meta,values) {
+  meta.put({key:'dirtySinceBackup',value:true});
+  meta.put({key:'revision',value:(values.revision||0)+1});
+}
+export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt}) {
+  return vaultTransaction(({meta,notes},done,fail)=>{
+    const m=meta.getAll(),n=notes.get(id);let ready=0;
+    const finish=()=>{if(++ready!==2)return;try{
+      const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
+      if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
+      if(n.result ? (knownUpdatedAt===undefined||n.result.updatedAt>knownUpdatedAt) : knownUpdatedAt!==undefined)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
+      if(record)notes.put(record);else notes.delete(id);
+      markVaultDirty(meta,values);done();
+    }catch(error){fail(error);}};
+    m.onsuccess=finish;n.onsuccess=finish;
   });
 }

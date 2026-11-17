@@ -1,3 +1,6 @@
+import { ensureVaultId, getMeta } from './db.js';
+import { getSessionVaultId, setSessionVaultId } from './session.js';
+import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
 import { clearSession, storeSessionKey } from './session.js';
@@ -20,6 +23,8 @@ let activeEdit=null;
 let scope=null;
 let sessionGeneration=0;
 const enqueueWrite=serialQueue();
+const knownVersions=new Map();
+let loadedVaultId=null;
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
@@ -59,7 +64,7 @@ function teardownSession() {
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
-  cryptoKey=null;notes=[];unreadableCount=0;
+  cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;
 }
 function showAuth(message='') {
   teardownSession();
@@ -74,6 +79,13 @@ function showAuth(message='') {
 
 async function showApp() {
   scope?.dispose();scope=createScope();
+  loadedVaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
+  setSessionVaultId(loadedVaultId);
+  const unwatch=watchVaultEvents(event=>{
+    if(event?.type==='vault-replaced'&&event.vaultId!==loadedVaultId)showAuth(t('vault.changed'));
+    else if(event?.type==='note-changed')void refreshChangedNote(event.id);
+  });
+  scope.signal.addEventListener('abort',unwatch,{once:true});
   startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
 
   renderAppShell();
@@ -108,6 +120,7 @@ function renderAppShell() {
           <button class="icon-btn" data-tooltip="${t('header.theme')}" id="theme-toggle">
             ${icons.brightness}
           </button>
+          <button class="icon-btn" data-tooltip="${t('account.change')}" id="change-password-btn">${icons.edit}</button>
           <button class="icon-btn" data-tooltip="${t('header.lock')}" id="lock-btn">
             ${icons.lock}
           </button>
@@ -202,6 +215,13 @@ function initAppListeners() {
     await showApp();
   });
 
+  document.getElementById('change-password-btn').addEventListener('click',async()=>{
+    if(!await closeModal())return;
+    const {renderPasswordChange}=await import('./account.js');
+    renderPasswordChange(document.getElementById('modal-card'),async key=>{cryptoKey=key;await closeModal();await showApp();});
+    document.getElementById('modal-overlay').classList.add('open');
+  });
+
   // Lock
   document.getElementById('lock-btn').addEventListener('click', async () => {
     if(!await closeModal())return;
@@ -287,6 +307,7 @@ async function loadNotes() {
 
   const records = await getAllNoteRecords();
   notes = [];
+  knownVersions.clear();
   unreadableCount = 0;
 
   for (const record of records) {
@@ -296,7 +317,7 @@ async function loadNotes() {
       const json = await decrypt(cryptoKey, iv, ciphertext);
       const note = validateNote(JSON.parse(json));
       if (note.id !== record.id) throw new Error('note.invalid');
-      notes.push(note);
+      notes.push(note);knownVersions.set(note.id,record.updatedAt);
     } catch (err) {
       unreadableCount++;
     }
@@ -304,17 +325,18 @@ async function loadNotes() {
 }
 
 export function saveNote(note) {
-  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration;
+  const snapshot=structuredClone(note),key=cryptoKey,generation=sessionGeneration,vaultId=loadedVaultId;
   return enqueueWrite(note.id,async()=>{
     if(!key || generation!==sessionGeneration)throw new Error('session.ended');
-    snapshot.updatedAt=Date.now();
+    snapshot.updatedAt=Math.max(Date.now(),(knownVersions.get(note.id)||0)+1);
     validateNote(snapshot);
     const { encrypt, arrayToBase64, arrayBufferToBase64 }=await import('./crypto.js');
-    const { saveNoteRecord }=await import('./db.js');
+    const { guardedNoteWrite }=await import('./db.js');
     const { setUnsaved }=await import('./backup.js');
     const {iv,ciphertext}=await encrypt(key,JSON.stringify(snapshot));
     if(generation!==sessionGeneration)throw new Error('session.ended');
-    await saveNoteRecord({id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt});
+    try{await guardedNoteWrite({id:snapshot.id,record:{id:snapshot.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:snapshot.updatedAt},expectedVaultId:vaultId,knownUpdatedAt:knownVersions.get(snapshot.id)});}catch(error){if(error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
+    knownVersions.set(snapshot.id,snapshot.updatedAt);publishVaultEvent('note-changed',{id:snapshot.id});
     if(generation!==sessionGeneration)return;
     note.updatedAt=snapshot.updatedAt;
     const idx=notes.findIndex(n=>n.id===snapshot.id);
@@ -325,17 +347,41 @@ export function saveNote(note) {
 async function saveFromUI(note) {
   if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
   try { await saveNote(note);return true; }
-  catch(error){showToast(t(error.code||'note.saveFailed'));return false;}
+  catch(error){
+    if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
+      const copy={...structuredClone(note),id:crypto.randomUUID(),createdAt:Date.now()};
+      if(!await saveFromUI(copy))return;
+      activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;await closeModal();
+    });
+    else showToast(t(error.code||'note.saveFailed'));
+    return false;
+  }
 }
 
 export async function permanentDeleteNote(id) {
   if (!notes.find(n => n.id === id)?.deletedAt) throw new Error(t('security.trashOnly'));
-  const { deleteNoteRecord } = await import('./db.js');
+  const { guardedNoteWrite } = await import('./db.js');
   const { setUnsaved } = await import('./backup.js');
 
-  await deleteNoteRecord(id);
+  try{await guardedNoteWrite({id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(id)});}catch(error){if(error.code==='vault.changed')showAuth(t('vault.changed'));throw error;}
+  knownVersions.delete(id);publishVaultEvent('note-changed',{id});
   notes = notes.filter(n => n.id !== id);
   setUnsaved();
+}
+
+async function refreshChangedNote(id) {
+  if(!cryptoKey||activeEdit?.id===id||enqueueWrite.has(id))return;
+  const generation=sessionGeneration,key=cryptoKey;
+  try{
+    const {getNoteRecord}=await import('./db.js'),{decrypt,base64ToArray}=await import('./crypto.js');
+    const record=await getNoteRecord(id);
+    const note=record?validateNote(JSON.parse(await decrypt(key,base64ToArray(record.iv),base64ToArray(record.ciphertext)))):null;
+    if(generation!==sessionGeneration||activeEdit?.id===id||enqueueWrite.has(id))return;
+    if(note&&note.id!==id)throw new Error('note.invalid');
+    notes=notes.filter(n=>n.id!==id);
+    if(note){notes.push(note);knownVersions.set(id,record.updatedAt);}else knownVersions.delete(id);
+    renderCurrentView();
+  }catch{if(cryptoKey&&!activeEdit){await loadNotes();renderCurrentView();}}
 }
 
 export function getNotes() {

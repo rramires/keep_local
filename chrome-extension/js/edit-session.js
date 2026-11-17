@@ -1,11 +1,13 @@
 export function serialQueue() {
   const pending=new Map();
-  return (id,action)=>{
+  const enqueue=(id,action)=>{
     const result=(pending.get(id)||Promise.resolve()).catch(()=>{}).then(action);
     pending.set(id,result);
     result.finally(()=>{if(pending.get(id)===result)pending.delete(id);}).catch(()=>{});
     return result;
   };
+  enqueue.has=id=>pending.has(id);
+  return enqueue;
 }
 export function createEditSession({capture,save,delay=2000}) {
   let timer,dirty=false,ended=false,version=0,running=Promise.resolve(true);
