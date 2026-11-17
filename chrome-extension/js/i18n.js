@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'markdown.unavailable': 'Safe Markdown preview is unavailable. Showing plain text.',
   "validation.common": "Avoid common passwords and repeated characters.",
   "auth.passphraseHint": "Use a long, random passphrase. Uppercase letters and symbols are optional.",
   "password.strength.weak": "Too short or too common",
@@ -168,6 +169,7 @@ const en = {
 };
 
 const ptBR = {
+  'markdown.unavailable': 'A prévia segura de Markdown está indisponível. Exibindo texto simples.',
   "validation.common": "Evite senhas comuns e caracteres repetidos.",
   "auth.passphraseHint": "Use uma frase-senha longa e aleatória. Maiúsculas e símbolos são opcionais.",
   "password.strength.weak": "Muito curta ou muito comum",

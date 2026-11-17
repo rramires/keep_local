@@ -1,3 +1,4 @@
+import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
 import { clearSession, storeSessionKey } from './session.js';
 import { createEditSession, serialQueue, limitText } from './edit-session.js';
@@ -94,7 +95,7 @@ function renderAppShell() {
         <div class="header-search">
           <div class="search-container">
             <span class="search-icon">${icons.search}</span>
-            <input type="text" placeholder="${t('header.search')}" id="search-input" autocomplete="off">
+            <input type="text" placeholder="${t('header.search')}" id="search-input" autocomplete="off" spellcheck="false" autocapitalize="off">
             <button class="icon-btn search-clear" id="search-clear" data-tooltip="${t('header.clearSearch')}">
               ${icons.close}
             </button>
@@ -671,8 +672,8 @@ function renderNewNoteBar() {
         </div>
       </div>
       <div class="new-note-expanded">
-        <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" autocomplete="off">
-        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1"></textarea>
+        <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1" autocomplete="off" spellcheck="false" autocapitalize="off"></textarea>
         <div class="new-note-toolbar">
           <div class="toolbar-left">
             <button class="icon-btn" data-tooltip="${t('modal.color')}" id="new-note-color-btn">${icons.palette}</button>
@@ -801,13 +802,13 @@ function openTextModal(note) {
 
   modal.innerHTML = `
     <div class="modal-header">
-      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
+      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off" spellcheck="false" autocapitalize="off">
       <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? t('modal.unpin') : t('modal.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
     </div>
     <div class="modal-body">
-      <textarea class="note-editor" placeholder="${t('textModal.placeholder')}" id="modal-editor">${escapeHTMLString(note.content || '')}</textarea>
+      <textarea class="note-editor" placeholder="${t('textModal.placeholder')}" id="modal-editor" autocomplete="off" spellcheck="false" autocapitalize="off">${escapeHTMLString(note.content || '')}</textarea>
       <div class="note-preview hidden" id="modal-preview"></div>
     </div>
     <div class="modal-footer">
@@ -909,9 +910,7 @@ function openTextModal(note) {
     mdToggle.classList.toggle('active', previewMode);
 
     if (previewMode) {
-      let rendered = window.marked ? window.marked.parse(editor.value || '') : escapeHTMLString(editor.value || '');
-      if (window.DOMPurify) rendered = window.DOMPurify.sanitize(rendered);
-      preview.innerHTML = rendered;
+      renderMarkdown(preview,editor.value||'');
       editor.classList.add('hidden');
       preview.classList.remove('hidden');
     } else {
@@ -1033,7 +1032,7 @@ function renderTodoModalContent(note) {
       <div class="todo-item ${isDone ? '' : ''}" data-task-id="${escapeAttr(task.id)}" draggable="true">
         <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
         <span class="todo-checkbox ${checkedClass}" data-task-id="${escapeAttr(task.id)}"></span>
-        <input class="todo-text ${textClass}" value="${escapeAttr(task.text)}" data-task-id="${escapeAttr(task.id)}" ${isDone ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
+        <input class="todo-text ${textClass}" value="${escapeAttr(task.text)}" data-task-id="${escapeAttr(task.id)}" ${isDone ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''} autocomplete="off" spellcheck="false" autocapitalize="off">
         <span class="todo-item-delete" data-task-id="${escapeAttr(task.id)}" title="${t('todo.deleteTask')}">✕</span>
       </div>
     `;
@@ -1045,7 +1044,7 @@ function renderTodoModalContent(note) {
         <div class="todo-item subitem" data-task-id="${escapeAttr(child.id)}" draggable="true">
           <span class="drag-handle" title="${t('todo.drag')}">⠿</span>
           <span class="todo-checkbox ${childChecked}" data-task-id="${escapeAttr(child.id)}"></span>
-          <input class="todo-text ${childTextClass}" value="${escapeAttr(child.text)}" data-task-id="${escapeAttr(child.id)}" ${child.done ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''}>
+          <input class="todo-text ${childTextClass}" value="${escapeAttr(child.text)}" data-task-id="${escapeAttr(child.id)}" ${child.done ? 'style="text-decoration:line-through; color:var(--text-disabled)"' : ''} autocomplete="off" spellcheck="false" autocapitalize="off">
           <span class="todo-item-delete" data-task-id="${escapeAttr(child.id)}" title="${t('todo.deleteTask')}">✕</span>
         </div>
       `;
@@ -1056,7 +1055,7 @@ function renderTodoModalContent(note) {
 
   modal.innerHTML = `
     <div class="modal-header">
-      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off">
+      <input class="modal-title-input" placeholder="${t('modal.titlePlaceholder')}" value="${escapeAttr(note.title || '')}" id="modal-title" autocomplete="off" spellcheck="false" autocapitalize="off">
       <button class="icon-btn modal-pin-btn ${note.pinned ? 'pinned' : ''}" id="modal-pin" data-tooltip="${note.pinned ? t('modal.unpin') : t('modal.pin')}">
         ${note.pinned ? icons.pin_filled : icons.pin}
       </button>
@@ -1075,7 +1074,7 @@ function renderTodoModalContent(note) {
         </div>
         <div class="todo-add">
           <span class="add-icon">+</span>
-          <input placeholder="${t('todo.addPlaceholder')}" id="add-task-input" autocomplete="off">
+          <input placeholder="${t('todo.addPlaceholder')}" id="add-task-input" autocomplete="off" spellcheck="false" autocapitalize="off">
         </div>
       </div>
 
@@ -1455,7 +1454,7 @@ function openLabelsPickerModal(note) {
         </div>`;
       }).join('')}
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:4px;">
-        <input placeholder="${t('labels.newLabel')}" id="new-label-input" style="flex:1;border:none;border-bottom:1px solid var(--border-color);background:transparent;padding:4px;font-size:13px;color:var(--text-primary);">
+        <input placeholder="${t('labels.newLabel')}" id="new-label-input" style="flex:1;border:none;border-bottom:1px solid var(--border-color);background:transparent;padding:4px;font-size:13px;color:var(--text-primary);" autocomplete="off" spellcheck="false" autocapitalize="off">
       </div>
     `;
   }
@@ -1552,13 +1551,13 @@ function openLabelsManager() {
         ${labels.map(l => `
           <div class="label-row" data-label="${escapeAttr(l)}">
             <span class="label-icon">${icons.label}</span>
-            <input class="label-name-input" value="${escapeAttr(l)}" data-old="${escapeAttr(l)}">
+            <input class="label-name-input" value="${escapeAttr(l)}" data-old="${escapeAttr(l)}" autocomplete="off" spellcheck="false" autocapitalize="off">
             <button class="icon-btn label-delete-btn" data-tooltip="${t('modal.delete')}" data-label="${escapeAttr(l)}">${icons.delete_icon}</button>
           </div>
         `).join('')}
         <div class="label-add-row" id="add-label-row">
           <span style="font-size:18px;">+</span>
-          <input placeholder="${t('labels.newLabel')}" id="add-label-input" style="flex:1;border:none;background:transparent;font-size:14px;padding:4px;color:var(--text-primary);">
+          <input placeholder="${t('labels.newLabel')}" id="add-label-input" style="flex:1;border:none;background:transparent;font-size:14px;padding:4px;color:var(--text-primary);" autocomplete="off" spellcheck="false" autocapitalize="off">
         </div>
       </div>
     </div>
