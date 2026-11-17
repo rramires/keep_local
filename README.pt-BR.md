@@ -160,3 +160,7 @@ atual para a próxima. Contador e hash são gravados juntos, recusando pontas
 concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
 importado como próximo pai. São campos de linhagem reservados: não há merge,
 sincronização, escrita em nuvem nem proteção contra rollback nesta fase.
+
+Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
+Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).
+O gate de unidade confere `lib/SHA256SUMS`.

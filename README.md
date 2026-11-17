@@ -179,3 +179,7 @@ The counter and parent are committed together, with a compare-and-swap that
 rejects concurrent export tips. A v2 import resumes its counter and records the
 imported payload's exact hash as the next parent. These fields reserve lineage
 only; they perform no merge, cloud write, rollback protection or synchronization.
+
+Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
+Versions, upstream release review and download integrity are recorded in
+[`lib/VENDOR.md`](lib/VENDOR.md); `lib/SHA256SUMS` is verified by the unit gate.
