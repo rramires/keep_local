@@ -1,7 +1,7 @@
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
-import { getAllNoteRecords, getAllMetaRecords, replaceVault, getMeta, readVault, recordExport } from './db.js';
-import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, decrypt, base64ToArray, arrayToBase64 } from './crypto.js';
+import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload } from './db.js';
+import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
 import { getSessionKey, getSessionVaultId, storeSessionKey } from './session.js';
@@ -9,6 +9,11 @@ import { t } from './i18n.js';
 import { MAX_BACKUP_BYTES, validateV1, decryptRecords } from './backup-format.js';
 
 let unsavedChanges = false;
+const drafts=new Set();
+export function setDraftDirty(id,dirty){if(dirty)drafts.add(id);else drafts.delete(id);}
+export function clearDrafts(){drafts.clear();}
+export async function refreshBackupState(){unsavedChanges=!!await getMeta('dirtySinceBackup');}
+
 
 export function setUnsaved() {
   unsavedChanges = true;
@@ -19,12 +24,13 @@ export function clearUnsaved() {
 }
 
 export function isUnsaved() {
-  return unsavedChanges;
+  return unsavedChanges||drafts.size>0;
 }
 
-export function initBeforeUnload() {
+export async function initBeforeUnload() {
+  await refreshBackupState();
   window.addEventListener('beforeunload', (e) => {
-    if (unsavedChanges) {
+    if (isUnsaved()) {
       e.preventDefault();
       e.returnValue = '';
     }
@@ -44,7 +50,8 @@ export async function exportBackup() {
   const blob=new Blob([bytes],{type:'application/octet-stream'}),url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`keeplocal-backup-${new Date().toISOString().slice(0,10)}.keeplocal`;
   document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
-  unsavedChanges=false;
+  const clean=await acknowledgeDownload(meta,Date.now());
+  unsavedChanges=!clean;
 }
 
 export async function importBackup(file, password) {

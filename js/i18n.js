@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'backup.failed': 'Backup could not be exported. Your changes remain pending; try again.',
   "vault.changed": "The vault changed in another tab. Unlock the current vault before editing.",
   "note.conflict": "Another tab saved a newer version. Your draft is still open.",
   "note.saveAsNew": "Save as a new note",
@@ -125,7 +126,7 @@ const en = {
 
   // Toasts
   'toast.sessionExpired': 'Session expired. Please log in again.',
-  'toast.backupExported': 'Backup exported successfully!',
+  'toast.backupExported': 'Download started. Verify that the file was saved; KeepLocal cannot confirm it.',
   'toast.noteArchived': 'Note archived',
   'toast.noteUnarchived': 'Note unarchived',
   'toast.noteToTrash': 'Note moved to trash',
@@ -182,6 +183,7 @@ const en = {
 };
 
 const ptBR = {
+  'backup.failed': 'Não foi possível exportar o backup. Suas alterações continuam pendentes; tente novamente.',
   "vault.changed": "O cofre foi alterado em outra aba. Desbloqueie o cofre atual antes de editar.",
   "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",
   "note.saveAsNew": "Salvar como nova nota",
@@ -302,7 +304,7 @@ const ptBR = {
 
   // Toasts
   'toast.sessionExpired': 'Sessão expirada. Faça login novamente.',
-  'toast.backupExported': 'Backup exportado com sucesso!',
+  'toast.backupExported': 'Download iniciado. Confira se o arquivo foi salvo; o KeepLocal não consegue confirmar.',
   'toast.noteArchived': 'Nota arquivada',
   'toast.noteUnarchived': 'Nota desarquivada',
   'toast.noteToTrash': 'Nota movida para a lixeira',

@@ -9,7 +9,7 @@ export function serialQueue() {
   enqueue.has=id=>pending.has(id);
   return enqueue;
 }
-export function createEditSession({capture,save,delay=2000}) {
+export function createEditSession({capture,save,delay=2000,onDirty=()=>{}}) {
   let timer,dirty=false,ended=false,version=0,running=Promise.resolve(true);
   const flush=()=>{
     clearTimeout(timer);
@@ -18,13 +18,13 @@ export function createEditSession({capture,save,delay=2000}) {
     running=running.then(async()=>{
       if(ended)return true;
       const ok=await save(snapshot);
-      if(ok&&version===current)dirty=false;
+      if(ok&&version===current){dirty=false;onDirty(false);}
       return ok;
     });
     return running;
   };
-  return {schedule(){if(ended)return;dirty=true;version++;clearTimeout(timer);timer=setTimeout(flush,delay);},flush,
-    cancel(){ended=true;dirty=false;clearTimeout(timer);},isDirty:()=>dirty,capture};
+  return {schedule(){if(ended)return;dirty=true;onDirty(true);version++;clearTimeout(timer);timer=setTimeout(flush,delay);},flush,
+    cancel(){ended=true;dirty=false;onDirty(false);clearTimeout(timer);},isDirty:()=>dirty,capture};
 }
 export function limitText(element,maxBytes,onLimit) {
   let previous=element.value;

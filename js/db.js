@@ -32,6 +32,17 @@ export function openDB() {
 // --- Meta store ---
 
 export async function saveMeta(key, value) {
+  if(['lang','theme'].includes(key)){
+    const changed=await vaultTransaction(({meta},done,fail)=>{
+      const request=meta.getAll();request.onsuccess=()=>{try{
+        const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
+        meta.put({key,value});const dirty=!!values.salt&&values[key]!==value;
+        if(dirty)markVaultDirty(meta,values);done(dirty);
+      }catch(error){fail(error);}};
+    });
+    if(changed)(await import('./backup.js')).setUnsaved();
+    return;
+  }
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('meta', 'readwrite');
@@ -238,5 +249,17 @@ export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt}) {
       markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
+  });
+}
+
+export function acknowledgeDownload(expected,at) {
+  return vaultTransaction(({meta},done,fail)=>{
+    const request=meta.getAll();request.onsuccess=()=>{try{
+      const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
+      if(values.vaultId!==expected.vaultId)throw new Error('vault.changed');
+      meta.put({key:'lastBackupAt',value:at});
+      const clean=(values.revision||0)===(expected.revision||0);
+      if(clean)meta.put({key:'dirtySinceBackup',value:false});done(clean);
+    }catch(error){fail(error);}};
   });
 }

@@ -11,6 +11,7 @@ export function createHistory(initialState) {
   return {
     clear() { states.length=0;pointer=-1; },
     push(state) {
+      if(JSON.stringify(state)===JSON.stringify(states[pointer]))return;
       // Remove any redo states beyond current pointer
       states.splice(pointer + 1);
       states.push(deepClone(state));

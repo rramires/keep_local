@@ -1,3 +1,4 @@
+import { setDraftDirty, clearDrafts, refreshBackupState } from './backup.js';
 import { purgeTrash } from './trash.js';
 import { ensureVaultId, getMeta } from './db.js';
 import { getSessionVaultId, setSessionVaultId } from './session.js';
@@ -26,6 +27,10 @@ let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
 let loadedVaultId=null;
+let newDraft={title:'',content:'',expanded:false};
+let barSaving=null;
+const newTodoIds=new Set();
+let searchText='';
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
@@ -43,7 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await openDB();
   await initI18n();
   await initTheme();
-  initBeforeUnload();
+  await initBeforeUnload();
   document.title = t('app.title');
 
   // Try to restore session
@@ -65,6 +70,7 @@ function teardownSession() {
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
+  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;
 }
 function showAuth(message='') {
@@ -92,6 +98,7 @@ async function showApp() {
   renderAppShell();
   await loadNotes();
   await purgeExpiredTrash();
+  await refreshBackupState();
   renderCurrentView();
 }
 
@@ -135,7 +142,7 @@ function renderAppShell() {
       <!-- Sidebar -->
       <nav class="sidebar" id="sidebar">
         <div class="sidebar-nav">
-          <div class="sidebar-item active" data-view="notes">
+          <div class="sidebar-item ${currentView==='notes'?'active':''}" data-view="notes">
             <span class="sidebar-icon">${icons.lightbulb}</span>
             <span class="sidebar-item-text">${t('sidebar.notes')}</span>
           </div>
@@ -147,11 +154,11 @@ function renderAppShell() {
             <span class="sidebar-item-text">${t('sidebar.editLabels')}</span>
           </div>
           <div class="sidebar-divider"></div>
-          <div class="sidebar-item" data-view="archive">
+          <div class="sidebar-item ${currentView==='archive'?'active':''}" data-view="archive">
             <span class="sidebar-icon">${icons.archive}</span>
             <span class="sidebar-item-text">${t('sidebar.archive')}</span>
           </div>
-          <div class="sidebar-item" data-view="trash">
+          <div class="sidebar-item ${currentView==='trash'?'active':''}" data-view="trash">
             <span class="sidebar-icon">${icons.delete_icon}</span>
             <span class="sidebar-item-text">${t('sidebar.trash')}</span>
           </div>
@@ -179,6 +186,7 @@ function renderAppShell() {
     </div>
   `;
 
+  document.getElementById('search-input').value=searchText;
   initAppListeners();
 }
 
@@ -226,7 +234,7 @@ function initAppListeners() {
 
   // Lock
   document.getElementById('lock-btn').addEventListener('click', async () => {
-    if(!await closeModal())return;
+    if(!await flushNewNoteBar()||!await closeModal())return;
     logout();
   });
 
@@ -248,13 +256,14 @@ function initAppListeners() {
   let searchTimeout;
 
   searchInput.addEventListener('input', () => {
+    searchText=searchInput.value;
     clearTimeout(searchTimeout);
     searchClear.classList.toggle('visible', searchInput.value.length > 0);
     searchTimeout = scope.later(() => renderCurrentView(), 300);
   });
 
   searchClear.addEventListener('click', () => {
-    searchInput.value = '';
+    searchInput.value = '';searchText='';
     searchClear.classList.remove('visible');
     renderCurrentView();
   });
@@ -262,8 +271,8 @@ function initAppListeners() {
   // Backup
   document.getElementById('backup-btn').addEventListener('click', async () => {
     const { exportBackup } = await import('./backup.js');
-    await exportBackup();
-    showToast(t('toast.backupExported'));
+    if(!await flushNewNoteBar()||activeEdit&&!await activeEdit.flush())return;
+    try{await exportBackup();showToast(t('toast.backupExported'));}catch(error){showToast(t('backup.failed'));}
     closeMobileSidebar();
   });
 
@@ -349,6 +358,7 @@ export function saveNote(note) {
 }
 async function saveFromUI(note) {
   if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
+  if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
   try { await saveNote(note);return true; }
   catch(error){
     if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
@@ -708,7 +718,7 @@ function initCardListeners() {
 
 function renderNewNoteBar() {
   return `
-    <div class="new-note-bar" id="new-note-bar">
+    <div class="new-note-bar ${newDraft.expanded?'expanded':''}" id="new-note-bar">
       <div class="new-note-collapsed">
         <span class="new-note-placeholder">${t('notes.createNote')}</span>
         <div class="new-note-actions">
@@ -716,12 +726,11 @@ function renderNewNoteBar() {
         </div>
       </div>
       <div class="new-note-expanded">
-        <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" autocomplete="off" spellcheck="false" autocapitalize="off">
-        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1" autocomplete="off" spellcheck="false" autocapitalize="off"></textarea>
+        <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" value="${escapeAttr(newDraft.title)}" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1" autocomplete="off" spellcheck="false" autocapitalize="off">${escapeHTMLString(newDraft.content)}</textarea>
         <div class="new-note-toolbar">
           <div class="toolbar-left">
-            <button class="icon-btn" data-tooltip="${t('modal.color')}" id="new-note-color-btn">${icons.palette}</button>
-            <button class="icon-btn" data-tooltip="${t('modal.labels')}" id="new-note-label-btn">${icons.label}</button>
+
           </div>
           <div class="toolbar-right">
             <button class="btn-secondary" id="new-note-close">${t('modal.close')}</button>
@@ -732,70 +741,35 @@ function renderNewNoteBar() {
   `;
 }
 
+async function flushNewNoteBar() {
+  if(barSaving)return barSaving;
+  const bar=document.getElementById('new-note-bar');
+  if(bar){newDraft.title=bar.querySelector('#new-note-title').value;newDraft.content=bar.querySelector('#new-note-body').value;}
+  if(!newDraft.title.trim()&&!newDraft.content.trim()){newDraft={title:'',content:'',expanded:false};setDraftDirty('bar',false);return true;}
+  const draft={...newDraft};
+  bar?.querySelectorAll('input,textarea,button').forEach(e=>e.disabled=true);
+  barSaving=(async()=>{
+    const ok=await createNewNote('text',draft.title,draft.content,false);
+    if(ok){newDraft={title:'',content:'',expanded:false};setDraftDirty('bar',false);if(cryptoKey)renderCurrentView();}
+    else bar?.querySelectorAll('input,textarea,button').forEach(e=>e.disabled=false);
+    return ok;
+  })().finally(()=>{barSaving=null;});
+  return barSaving;
+}
 function initNewNoteBar() {
-  const bar = document.getElementById('new-note-bar');
-  if (!bar) return;
-
-  const collapsed = bar.querySelector('.new-note-collapsed');
-  const titleInput = document.getElementById('new-note-title');
-  const bodyInput = document.getElementById('new-note-body');
-  const closeBtn = document.getElementById('new-note-close');
-  const newTodoBtn = document.getElementById('new-todo-btn');
-
-  // Click on collapsed bar → expand for text note
-  collapsed.addEventListener('click', (e) => {
-    if (e.target.closest('#new-todo-btn')) return;
-    bar.classList.add('expanded');
-    titleInput.focus();
-  });
-
-  // New todo button
-  newTodoBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    createNewNote('todo');
-  });
-
-  // Close new note bar
-  closeBtn.addEventListener('click', async () => {
-    const title = titleInput.value.trim();
-    const body = bodyInput.value.trim();
-
-    if (title || body) {
-      if(!await createNewNote('text', title, body))return;
-    }
-
-    bar.classList.remove('expanded');
-    titleInput.value = '';
-    bodyInput.value = '';
-  });
-
-  limitText(bodyInput,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));
-  titleInput.maxLength=4096;
-  // Auto-resize textarea
-  bodyInput.addEventListener('input', () => {
-    bodyInput.style.height = 'auto';
-    bodyInput.style.height = bodyInput.scrollHeight + 'px';
-  });
-
-  // Click outside to close
-  scope.listen('click', async (e) => {
-    if (!bar.classList.contains('expanded')) return;
-    if (bar.contains(e.target)) return;
-
-    const title = titleInput.value.trim();
-    const body = bodyInput.value.trim();
-
-    if (title || body) {
-      if(!await createNewNote('text', title, body))return;
-    }
-
-    bar.classList.remove('expanded');
-    titleInput.value = '';
-    bodyInput.value = '';
-  }, 'new-note-outside');
+  const bar=document.getElementById('new-note-bar');if(!bar)return;
+  const title=bar.querySelector('#new-note-title'),body=bar.querySelector('#new-note-body');
+  const capture=()=>{newDraft={title:title.value,content:body.value,expanded:bar.classList.contains('expanded')};setDraftDirty('bar',!!(title.value||body.value));};
+  bar.querySelector('.new-note-collapsed').addEventListener('click',e=>{if(e.target.closest('#new-todo-btn'))return;bar.classList.add('expanded');newDraft.expanded=true;title.focus();});
+  bar.querySelector('#new-todo-btn').addEventListener('click',async e=>{e.stopPropagation();if(await flushNewNoteBar())await createNewNote('todo');});
+  bar.querySelector('#new-note-close').addEventListener('click',async()=>{capture();if(await flushNewNoteBar())bar.classList.remove('expanded');});
+  limitText(body,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));title.maxLength=4096;
+  for(const input of [title,body])input.addEventListener('input',capture);
+  body.addEventListener('input',()=>{body.style.height='auto';body.style.height=body.scrollHeight+'px';});
+  scope.listen('click',e=>{if(!cryptoKey||!bar.isConnected||!bar.classList.contains('expanded')||bar.contains(e.target)||e.target.closest('#search-input,#search-clear,#lang-toggle'))return;capture();void flushNewNoteBar();},'new-note-outside');
 }
 
-async function createNewNote(type, title = '', content = '') {
+async function createNewNote(type, title = '', content = '', render=true) {
   const { generateUUID } = await import('./utils.js');
 
   const note = {
@@ -809,7 +783,7 @@ async function createNewNote(type, title = '', content = '') {
     updatedAt: Date.now(),
     deletedAt: null,
     archivedAt: null,
-    order: notes.filter(n => !n.deletedAt && !n.archivedAt).length,
+    order: Math.min(0,...notes.filter(n=>!n.deletedAt&&!n.archivedAt).map(n=>n.order))-1,
   };
 
   if (type === 'text') {
@@ -818,13 +792,8 @@ async function createNewNote(type, title = '', content = '') {
     note.tasks = [];
   }
 
-  if (!await saveFromUI(note)) return false;
-
-  if (type === 'todo') {
-    openNoteModal(note);
-  } else {
-    renderCurrentView();
-  }
+  if(type==='todo'){newTodoIds.add(note.id);await openNoteModal(note);}
+  else {if(!await saveFromUI(note))return false;if(render)renderCurrentView();}
   return true;
 }
 
@@ -939,7 +908,7 @@ function openTextModal(note) {
   const capture=()=>({...note,title:titleInput.value,content:editor.value});
   limitText(editor,MAX_NOTE_BYTES-16384,()=>showToast(t('note.tooLarge')));
   titleInput.maxLength=4096;
-  const edit=createEditSession({capture,save:async snapshot=>{
+  const edit=createEditSession({capture,onDirty:dirty=>setDraftDirty('editor',dirty),save:async snapshot=>{
     const ok=await saveFromUI(snapshot);
     if(ok){Object.assign(note,snapshot);updateModalTimestamp(note);history.push({title:titleInput.value,content:editor.value});updateUndoRedoBtns();}
     return ok;
@@ -1023,6 +992,8 @@ function openTextModal(note) {
   });
 }
 
+function isEmptyTodo(note){return note.type==='todo'&&!note.title.trim()&&!(note.tasks||[]).some(task=>task.text.trim());}
+
 function openTodoModal(note) {
   const modal = document.getElementById('modal-card');
   const colorAttr = note.color && note.color !== 'default' ? `data-color="${escapeAttr(note.color)}"` : '';
@@ -1035,9 +1006,15 @@ function openTodoModal(note) {
   todoHistory = createHistory({ title: note.title || '', tasks: deepClone(note.tasks || []) });
 
   renderTodoModalContent(note);
-  activeEdit={id:note.id,capture:()=>note,cancel(){},cleanup:()=>todoHistory?.clear(),flush:async()=>{
+  activeEdit={id:note.id,capture:()=>note,cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
     const title=document.getElementById('modal-title');if(title)note.title=title.value;
     document.querySelectorAll('#modal-card .todo-text').forEach(input=>{const task=note.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;});
+    const pending=document.getElementById('add-task-input')?.value.trim();
+    if(pending)note.tasks.push({id:crypto.randomUUID(),text:pending,done:false,order:note.tasks.length,parentId:null});
+    if(newTodoIds.has(note.id)&&isEmptyTodo(note)&&knownVersions.has(note.id)){
+      const{guardedNoteWrite}=await import('./db.js');
+      try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id)});notes=notes.filter(n=>n.id!==note.id);knownVersions.delete(note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
+    }
     return saveFromUI(note);
   }};
 
@@ -1157,6 +1134,7 @@ function renderTodoModalContent(note) {
     </div>
   `;
 
+  modal.querySelectorAll('input').forEach(input=>input.addEventListener('input',()=>setDraftDirty('editor',true)));
   initTodoModalListeners(note);
 }
 
@@ -1403,7 +1381,7 @@ async function closeModal() {
   const edit=activeEdit;
   if(edit && !await edit.flush())return false;
   if(edit!==activeEdit)return false;
-  activeEdit=null;edit?.cancel();edit?.cleanup?.();todoHistory=null;
+  activeEdit=null;edit?.cancel();edit?.cleanup?.();todoHistory=null;setDraftDirty('editor',false);
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.getElementById('modal-overlay')?.classList.remove('open');
@@ -1618,24 +1596,31 @@ function openLabelsManager() {
   // Rename label
   document.querySelectorAll('.label-name-input').forEach(input => {
     input.addEventListener('blur', async () => {
+      const row=input.closest('.label-row');
+      row._renaming=(async()=>{
       const oldName = input.dataset.old;
       const newName = input.value.trim();
       if (newName && newName !== oldName) {
+        row.querySelector('.label-delete-btn').dataset.label=newName;input.dataset.old=newName;
+        if(currentLabel===oldName)currentLabel=newName;
         for (const note of notes) {
           if (note.labels?.includes(oldName)) {
             const idx = note.labels.indexOf(oldName);
-            note.labels[idx] = newName;
+            note.labels[idx] = newName;note.labels=[...new Set(note.labels)];
             if (!await saveFromUI(note)) return false;
           }
         }
         input.dataset.old = newName;
       }
+      })();
+      await row._renaming;
     });
   });
 
   // Delete label
   document.querySelectorAll('.label-delete-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
+      await btn.closest('.label-row')._renaming;
       const label = btn.dataset.label;
       for (const note of notes) {
         if (note.labels?.includes(label)) {
@@ -1772,13 +1757,10 @@ function initCardDragDrop() {
         const targetNote = notes.find(n => n.id === targetId);
         if (!draggedNote || !targetNote) return;
 
-        // Swap order
-        const tempOrder = draggedNote.order;
-        draggedNote.order = targetNote.order;
-        targetNote.order = tempOrder;
-
-        if (!await saveFromUI(draggedNote)) return false;
-        if (!await saveFromUI(targetNote)) return false;
+        const ordered=[...grid.querySelectorAll('.note-card')].map(c=>notes.find(n=>n.id===c.dataset.id)).filter(Boolean);
+        const moved=ordered.splice(ordered.findIndex(n=>n.id===draggedId),1)[0];
+        ordered.splice(ordered.findIndex(n=>n.id===targetId),0,moved);
+        for(const[index,n]of ordered.entries()){n.order=index;if(!await saveFromUI(n))return;}
         renderCurrentView();
       });
     });
