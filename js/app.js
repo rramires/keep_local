@@ -1,3 +1,5 @@
+import { createScope } from './lifecycle.js';
+import { clearSession, storeSessionKey } from './session.js';
 import { createEditSession, serialQueue, limitText } from './edit-session.js';
 import { MAX_NOTE_BYTES } from './note-model.js';
 import { validateNote } from './note-model.js';
@@ -14,6 +16,7 @@ import { t, tp, getLang, setLang, initI18n } from './i18n.js';
 // App state
 let todoHistory = null;
 let activeEdit=null;
+let scope=null;
 let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 let cryptoKey = null;
@@ -29,6 +32,7 @@ const appContainer = document.getElementById('app-container');
 // --- Bootstrap ---
 
 document.addEventListener('DOMContentLoaded', async () => {
+  try { sessionStorage.removeItem('keeplocal_session_key');sessionStorage.removeItem('keeplocal_session_ts'); } catch {}
   await openDB();
   await initI18n();
   await initTheme();
@@ -47,27 +51,29 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // --- Auth View ---
 
-function showAuth() {
-  stopSessionTimer();
-  sessionGeneration++;activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
-  cryptoKey = null;
-  notes = [];
-  appContainer.innerHTML = '';
-  renderAuthView(appContainer, {
-    onAuthenticated: async (key) => {
-      cryptoKey = key;
-      await showApp();
-    }
-  });
+function teardownSession() {
+  stopSessionTimer();clearSession();scope?.dispose();scope=null;
+  sessionGeneration++;
+  activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
+  const modal=document.querySelector('.modal-card');
+  if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
+  document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
+  cryptoKey=null;notes=[];unreadableCount=0;
+}
+function showAuth(message='') {
+  teardownSession();
+  appContainer.innerHTML='';
+  renderAuthView(appContainer,{onAuthenticated:async key=>{
+    cryptoKey=key;storeSessionKey(key);await showApp();
+  }});
+  const error=document.getElementById('login-error');if(error)error.textContent=message;
 }
 
 // --- App View ---
 
 async function showApp() {
-  startSessionTimer(() => {
-    showToast(t('toast.sessionExpired'));
-    showAuth();
-  });
+  scope?.dispose();scope=createScope();
+  startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
 
   renderAppShell();
   await loadNotes();
@@ -188,6 +194,7 @@ function initAppListeners() {
 
   // Language toggle
   document.getElementById('lang-toggle').addEventListener('click', async () => {
+    if(!await closeModal())return;
     const newLang = getLang() === 'pt-BR' ? 'en' : 'pt-BR';
     await setLang(newLang);
     document.title = t('app.title');
@@ -219,7 +226,7 @@ function initAppListeners() {
   searchInput.addEventListener('input', () => {
     clearTimeout(searchTimeout);
     searchClear.classList.toggle('visible', searchInput.value.length > 0);
-    searchTimeout = setTimeout(() => renderCurrentView(), 300);
+    searchTimeout = scope.later(() => renderCurrentView(), 300);
   });
 
   searchClear.addEventListener('click', () => {
@@ -250,14 +257,14 @@ function initAppListeners() {
   });
 
   // Escape key to close modal
-  document.addEventListener('keydown', (e) => {
+  scope.listen('keydown', (e) => {
     if (e.key === 'Escape') {
       const modal = document.getElementById('modal-overlay');
       if (modal?.classList.contains('open')) {
         closeModal();
       }
     }
-  });
+  }, 'escape');
 }
 
 function closeMobileSidebar() {
@@ -726,7 +733,7 @@ function initNewNoteBar() {
   });
 
   // Click outside to close
-  document.addEventListener('click', async (e) => {
+  scope.listen('click', async (e) => {
     if (!bar.classList.contains('expanded')) return;
     if (bar.contains(e.target)) return;
 
@@ -740,7 +747,7 @@ function initNewNoteBar() {
     bar.classList.remove('expanded');
     titleInput.value = '';
     bodyInput.value = '';
-  });
+  }, 'new-note-outside');
 }
 
 async function createNewNote(type, title = '', content = '') {
@@ -874,7 +881,7 @@ function openTextModal(note) {
       redoBtn.click();
     }
   };
-  document.addEventListener('keydown', keyHandler);
+  scope.listen('keydown', keyHandler);
   // Store handler ref to remove on close
   modal._keyHandler = keyHandler;
 
@@ -1004,7 +1011,7 @@ function openTodoModal(note) {
       document.getElementById('modal-redo-btn')?.click();
     }
   };
-  document.addEventListener('keydown', keyHandler);
+  scope.listen('keydown', keyHandler);
   modal._keyHandler = keyHandler;
 }
 
@@ -1411,8 +1418,8 @@ function openColorPicker(anchorBtn, note) {
   });
 
   // Close on click outside
-  setTimeout(() => {
-    document.addEventListener('click', function handler(e) {
+  scope.later(() => {
+    scope.listen('click', function handler(e) {
       if (!popup.contains(e.target) && e.target !== anchorBtn) {
         popup.remove();
         document.removeEventListener('click', handler);
@@ -1489,8 +1496,8 @@ function openLabelsPickerModal(note) {
     }
   });
 
-  setTimeout(() => {
-    document.addEventListener('click', function handler(e) {
+  scope.later(() => {
+    scope.listen('click', function handler(e) {
       if (!popup.contains(e.target) && e.target !== btn) {
         popup.remove();
         document.removeEventListener('click', handler);
@@ -1667,12 +1674,12 @@ function openCardMenu(anchorBtn, note) {
       showToast(t('toast.noteDuplicated'));
     } else if (action === 'labels') {
       openNoteModal(note);
-      setTimeout(() => openLabelsPickerModal(note), 100);
+      scope.later(() => openLabelsPickerModal(note), 100);
     }
   });
 
-  setTimeout(() => {
-    document.addEventListener('click', function handler(e) {
+  scope.later(() => {
+    scope.listen('click', function handler(e) {
       if (!popup.contains(e.target)) {
         popup.remove();
         document.removeEventListener('click', handler);
@@ -1901,9 +1908,9 @@ function showToast(message, actionText, onAction) {
 
   container.appendChild(toast);
 
-  setTimeout(() => {
+  scope.later(() => {
     toast.classList.add('toast-out');
-    setTimeout(() => toast.remove(), 200);
+    scope.later(() => toast.remove(), 200);
   }, 5000);
 }
 
@@ -1924,6 +1931,7 @@ function showConfirm(message) {
     `;
 
     document.body.appendChild(dialog);
+    scope.signal.addEventListener('abort',()=>resolve(false),{once:true});
 
     dialog.querySelector('#confirm-cancel').addEventListener('click', () => {
       dialog.remove();
@@ -1968,7 +1976,7 @@ function getUtils() {
       let timer;
       return (...args) => {
         clearTimeout(timer);
-        timer = setTimeout(() => fn(...args), ms);
+        timer = scope.later(() => fn(...args), ms);
       };
     },
     deepClone: (obj) => JSON.parse(JSON.stringify(obj))

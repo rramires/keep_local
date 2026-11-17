@@ -1,15 +1,11 @@
 // auth.js — Password creation/validation, session management
 
-import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
+import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
 import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck } from './db.js';
 import { t } from './i18n.js';
 
-const SESSION_KEY = 'keeplocal_session_key';
-const SESSION_TS_KEY = 'keeplocal_session_ts';
-const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-
-let sessionTimer = null;
-let onSessionExpired = null;
+import { storeSessionKey } from './session.js';
+export { storeSessionKey, getSessionKey, refreshSession, clearSession, logout, startSessionTimer, stopSessionTimer } from './session.js';
 
 // --- Password Validation ---
 
@@ -21,7 +17,7 @@ import { validatePassword } from './password-policy.js';
 export async function createAccount(password) {
   const policy=validatePassword(password);if(!policy.valid)throw new Error(policy.errors.join(' ' ));
   const salt = generateSalt();
-  const key = await deriveKey(password, salt, true);
+  const key = await deriveKey(password, salt, false);
   const keyCheck = await createKeyCheck(key);
 
   try {
@@ -42,7 +38,7 @@ export async function login(password) {
   if (!saltB64) throw new Error(t('login.noAccount'));
 
   const salt = base64ToArray(saltB64);
-  const key = await deriveKey(password, salt, true);
+  const key = await deriveKey(password, salt, false);
   const check = await getMeta('keyCheck');
   if (check) {
     if (!await verifyKeyCheck(key, check)) throw new Error(t('login.wrongPassword'));
@@ -54,82 +50,6 @@ export async function login(password) {
 
   await storeSessionKey(key);
   return key;
-}
-
-// --- Session Management ---
-
-async function storeSessionKey(key) {
-  const exported = await exportKey(key);
-  sessionStorage.setItem(SESSION_KEY, exported);
-  sessionStorage.setItem(SESSION_TS_KEY, Date.now().toString());
-}
-
-export async function getSessionKey() {
-  const exported = sessionStorage.getItem(SESSION_KEY);
-  const ts = sessionStorage.getItem(SESSION_TS_KEY);
-
-  if (!exported || !ts) return null;
-
-  const elapsed = Date.now() - parseInt(ts, 10);
-  if (elapsed > SESSION_TIMEOUT) {
-    clearSession();
-    return null;
-  }
-
-  try {
-    return await importKey(exported);
-  } catch {
-    clearSession();
-    return null;
-  }
-}
-
-export function refreshSession() {
-  if (sessionStorage.getItem(SESSION_KEY)) {
-    sessionStorage.setItem(SESSION_TS_KEY, Date.now().toString());
-  }
-}
-
-export function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
-  sessionStorage.removeItem(SESSION_TS_KEY);
-}
-
-export function logout() {
-  clearSession();
-  if (onSessionExpired) onSessionExpired();
-}
-
-export function startSessionTimer(onExpire) {
-  onSessionExpired = onExpire;
-  resetSessionTimer();
-
-  const events = ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'];
-  events.forEach(evt => {
-    document.addEventListener(evt, handleActivity, { passive: true });
-  });
-}
-
-export function stopSessionTimer() {
-  clearTimeout(sessionTimer);
-  const events = ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'];
-  events.forEach(evt => {
-    document.removeEventListener(evt, handleActivity);
-  });
-}
-
-function handleActivity() {
-  refreshSession();
-  resetSessionTimer();
-}
-
-function resetSessionTimer() {
-  clearTimeout(sessionTimer);
-  sessionTimer = setTimeout(() => {
-    clearSession();
-    stopSessionTimer();
-    if (onSessionExpired) onSessionExpired();
-  }, SESSION_TIMEOUT);
 }
 
 // --- Auth UI Rendering ---

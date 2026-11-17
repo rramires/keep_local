@@ -66,7 +66,7 @@ export async function importBackup(file, password) {
   try { backup=JSON.parse(await file.text());meta=validateV1(backup); }
   catch { throw new Error(t('backup.unrecognizedFormat')); }
   const salt=base64ToArray(meta.salt);
-  const key=await deriveKey(password,salt,true);
+  const key=await deriveKey(password,salt,false);
   if (meta.keyCheck && !await verifyKeyCheck(key,meta.keyCheck)) throw new Error(t('backup.wrongPassword'));
   if (!meta.keyCheck && !backup.notes.length && await hashPassword(password,salt)!==meta.passwordVerifier) throw new Error(t('backup.wrongPassword'));
   try { await decryptRecords(backup.notes,key); }

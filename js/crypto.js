@@ -8,7 +8,7 @@ export function generateSalt() {
   return crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
 }
 
-export async function deriveKey(password, salt, extractable = true) {
+export async function deriveKey(password, salt, extractable = false) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -52,22 +52,6 @@ export async function hashPassword(password, salt) {
   const data = enc.encode(password + arrayToBase64(salt));
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return arrayToBase64(new Uint8Array(hashBuffer));
-}
-
-export async function exportKey(key) {
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  return JSON.stringify(jwk);
-}
-
-export async function importKey(jwkString) {
-  const jwk = JSON.parse(jwkString);
-  return crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
 }
 
 export function arrayToBase64(arr) {
