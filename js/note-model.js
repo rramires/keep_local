@@ -5,7 +5,7 @@ const invalid = () => { throw Object.assign(new Error('note.invalid'), {code:'no
 const string = (v, max) => typeof v === 'string' && v.length <= max;
 const time = v => Number.isSafeInteger(v) && v >= 0;
 export function validateNote(n) {
-  if (!n || typeof n !== 'object' || Array.isArray(n) || !UUID.test(n.id) || !['text','todo'].includes(n.type)) invalid();
+  if (!n || typeof n !== 'object' || Array.isArray(n) || (typeof n.id!=='string'||!UUID.test(n.id)) || !['text','todo'].includes(n.type)) invalid();
   if (!string(n.title,4096) || !COLORS.includes(n.color) || typeof n.pinned !== 'boolean') invalid();
   if (!Array.isArray(n.labels) || n.labels.length > 100 || n.labels.some(l=>!string(l,200))) invalid();
   if (!time(n.createdAt) || !time(n.updatedAt) || !Number.isSafeInteger(n.order)) invalid();
@@ -15,7 +15,7 @@ export function validateNote(n) {
     if (!Array.isArray(n.tasks) || n.tasks.length>10000) invalid();
     const ids=new Set();
     for (const task of n.tasks) {
-      if (!task || !UUID.test(task.id) || ids.has(task.id) || !string(task.text,65536) || typeof task.done!=='boolean' || !Number.isSafeInteger(task.order) || (task.parentId!==null&&!UUID.test(task.parentId))) invalid();
+      if (!task || (typeof task.id!=='string'||!UUID.test(task.id)) || ids.has(task.id) || !string(task.text,65536) || typeof task.done!=='boolean' || !Number.isSafeInteger(task.order) || (task.parentId!==null&&(typeof task.parentId!=='string'||!UUID.test(task.parentId)))) invalid();
       ids.add(task.id);
     }
     for(const task of n.tasks)if(task.parentId && (!ids.has(task.parentId)||task.parentId===task.id||n.tasks.find(t=>t.id===task.parentId)?.parentId))invalid();

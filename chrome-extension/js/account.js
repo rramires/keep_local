@@ -2,11 +2,11 @@ import { readVault, replaceVault } from './db.js';
 import { generateSalt, deriveKey, verifyKeyCheck, createKeyCheck, encrypt, arrayToBase64, arrayBufferToBase64, base64ToArray } from './crypto.js';
 import { decryptRecords } from './backup-format.js';
 import { validatePassword } from './password-policy.js';
-import { storeSessionKey, clearSession } from './session.js';
+import { storeSessionKey, clearSession, getSessionKey, getSessionVaultId } from './session.js';
 import { publishVaultEvent } from './vault-events.js';
 import { t } from './i18n.js';
 
-export async function changePassword(currentPassword,newPassword) {
+export async function changePassword(currentPassword,newPassword,{signal}={}) {
   const policy=validatePassword(newPassword);if(!policy.valid)throw new Error(policy.errors.join(' '));
   const previous=await readVault(),meta=previous.meta;
   const current=await deriveKey(currentPassword,base64ToArray(meta.salt),false);
@@ -16,8 +16,9 @@ export async function changePassword(currentPassword,newPassword) {
   const vaultId=crypto.randomUUID();
   const next={...meta,salt:arrayToBase64(salt),keyCheck:await createKeyCheck(key),vaultId,dirtySinceBackup:true,revision:(meta.revision||0)+1};
   delete next.passwordVerifier;
-  await replaceVault({notes:records,meta:next},meta);
-  storeSessionKey(key,vaultId);publishVaultEvent('vault-replaced',{vaultId});
+  if(signal?.aborted||!await getSessionKey()||getSessionVaultId()!==meta.vaultId)throw new Error(t('vault.changed'));
+  await replaceVault({notes:records,meta:next},meta,{signal});
+  if(!signal?.aborted&&await getSessionKey()&&getSessionVaultId()===meta.vaultId)storeSessionKey(key,vaultId);publishVaultEvent('vault-replaced',{vaultId});
   return key;
 }
 export async function resetVault(confirmation) {
@@ -26,19 +27,22 @@ export async function resetVault(confirmation) {
   await replaceVault({notes:[],meta:{vaultId}},previous.meta);
   clearSession();publishVaultEvent('vault-replaced',{vaultId});
 }
-export function renderPasswordChange(container,onChanged) {
+export function renderPasswordChange(container,onChanged,{signal}={}) {
   container.innerHTML=`<form id="change-password-form"><h2>${t('account.change')}</h2>
     <label>${t('account.current')}<input type="password" id="current-password" autocomplete="current-password" required></label>
     <label>${t('account.new')}<input type="password" id="next-password" autocomplete="new-password" required></label>
     <label>${t('auth.confirmPassword')}<input type="password" id="next-confirm" autocomplete="new-password" required></label>
     <p>${t('auth.passphraseHint')}</p><p>${t('account.rotateWarning')}</p><p class="form-error" id="change-password-error"></p>
     <button type="submit" class="btn-primary">${t('account.change')}</button></form>`;
-  container.querySelector('form').addEventListener('submit',async e=>{
+  const form=container.querySelector('form');
+  signal?.addEventListener('abort',()=>form.querySelectorAll('input').forEach(input=>input.value=''),{once:true});
+  form.addEventListener('submit',async e=>{
     e.preventDefault();const button=container.querySelector('button');button.disabled=true;
     try{
       if(container.querySelector('#next-password').value!==container.querySelector('#next-confirm').value)throw new Error(t('auth.passwordsNoMatch'));
-      const key=await changePassword(container.querySelector('#current-password').value,container.querySelector('#next-password').value);
+      const key=await changePassword(container.querySelector('#current-password').value,container.querySelector('#next-password').value,{signal});
+      if(signal?.aborted||!form.isConnected)return;
       await onChanged(key);window.alert(t('account.rotateWarning'));
-    }catch(error){container.querySelector('#change-password-error').textContent=error.message;button.disabled=false;}
+    }catch(error){if(signal?.aborted||!form.isConnected)return;form.querySelector('#change-password-error').textContent=error.message;button.disabled=false;}
   });
 }

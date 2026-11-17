@@ -194,8 +194,15 @@ export function migrateKeyCheck(salt, keyCheck) {
   });
 }
 
-export function replaceVault({notes:records,meta:values},expected) {
-  return vaultTransaction(({notes,meta},done,fail)=>{
+export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
+  return vaultTransaction(({tx,notes,meta},done,fail)=>{
+    if(signal){
+      const cancel=()=>fail(new Error('session.ended'));
+      if(signal.aborted){cancel();return;}
+      signal.addEventListener('abort',cancel,{once:true});
+      const cleanup=()=>signal.removeEventListener('abort',cancel);
+      tx.addEventListener('complete',cleanup,{once:true});tx.addEventListener('abort',cleanup,{once:true});
+    }
     const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{

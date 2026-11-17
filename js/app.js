@@ -24,6 +24,7 @@ import { t, tp, getLang, setLang, initI18n } from './i18n.js';
 let todoHistory = null;
 let activeEdit=null;
 let scope=null;
+let modalController=null;
 let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
@@ -65,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
-  stopSessionTimer();clearSession();scope?.dispose();scope=null;
+  stopSessionTimer();clearSession();modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
   activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
   const modal=document.querySelector('.modal-card');
@@ -230,7 +231,9 @@ function initAppListeners() {
   document.getElementById('change-password-btn').addEventListener('click',async()=>{
     if(!await closeModal())return;
     const {renderPasswordChange}=await import('./account.js');
-    renderPasswordChange(document.getElementById('modal-card'),async key=>{cryptoKey=key;await closeModal();await showApp();});
+    const controller=new AbortController();modalController=controller;
+    scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
+    renderPasswordChange(document.getElementById('modal-card'),async key=>{if(controller.signal.aborted)return;cryptoKey=key;await closeModal();await showApp();},{signal:controller.signal});
     document.getElementById('modal-overlay').classList.add('open');
   });
 
@@ -359,10 +362,12 @@ export function saveNote(note) {
   });
 }
 async function saveFromUI(note) {
+  const generation=sessionGeneration;
   if(activeEdit?.id===note.id)Object.assign(note,activeEdit.capture());
   if(newTodoIds.has(note.id)&&isEmptyTodo(note))return true;
   try { await saveNote(note);return true; }
   catch(error){
+    if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict')showToast(t('note.conflict'),t('note.saveAsNew'),async()=>{
       const copy={...structuredClone(note),id:crypto.randomUUID(),createdAt:Date.now()};
       if(!await saveFromUI(copy))return;
@@ -395,7 +400,7 @@ async function refreshChangedNote(id) {
     if(note&&note.id!==id)throw new Error('note.invalid');
     notes=notes.filter(n=>n.id!==id);
     if(note){notes.push(note);knownVersions.set(id,record.updatedAt);}else knownVersions.delete(id);
-    renderCurrentView();
+    await refreshBackupState();renderCurrentView();
   }catch{if(cryptoKey&&!activeEdit){await loadNotes();renderCurrentView();}}
 }
 
@@ -1008,11 +1013,12 @@ function openTodoModal(note) {
   todoHistory = createHistory({ title: note.title || '', tasks: deepClone(note.tasks || []) });
 
   renderTodoModalContent(note);
+  let pendingTask=null;
   activeEdit={id:note.id,capture:()=>note,cancel(){},cleanup:()=>{todoHistory?.clear();newTodoIds.delete(note.id);},flush:async()=>{
     const title=document.getElementById('modal-title');if(title)note.title=title.value;
     document.querySelectorAll('#modal-card .todo-text').forEach(input=>{const task=note.tasks.find(t=>t.id===input.dataset.taskId);if(task)task.text=input.value;});
     const pending=document.getElementById('add-task-input')?.value.trim();
-    if(pending)note.tasks.push({id:crypto.randomUUID(),text:pending,done:false,order:note.tasks.length,parentId:null});
+    if(pending){if(pendingTask)pendingTask.text=pending;else{pendingTask={id:crypto.randomUUID(),text:pending,done:false,order:note.tasks.length,parentId:null};note.tasks.push(pendingTask);}}
     if(newTodoIds.has(note.id)&&isEmptyTodo(note)&&knownVersions.has(note.id)){
       const{guardedNoteWrite}=await import('./db.js');
       try{await guardedNoteWrite({id:note.id,expectedVaultId:loadedVaultId,knownUpdatedAt:knownVersions.get(note.id)});notes=notes.filter(n=>n.id!==note.id);knownVersions.delete(note.id);return true;}catch{showToast(t('note.saveFailed'));return false;}
@@ -1383,6 +1389,7 @@ async function closeModal() {
   const edit=activeEdit;
   if(edit && !await edit.flush())return false;
   if(edit!==activeEdit)return false;
+  modalController?.abort();modalController=null;
   activeEdit=null;edit?.cancel();edit?.cleanup?.();todoHistory=null;setDraftDirty('editor',false);
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);

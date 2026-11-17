@@ -30,7 +30,7 @@ export function validateRecords(records) {
   if (!Array.isArray(records) || records.length > MAX_BACKUP_NOTES) invalid();
   const ids = new Set();
   for (const r of records) {
-    if (!r || !UUID.test(r.id) || ids.has(r.id) || !Number.isSafeInteger(r.updatedAt) || r.updatedAt < 0) invalid();
+    if (!r || (typeof r.id!=='string'||!UUID.test(r.id)) || ids.has(r.id) || !Number.isSafeInteger(r.updatedAt) || r.updatedAt < 0) invalid();
     ids.add(r.id);base64Bytes(r.iv,12);base64Bytes(r.ciphertext,16,MAX_NOTE_BYTES+16);
   }
 }
