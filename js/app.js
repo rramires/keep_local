@@ -8,7 +8,7 @@ import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-act
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
-import { ensureVaultId, getMeta, saveMeta } from './db.js';
+import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function teardownSession() {
   secretUI.dispose();
+  setWriteMode('readWrite');
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
@@ -108,7 +109,7 @@ async function showApp({reload=true}={}) {
   setSessionSignal(sessionController.signal);
   scope?.dispose();scope=createScope();
   const vaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
-  const currentId=await getMeta('vaultId');
+  const currentId=isReadOnly()?await ensureVaultId(await getMeta('salt')):await getMeta('vaultId');
   if(generation!==sessionGeneration)return;
   if(vaultId!==currentId){showAuth(t('vault.changed'));return;}
   loadedVaultId=vaultId;setSessionVaultId(vaultId);
@@ -125,12 +126,14 @@ async function showApp({reload=true}={}) {
   await purgeExpiredTrash();
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
-  const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
-  if(generation!==sessionGeneration)return;
-  vaultLayout = layout === 'list' ? 'list' : 'grid';
-  vaultClipboardWarningDismissed = warningDismissed === true;
+  if(reload || !isReadOnly()){
+    const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
+    if(generation!==sessionGeneration)return;
+    vaultLayout = layout === 'list' ? 'list' : 'grid';
+    vaultClipboardWarningDismissed = warningDismissed === true;
+  }
   renderCurrentView();
-  await requestPersistence();
+  if(!isReadOnly()) await requestPersistence();
 }
 
 function renderAppShell() {
@@ -455,7 +458,7 @@ async function changeManyFromUI(sources,change) {
     for(const {next,fields} of plans){noteWrites.recordCommit(next.id,next.updatedAt,knownVersions.get(next.id));knownVersions.set(next.id,next.updatedAt);if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
     setUnsaved();
   }});return generation===sessionGeneration;}
-  catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='note.conflict'?(error.origin==='local'?'note.actionLocalConflict':'note.actionConflict'):'note.actionFailed'));}return false;}
+  catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='vault.readOnly'?error.code:error.code==='note.conflict'?(error.origin==='local'?'note.actionLocalConflict':'note.actionConflict'):'note.actionFailed'));}return false;}
 }
 
 export async function permanentDeleteNote(id) {
@@ -474,7 +477,7 @@ export async function permanentDeleteNote(id) {
 async function deleteFromUI(id){
   const generation=sessionGeneration;
   try{await permanentDeleteNote(id);return generation===sessionGeneration;}
-  catch{if(generation===sessionGeneration)showToast(t('note.deleteFailed'));return false;}
+  catch(error){if(generation===sessionGeneration)showToast(t(error.code==='vault.readOnly'?error.code:'note.deleteFailed'));return false;}
 }
 
 async function refreshChangedNote(id) {
@@ -583,7 +586,7 @@ async function dismissVaultClipboardWarning() {
 async function setVaultLayout(layout) {
   const signal = scope.signal;
   try {
-    await saveMeta('vaultLayout', layout);
+    if(!isReadOnly()) await saveMeta('vaultLayout', layout);
     if (signal.aborted) return;
     vaultLayout = layout;
     if (currentView === 'vault') {
@@ -659,6 +662,7 @@ function renderArchiveView(searchQuery) {
 }
 
 async function purgeExpiredTrash(){
+  if(isReadOnly()) return;
   try{await purgeTrash(notes,permanentDeleteNote);}catch(error){showToast(t(error.code||'note.saveFailed'));}
 }
 

@@ -1,6 +1,6 @@
 // i18n.js — Internationalization module (EN / PT-BR)
 
-import { saveMeta, getMeta } from './db.js';
+import { saveMeta, getMeta, isReadOnly } from './db.js';
 
 let currentLang = 'en';
 
@@ -107,6 +107,7 @@ const en = {
   "note.conflict": "Another tab saved a newer version. Your draft is still open.",
   "note.saveAsNew": "Save as a new note",
   "vault.saveAsNew": "Save as new item",
+  "vault.readOnly": "Read only: folder unavailable",
   "account.change": "Change master passphrase",
   "account.current": "Current passphrase",
   "account.new": "New passphrase",
@@ -377,6 +378,7 @@ const ptBR = {
   "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",
   "note.saveAsNew": "Salvar como nova nota",
   "vault.saveAsNew": "Salvar como novo item",
+  "vault.readOnly": "Somente leitura: pasta indisponível",
   "account.change": "Trocar frase-senha mestra",
   "account.current": "Frase-senha atual",
   "account.new": "Nova frase-senha",
@@ -580,7 +582,7 @@ export function getLang() {
 export async function setLang(lang) {
   if (!dictionaries[lang]) return;
   currentLang = lang;
-  await saveMeta('lang', lang);
+  if (!isReadOnly()) await saveMeta('lang', lang);
   document.documentElement.lang = lang === 'pt-BR' ? 'pt-BR' : 'en';
 }
 
@@ -590,7 +592,7 @@ export async function initI18n() {
     currentLang = saved;
   } else {
     currentLang = navigator.language?.startsWith('pt') ? 'pt-BR' : 'en';
-    await saveMeta('lang', currentLang);
+    if (!isReadOnly()) await saveMeta('lang', currentLang);
   }
   document.documentElement.lang = currentLang === 'pt-BR' ? 'pt-BR' : 'en';
 }

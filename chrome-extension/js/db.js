@@ -4,6 +4,34 @@ const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
 
 let dbInstance = null;
+let writeMode = 'readWrite';
+let transientVault = null;
+
+export function isReadOnly() {
+  return writeMode === 'readOnly';
+}
+
+export function setWriteMode(mode) {
+  if (mode !== 'readOnly' && mode !== 'readWrite') throw new TypeError('Invalid vault write mode');
+  writeMode = mode;
+  if (!isReadOnly()) transientVault = null;
+}
+
+export function assertWritable() {
+  if (isReadOnly()) throw Object.assign(new Error('vault.readOnly'), {code:'vault.readOnly'});
+}
+
+async function writeTransaction(stores) {
+  assertWritable();
+  const db = await openDB();
+  assertWritable();
+  return db.transaction(stores, 'readwrite');
+}
+
+export function vaultIdentity({salt,vaultId}) {
+  return vaultId ?? (isReadOnly() && transientVault?.salt === salt ? transientVault?.id : null);
+}
+
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -43,9 +71,8 @@ export async function saveMeta(key, value) {
     if(changed)(await import('./backup.js')).setUnsaved();
     return;
   }
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').put({ key, value });
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -63,9 +90,8 @@ export async function getMeta(key) {
 }
 
 export async function deleteMeta(key) {
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -75,9 +101,8 @@ export async function deleteMeta(key) {
 // --- Notes store ---
 
 export async function saveNoteRecord(record) {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').put(record);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -105,9 +130,8 @@ export async function getAllNoteRecords() {
 }
 
 export async function deleteNoteRecord(id) {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -115,9 +139,8 @@ export async function deleteNoteRecord(id) {
 }
 
 export async function clearAllNotes() {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').clear();
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -125,9 +148,8 @@ export async function clearAllNotes() {
 }
 
 export async function clearAllMeta() {
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').clear();
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -150,9 +172,8 @@ export async function isFirstUse() {
 }
 
 export async function vaultTransaction(action) {
-  const db = await openDB();
+  const tx = await writeTransaction(['notes', 'meta']);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['notes', 'meta'], 'readwrite');
     let result, failure;
     const fail = (error) => { failure ||= error; try { tx.abort(); } catch {} };
     tx.oncomplete = () => resolve(result);
@@ -212,7 +233,16 @@ export function recordExport(expected,rev,hash,{signal}={}) {
   });
 }
 
-export function ensureVaultId(expectedSalt) {
+export async function ensureVaultId(expectedSalt) {
+  if (isReadOnly()) {
+    const values = Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
+    if (expectedSalt && values.salt !== expectedSalt) throw new Error('vault.changed');
+    if (values.vaultId) return values.vaultId;
+    if (!transientVault || transientVault.salt !== values.salt) {
+      transientVault = {salt:values.salt,id:crypto.randomUUID()};
+    }
+    return transientVault.id;
+  }
   return vaultTransaction(({meta},done,fail)=>{
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));

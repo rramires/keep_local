@@ -1,6 +1,6 @@
 // theme.js — Light/dark toggle, persist preference
 
-import { saveMeta, getMeta } from './db.js';
+import { saveMeta, getMeta, isReadOnly } from './db.js';
 
 let currentTheme = 'dark';
 
@@ -13,7 +13,7 @@ export async function initTheme() {
 export async function toggleTheme() {
   currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
   applyTheme(currentTheme);
-  await saveMeta('theme', currentTheme);
+  if (!isReadOnly()) await saveMeta('theme', currentTheme);
 }
 
 export function getTheme() {

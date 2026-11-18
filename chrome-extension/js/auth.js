@@ -2,7 +2,7 @@ import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
+import { getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 
 import { storeSessionKey } from './session.js';
@@ -227,7 +227,7 @@ function initAuthListeners(container, onAuthenticated) {
   container.querySelector('#reset-vault').addEventListener('click',async()=>{
     const {resetVault}=await import('./account.js');
     const confirmation=await wordDialog(t('account.resetPrompt'),{title:t('account.reset'),word:t('account.resetWord'),danger:true});
-    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
+    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.code==='vault.readOnly'?t(error.code):error.message;}
   });
 
   // --- Import ---

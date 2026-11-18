@@ -1,6 +1,6 @@
 import { validateNote } from './note-model.js';
 import { exportBackup,setUnsaved } from './backup.js';
-import { discardPreservedRecord,readVault } from './db.js';
+import { discardPreservedRecord,readVault,assertWritable } from './db.js';
 import { payloadHash } from './backup-v2.js';
 import { getSessionKey,getSessionVaultId } from './session.js';
 import { publishVaultEvent } from './vault-events.js';
@@ -17,6 +17,7 @@ export function recoveredNote(text) {
 }
 export function forgetDiscardReceipt(receipt) { receipts.delete(receipt); }
 export async function exportForDiscard(record,{signal,key}={}) {
+  assertWritable();
   await assertSession(key,signal);
   const archive=await exportBackup({recovery:true});
   await assertSession(key,signal);
@@ -38,6 +39,7 @@ export async function validateDiscardReceipt(record,receipt,options) {
   await requireReceipt(record,receipt,options);return true;
 }
 export async function discardRecord(record,confirmation,{signal,key,receipt,confirmedSaved=false}={}) {
+  assertWritable();
   if(confirmation!==t('recovery.discardWord'))throw Object.assign(Error('recovery.confirmRequired'),{code:'recovery.confirmRequired'});
   if(confirmedSaved!==true)throw Object.assign(Error('recovery.confirmSavedRequired'),{code:'recovery.confirmSavedRequired'});
   try{
