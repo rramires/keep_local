@@ -1,4 +1,5 @@
 import {confirmDialog} from './dialogs.js';
+import {withVaultLineage} from './folder-write.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity } from './db.js';
@@ -17,8 +18,15 @@ export function clearDrafts(){drafts.clear();}
 export async function refreshBackupState(){unsavedChanges=!!await getMeta('dirtySinceBackup');}
 
 
+const localChanges=new Set();
+export function watchLocalChanges(listener) {
+  localChanges.add(listener);
+  return ()=>localChanges.delete(listener);
+}
+
 export function setUnsaved() {
   unsavedChanges = true;
+  for(const listener of localChanges)listener();
 }
 
 export function clearUnsaved() {
@@ -39,7 +47,12 @@ export async function initBeforeUnload() {
   });
 }
 
-export async function exportBackup({recovery=false}={}) {
+export function exportBackup(options) {
+  if(globalThis.location?.protocol==='chrome-extension:')return withVaultLineage(()=>makeBackupDownload(options));
+  return makeBackupDownload(options);
+}
+
+async function makeBackupDownload({recovery=false}={}) {
   const key=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
   if(!key)throw new Error(t('login.noAccount'));
   const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};

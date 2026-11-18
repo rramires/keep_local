@@ -567,4 +567,75 @@ export async function run({check,assert}) {
       assert.equal(await p.eval("folderTest.events.filter(event=>event.kind==='deriveKey').length"),1);
     } finally {await browser.close();}
   });
+
+  await check('G2 serial writes debounce edits, retry and verify a normal profile 2 import',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const {importExpression}=await import('./backup-fixture.mjs');
+    const browser=await harness.launchExtension(),manual=await harness.launch();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      await harness.add(p,'Local journey fixture','original');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();
+      await p.eval("folderTest.failWrites=2");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('.note-card')");
+      await p.eval(`(async()=>{
+        const app=await import('./js/app.js');
+        for(let n=1;n<=20;n++)await app.saveNote({...app.getNotes()[0],content:'edit '+n});
+      })()`);
+      await p.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)",12000);
+      const state=await p.eval(`(async()=>{
+        const {meta}=await(await import('./js/db.js')).readVault();
+        return {rev:meta.exportRev,folderRev:meta.folderSeenRev,hash:meta.folderSyncedHash,
+          parent:meta.exportParent,local:meta.revision,confirmed:meta.folderSyncedRevision,
+          dirty:meta.dirtySinceBackup,lastBackupAt:meta.lastBackupAt??null,attempts:folderTest.writeAttempts};
+      })()`);
+      assert.equal(state.rev,1);assert.equal(state.folderRev,1);assert.equal(state.parent,state.hash);
+      assert.equal(state.local,state.confirmed);assert.equal(state.dirty,true);assert.equal(state.lastBackupAt,null);
+      assert.equal(state.attempts,3);
+      const b=await manual.page();
+      await b.eval(importExpression(await readFolderFixture(p,'keeplocal-vault.keeplocal')));
+      assert.equal(await b.eval("(await(await import('./js/db.js')).readVault()).notes.length"),1);
+      await b.reload();
+      await harness.unlock(b);
+      assert.equal(await b.eval("(await import('./js/app.js')).getNotes()[0].content"),'edit 20');
+    } finally {await Promise.all([browser.close(),manual.close()]);}
+  });
+
+  await check('G2 mismatch, unreadable records and a lost folder never advance lineage',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    for(const scenario of ['badReadback','unreadable','removeBeforeWrite']){
+      const browser=await harness.launchExtension();
+      try {
+        const p=await browser.page(undefined,folderFixtureSource());
+        await harness.create(p);
+        await harness.add(p,'Preserved fixture',scenario);
+        await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+        if(scenario==='unreadable')await p.eval("(await import('./js/db.js')).saveNoteRecord({id:crypto.randomUUID(),updatedAt:0,iv:'AAAA',ciphertext:'AAAA'})");
+        await p.reload();
+        if(scenario!=='unreadable')await p.eval(`folderTest.${scenario}=true`);
+        await submitExtensionLogin(p);
+        if(scenario==='badReadback'){
+          await p.until('folderTest.tamperedReads===1');
+          // The guarded database write must not run after mismatched readback.
+          await p.until('folderTest.writeAttempts===1');
+        }else if(scenario==='unreadable'){
+          await p.until("document.body.innerText.includes('unreadable')");
+          await p.until("Array.from(document.querySelectorAll('.toast')).some(node=>/before connecting/i.test(node.textContent))");
+          assert.equal(await p.eval('folderTest.writeAttempts'),0);
+        }else{
+          await p.until("!!document.querySelector('.folder-banner')");
+          assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),true);
+        }
+        const after=await p.eval(`(async()=>{
+          const {meta,notes}=await(await import('./js/db.js')).readVault();
+          return {rev:meta.exportRev??null,hash:meta.folderSyncedHash??null,notes:notes.length};
+        })()`);
+        assert.deepEqual(after,{rev:null,hash:null,notes:scenario==='unreadable'?2:1});
+      } finally {await browser.close();}
+    }
+  });
 }

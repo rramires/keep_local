@@ -248,10 +248,36 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
   },transition);
 }
 
-function assertVaultSnapshot(current,expected) {
+function assertVaultSnapshot(current,expected,{allowNewEdits=false}={}) {
   const keys=['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
     'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'];
-  if(keys.some(key=>current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
+  if(keys.some(key=>!(allowNewEdits&&key==='revision')&&current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
+}
+
+export async function verifyFolderWrite(expected,{signal}={}) {
+  assertWritable();
+  const current=Object.fromEntries((await getAllMetaRecords()).map(row=>[row.key,row.value]));
+  assertVaultSnapshot(current,expected,{allowNewEdits:true});
+  if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
+}
+
+export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal}={}) {
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try{
+        const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        assertVaultSnapshot(current,expected,{allowNewEdits:true});
+        const state={
+          exportRev:rev,exportParent:hash,folderSyncedHash:hash,
+          folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
+        };
+        for(const [key,value] of Object.entries(state))meta.put({key,value});
+        done();
+      }catch(error){fail(error);}
+    };
+  });
 }
 
 export async function readVault() {
@@ -268,7 +294,7 @@ export function recordExport(expected,rev,hash,{signal}={}) {
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('backup.concurrent');
+      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||current.exportRev!==expected.exportRev||current.exportParent!==expected.exportParent||current.folderConnectionId!==expected.folderConnectionId)throw new Error('backup.concurrent');
       meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
     }catch(error){fail(error);}};
   });

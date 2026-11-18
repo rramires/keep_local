@@ -168,7 +168,7 @@ export function addFolderSettingsTrigger(anchor,onOpen) {
   anchor.before(trigger);
 }
 
-export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable}) {
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange}) {
   const panel=element('section','panel-form folder-settings');
   const header=element('header','panel-header');
   const title=element('h2','',t('folder.settings'));
@@ -201,6 +201,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
       const chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable()});
       if(signal.aborted) return;
       if(chosen.status!=='ok'){notify(folderReason(chosen.status));return;}
+      await onFolderChange();
       await refresh(true);
     }),true);
     controls.append(choose);
@@ -208,6 +209,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
       controls.append(action('disconnect',()=>void run(async()=>{
         if(!await confirmDialog(t('folder.disconnectConfirm',{name:handle.name}),{signal}))return;
         await disconnectSyncFolder({key,signal});
+        await onFolderChange();
         await refresh(true);
       })));
     }

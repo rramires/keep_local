@@ -3,7 +3,7 @@ function installFolderFixture(name) {
   const mode = {mode:'readwrite'};
   const fixture = window.folderTest = {
     name, permission:'prompt', requested:'granted', cancel:false,
-    events:[], writes:{},
+    events:[], writes:{}, writeAttempts:0, tamperedReads:0,
     clear() { this.events.length=0; this.writes={}; },
     async directory(create=false) {
       return (await navigator.storage.getDirectory()).getDirectoryHandle(this.name,{create});
@@ -46,6 +46,38 @@ function installFolderFixture(name) {
       return derive.apply(this,args);
     };
   }
+  const createWritable=FileSystemFileHandle.prototype.createWritable;
+  FileSystemFileHandle.prototype.createWritable=async function(...args){
+    if(this.name!=='keeplocal-vault.keeplocal')return createWritable.apply(this,args);
+    fixture.writeAttempts++;
+    if(fixture.removeBeforeWrite){
+      await fixture.remove();
+      throw new DOMException('Test directory removed','NotFoundError');
+    }
+    if(fixture.failWrites>0){
+      fixture.failWrites--;
+      throw new DOMException('Test writer occupied','NoModificationAllowedError');
+    }
+    const stream=await createWritable.apply(this,args);
+    if(fixture.badReadback){
+      const close=stream.close.bind(stream);
+      stream.close=async()=>{
+        await close();
+        fixture.corruptNextRead=true;
+      };
+    }
+    return stream;
+  };
+  const getFile=FileSystemFileHandle.prototype.getFile;
+  FileSystemFileHandle.prototype.getFile=async function(...args){
+    const file=await getFile.apply(this,args);
+    if(this.name!=='keeplocal-vault.keeplocal'||!fixture.corruptNextRead)return file;
+    fixture.corruptNextRead=false;
+    fixture.tamperedReads++;
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    bytes[bytes.length-1]^=1;
+    return new File([bytes],file.name);
+  };
   const transaction=IDBDatabase.prototype.transaction;
   IDBDatabase.prototype.transaction=function(stores,mode,...args) {
     if (mode==='readwrite') {
