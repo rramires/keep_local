@@ -13,12 +13,53 @@ export async function run({browser,check,assert}) {
     await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',modifiers:1});assert.equal(await p.eval("document.activeElement.dataset.dialogAction"),'confirm');await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab'});assert.equal(await p.eval("document.activeElement.dataset.dialogAction"),'cancel');
     await p.eval("document.querySelector('#change-password-btn').focus()");assert.equal(await p.eval("document.activeElement.closest('.app-dialog')!==null"),true);
     await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await p.until('dialogResult===false');assert.equal(await p.eval("document.activeElement.id"),'change-password-btn');assert.equal(await p.eval("document.querySelector('#app-container').inert"),false);
-    await p.eval("window.dialogResult='pending';void import('./js/dialogs.js').then(d=>d.confirmDialog('Fictitious confirmation')).then(r=>window.dialogResult=r)");await p.until("!!document.querySelector('.app-dialog')");await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});await p.until('dialogResult===true');
+    const vaultBeforeEnter=await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");
+    const openConfirmation=async()=>{
+      await p.eval("window.dialogResult='pending';void import('./js/dialogs.js').then(d=>d.confirmDialog('Fictitious confirmation')).then(r=>window.dialogResult=r)");
+      await p.until("!!document.querySelector('.app-dialog')");
+      assert.equal(await p.eval("document.activeElement.dataset.dialogAction"),'cancel');
+    };
+    await openConfirmation();
+    await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});
+    await p.until("dialogResult!=='pending'");
+    assert.equal(await p.eval('dialogResult'),false);
+    assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),vaultBeforeEnter);
+
+    await openConfirmation();
+    await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab'});
+    assert.equal(await p.eval("document.activeElement.dataset.dialogAction"),'confirm');
+    await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});
+    await p.until("dialogResult!=='pending'");
+    assert.equal(await p.eval('dialogResult'),true);
     await p.eval("window.dialogResult='pending';void import('./js/dialogs.js').then(d=>d.wordDialog('Fictitious erasure',{word:'ERASE',danger:true})).then(r=>window.dialogResult=r)");await p.until("!!document.querySelector('.app-dialog input')");assert.equal(await p.eval("document.activeElement.tagName"),'INPUT');await p.eval("const i=document.querySelector('.app-dialog input');i.value='erase';i.dispatchEvent(new Event('input'))");await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});assert.equal(await p.eval('dialogResult'),'pending');assert.equal(await p.eval("document.querySelector('[data-dialog-action=confirm]').disabled"),true);
     await p.eval("const i=document.querySelector('.app-dialog input');i.value='ERASE';i.dispatchEvent(new Event('input'))");await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});await p.until("dialogResult==='ERASE'");
     await p.eval("window.dialogResult='pending';void import('./js/dialogs.js').then(d=>d.noticeDialog('Fictitious notice')).then(r=>window.dialogResult=r)");await p.until("!!document.querySelector('.app-dialog')");await p.eval("(await import('./js/session.js')).logout()");await p.until("!!document.querySelector('.auth-view')&&dialogResult===false");assert.equal(await p.eval("!!document.querySelector('.app-dialog')||document.querySelector('#app-container').inert"),false);assert.deepEqual(p.errors,[]);
    }finally{await p.close();}
   }
+ });
+ await check('B1 Enter on Cancel preserves the note in Trash',async()=>{
+  const p=await browser.page();
+  try{
+    await create(p);
+    await add(p,'Fictitious trashed note','Keep after Cancel');
+    await p.eval("document.querySelector('.note-card [data-action=trash]').click()");
+    await p.until("!document.querySelector('.note-card')");
+    await p.eval("document.querySelector('[data-view=trash]').click()");
+    await p.until("!!document.querySelector('[data-action=delete-forever]')");
+    const before=await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");
+
+    await p.eval("const button=document.querySelector('[data-action=delete-forever]');button.focus();button.click()");
+    await p.until("!!document.querySelector('.app-dialog')");
+    assert.equal(await p.eval("document.activeElement.dataset.dialogAction"),'cancel');
+    await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});
+    await p.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter'});
+    await p.until("!document.querySelector('.app-dialog')");
+
+    assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),1);
+    assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),before);
+    assert.equal(await p.eval("document.activeElement.dataset.action"),'delete-forever');
+    assert.deepEqual(p.errors,[]);
+  }finally{await p.close();}
  });
  await check('U4 actual reset refuses wrong word and cancellation, then explicit exact word erases; pending export cancels on logout',async()=>{
   const p=await browser.page();try{await create(p);await add(p);const before=await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");await p.eval("document.querySelector('#lock-btn').click()");await p.until("!!document.querySelector('.auth-view')");await p.eval("document.querySelector('#reset-vault').click()");await p.until("!!document.querySelector('.app-dialog input')");await p.eval("document.querySelector('.app-dialog input').value='wrong';document.querySelector('.app-dialog input').dispatchEvent(new Event('input'))");await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter'});assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),before);await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),before);

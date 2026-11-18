@@ -45,7 +45,13 @@ function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),
     const keydown=event=>{
       if(top()!==entry)return;
       if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();finish(false);}
-      else if(event.key==='Enter'){event.preventDefault();event.stopImmediatePropagation();if(!confirm.disabled)finish(true);}
+      else if(event.key==='Enter'){
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const focused=document.activeElement;
+        if(focused===cancel)finish(false);
+        else if((focused===confirm||focused===input)&&!confirm.disabled)finish(true);
+      }
       else if(event.key==='Tab'){
         event.preventDefault();event.stopImmediatePropagation();const items=controls(),index=items.indexOf(document.activeElement),next=(index+(event.shiftKey?-1:1)+items.length)%items.length;(items[next]||card).focus();
       }
