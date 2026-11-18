@@ -1,3 +1,4 @@
+import {confirmDialog,noticeDialog} from './dialogs.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload } from './db.js';
@@ -5,7 +6,7 @@ import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, base64ToArray,
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
 import { getSessionKey, getSessionVaultId, storeSessionKey, getSessionSignal } from './session.js';
-import { t } from './i18n.js';
+import { t,tp } from './i18n.js';
 import { unreadableRecords } from './record-health.js';
 import { MAX_BACKUP_BYTES, validateV1, decryptRecords, validateRecords } from './backup-format.js';
 
@@ -46,7 +47,7 @@ export async function exportBackup({recovery=false}={}) {
   if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
   const unreadableCount=(await unreadableRecords(notes,key)).length;
   await assertCurrent();
-  if(unreadableCount&&!recovery&&!window.confirm(t('backup.unreadableConfirm',{count:unreadableCount})))return null;
+  if(unreadableCount&&!recovery&&!await confirmDialog(tp('backup.unreadableConfirm',unreadableCount),{signal}))return null;
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
@@ -92,11 +93,11 @@ export async function importBackup(file, password) {
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();
   const local=previous.notes;
-  if ((local.length || await getMeta('salt')) && !window.confirm(t('backup.replaceConfirm',{local:local.length,incoming:backup.notes.length}))) throw new Error(t('backup.cancelled'));
+  if ((local.length || await getMeta('salt')) && !await confirmDialog(t('backup.replaceConfirm',{local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length)}),{danger:true})) throw new Error(t('backup.cancelled'));
   // V1 cannot authenticate removal of whole records; only v2 authenticates the set.
   meta.vaultId=crypto.randomUUID();meta.dirtySinceBackup=true;
   await replaceVault({notes:backup.notes,meta},previous.meta);
   storeSessionKey(key,meta.vaultId);publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
-  if(legacy)window.alert(t('backup.legacyWarning'));
+  if(legacy)await noticeDialog(t('backup.legacyWarning'));
   return key;
 }

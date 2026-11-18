@@ -1,3 +1,4 @@
+import {confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
@@ -70,6 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
+  closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
   activeEdit?.cancel();activeEdit?.cleanup?.();activeEdit=null;todoHistory=null;
@@ -132,21 +134,21 @@ function renderAppShell() {
         <div class="header-search">
           <div class="search-container">
             <span class="search-icon">${icons.search}</span>
-            <input type="text" placeholder="${t('header.search')}" id="search-input" autocomplete="off" spellcheck="false" autocapitalize="off">
-            <button class="icon-btn search-clear" id="search-clear" data-tooltip="${t('header.clearSearch')}">
+            <input type="text" placeholder="${t('header.search')}" id="search-input" aria-label="${t('header.search')}" autocomplete="off" spellcheck="false" autocapitalize="off">
+            <button class="icon-btn search-clear" id="search-clear" aria-label="${t('header.clearSearch')}" data-tooltip="${t('header.clearSearch')}">
               ${icons.close}
             </button>
           </div>
         </div>
         <div class="header-right">
-          <button class="icon-btn" data-tooltip="${t('header.language')}" id="lang-toggle">
+          <button class="icon-btn" data-tooltip="${t('header.language')}" id="lang-toggle" aria-label="${t('header.language')}">
             ${icons.language}
           </button>
-          <button class="icon-btn" data-tooltip="${t('header.theme')}" id="theme-toggle">
+          <button class="icon-btn" data-tooltip="${t('header.theme')}" id="theme-toggle" aria-label="${t('header.theme')}">
             ${icons.brightness}
           </button>
-          <button class="icon-btn" data-tooltip="${t('account.change')}" id="change-password-btn">${icons.edit}</button>
-          <button class="icon-btn" data-tooltip="${t('header.lock')}" id="lock-btn">
+          <button class="icon-btn" data-tooltip="${t('account.change')}" id="change-password-btn" aria-label="${t('account.change')}">${icons.edit}</button>
+          <button class="icon-btn" data-tooltip="${t('header.lock')}" id="lock-btn" aria-label="${t('header.lock')}">
             ${icons.lock}
           </button>
         </div>
@@ -253,7 +255,7 @@ function initAppListeners() {
   // Lock
   document.getElementById('lock-btn').addEventListener('click', async () => {
     const saved=await flushNewNoteBar()&&await closeModal();
-    if(!saved&&!window.confirm(t('session.discardAndLock')))return;
+    if(!saved&&!await confirmDialog(t('session.discardAndLock'),{danger:true}))return;
     logout();
   });
 
@@ -601,7 +603,7 @@ function renderTrashView(searchQuery) {
   initCardListeners();
 
   document.getElementById('empty-trash-btn')?.addEventListener('click', async () => {
-    if (await showConfirm(t('trash.confirmEmpty'))) {
+    if (await showConfirm(t('trash.confirmEmpty'),{danger:true})) {
       const trashedNotes = notes.filter(n => n.deletedAt);
       for (const n of trashedNotes) {
         if(!await deleteFromUI(n.id))return;
@@ -758,7 +760,7 @@ function initCardListeners() {
           break;
         case 'delete-forever':
           if (!note.deletedAt) return;
-          if (await showConfirm(t('confirm.deletePermanently'))) {
+          if (await showConfirm(t('confirm.deletePermanently'),{danger:true})) {
             if(!await deleteFromUI(id))return;
             renderCurrentView();
             showToast(t('toast.noteDeletedForever'));
@@ -1990,33 +1992,8 @@ function showToast(message, actionText, onAction) {
 
 // --- Confirm Dialog ---
 
-function showConfirm(message) {
-  return new Promise((resolve) => {
-    const dialog = document.createElement('div');
-    dialog.className = 'confirm-dialog';
-    dialog.innerHTML = `
-      <div class="confirm-card">
-        <div class="confirm-text">${escapeHTMLString(message)}</div>
-        <div class="confirm-actions">
-          <button class="btn-secondary" id="confirm-cancel">${t('confirm.cancel')}</button>
-          <button class="btn-primary" id="confirm-ok">${t('confirm.ok')}</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(dialog);
-    scope.signal.addEventListener('abort',()=>resolve(false),{once:true});
-
-    dialog.querySelector('#confirm-cancel').addEventListener('click', () => {
-      dialog.remove();
-      resolve(false);
-    });
-
-    dialog.querySelector('#confirm-ok').addEventListener('click', () => {
-      dialog.remove();
-      resolve(true);
-    });
-  });
+function showConfirm(message,{danger=false}={}) {
+  return confirmDialog(message,{signal:scope.signal,danger});
 }
 
 // --- Helpers ---

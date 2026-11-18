@@ -1,3 +1,4 @@
+import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
@@ -230,7 +231,7 @@ function initAuthListeners(container, onAuthenticated) {
 
   container.querySelector('#reset-vault').addEventListener('click',async()=>{
     const {resetVault}=await import('./account.js');
-    const confirmation=window.prompt(t('account.resetPrompt'));
+    const confirmation=await wordDialog(t('account.resetPrompt'),{title:t('account.reset'),word:t('account.resetWord'),danger:true});
     try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
   });
 

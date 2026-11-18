@@ -1,3 +1,4 @@
+import {noticeDialog} from './dialogs.js';
 import { readVault, replaceVault } from './db.js';
 import { generateSalt, deriveKey, verifyKeyCheck, createKeyCheck, encrypt, arrayToBase64, arrayBufferToBase64, base64ToArray } from './crypto.js';
 import { decryptRecords } from './backup-format.js';
@@ -57,7 +58,7 @@ export function renderPasswordChange(container,onChanged,{signal,onRecovery,onCl
       if(container.querySelector('#next-password').value!==container.querySelector('#next-confirm').value)throw new Error(t('auth.passwordsNoMatch'));
       const key=await changePassword(container.querySelector('#current-password').value,container.querySelector('#next-password').value,{signal});
       if(signal?.aborted||!form.isConnected)return;
-      await onChanged(key);window.alert(t('account.rotateWarning'));
+      await onChanged(key);await noticeDialog(t('account.rotateWarning'),{title:t('account.change'),returnFocus:()=>document.getElementById('change-password-btn')});
     }catch(error){
       if(signal?.aborted||!form.isConnected)return;
       const allowed=['auth.passwordsNoMatch','login.wrongPassword','vault.changed','account.unreadable'].map(t);

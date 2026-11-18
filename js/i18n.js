@@ -5,6 +5,10 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'backup.noteCount': '{count} note',
+  'backup.noteCountPlural': '{count} notes',
+  'confirm.title': 'Please confirm',
+  'confirm.typeWord': 'Type {word} to confirm',
   'account.resetHint': 'Only start again if you no longer need the local notes. Erasing is permanent.',
   'recovery.exportStep': '1. Export a preserved copy',
   'recovery.discardStep': '2. Discard this record',
@@ -31,7 +35,8 @@ const en = {
   'recovery.discardPrompt': 'After verifying the exported file, confirm it was saved and type {word} to discard this record permanently.',
   'recovery.confirmRequired': 'Type the confirmation word exactly; the record was preserved.',
   'recovery.failed': 'Recovery action failed or the vault changed. The stored records were preserved; reopen Recovery before retrying.',
-  'backup.unreadableConfirm': '{count} unreadable records will be preserved in this export. This file cannot be restored in full until they are repaired or discarded. Start the download anyway?',
+  'backup.unreadableConfirmPlural': '{count} unreadable records will be preserved in this export. This file cannot be restored in full until they are repaired or discarded. Start the download anyway?',
+  'backup.unreadableConfirm': '{count} unreadable record will be preserved in this export. This file cannot be restored in full until it is repaired or discarded. Start the download anyway?',
   'backup.unreadableExported': 'Download started with unreadable records; full restoration is unavailable. Verify that the file was saved.',
   'backup.unreadableRecords': 'This backup contains unreadable records. Recover or discard them in the source vault before a full import. Your local vault was preserved.',
   'account.unreadable': 'Unreadable records prevent changing the password. Open Recovery to copy recoverable content and discard invalid records first.',
@@ -72,7 +77,7 @@ const en = {
 
   'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
-  "backup.replaceConfirm": "Replace {local} local notes with {incoming} backup notes? Export the current vault first if you need to keep it.",
+  "backup.replaceConfirm": "Replace {local} in this vault with {incoming} from the backup? Export the current vault first if you need to keep it.",
   "backup.cancelled": "Import cancelled. Your vault was preserved.",
 
   'notes.unreadablePlural': '{count} notes could not be opened for editing. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
@@ -228,6 +233,10 @@ const en = {
 };
 
 const ptBR = {
+  'backup.noteCount': '{count} nota',
+  'backup.noteCountPlural': '{count} notas',
+  'confirm.title': 'Confirme para continuar',
+  'confirm.typeWord': 'Digite {word} para confirmar',
   'account.resetHint': 'Recomece apenas se não precisar mais das notas locais. A exclusão é permanente.',
   'recovery.exportStep': '1. Exportar uma cópia preservada',
   'recovery.discardStep': '2. Descartar este registro',
@@ -241,7 +250,7 @@ const ptBR = {
   'recovery.confirmSavedRequired': 'Confirme que conferiu o arquivo salvo antes de descartar.',
   'recovery.confirmSaved': 'Confirmei que o arquivo foi salvo',
   'recovery.exportNow': 'Exportar agora',
-  'recovery.exportWarning': 'Este export preserva registros ilegíveis e não pode ser restaurado integralmente até serem reparados ou descartados. Exportar sozinho nunca descarta registros.',
+  'recovery.exportWarning': 'Esta cópia preserva registros ilegíveis e não pode ser restaurado integralmente até serem reparados ou descartados. Exportar sozinho nunca descarta registros.',
   'note.actionLocalConflict': 'Outra ação desta aba alterou a nota. Confira o estado atual e tente novamente; esta ação não foi aplicada.',
   'note.actionFailed': 'Não foi possível aplicar esta ação. A nota armazenada e seu estado exibido foram preservados; tente novamente.',
   'note.actionConflict': 'Outra aba alterou esta nota. A ação não foi aplicada; confira a versão atual.',
@@ -254,7 +263,8 @@ const ptBR = {
   'recovery.discardPrompt': 'Depois de conferir o arquivo exportado, confirme que foi salvo e digite {word} para descartar permanentemente este registro.',
   'recovery.confirmRequired': 'Digite a palavra de confirmação exatamente; o registro foi preservado.',
   'recovery.failed': 'A ação falhou ou o cofre mudou. Os registros armazenados foram preservados; reabra a Recuperação antes de tentar novamente.',
-  'backup.unreadableConfirm': '{count} registros ilegíveis serão preservados neste export. Este arquivo não poderá ser restaurado integralmente até que sejam reparados ou descartados. Iniciar o download mesmo assim?',
+  'backup.unreadableConfirmPlural': '{count} registros ilegíveis serão preservados nesta cópia. Este arquivo não poderá ser restaurado integralmente até que sejam reparados ou descartados. Iniciar o download mesmo assim?',
+  'backup.unreadableConfirm': '{count} registro ilegível será preservado nesta cópia. Este arquivo não poderá ser restaurado integralmente até que seja reparado ou descartado. Iniciar o download mesmo assim?',
   'backup.unreadableExported': 'Download iniciado com registros ilegíveis; a restauração integral está indisponível. Confira se o arquivo foi salvo.',
   'backup.unreadableRecords': 'Este backup contém registros ilegíveis. Recupere ou descarte-os no cofre de origem antes de importar integralmente. Seu cofre local foi preservado.',
   'account.unreadable': 'Registros ilegíveis impedem a troca da senha. Abra a Recuperação para copiar o conteúdo recuperável e descartar os registros inválidos primeiro.',
@@ -295,7 +305,7 @@ const ptBR = {
 
   'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
-  "backup.replaceConfirm": "Substituir {local} notas locais por {incoming} notas do backup? Exporte o cofre atual antes se precisar preservá-lo.",
+  "backup.replaceConfirm": "Substituir {local} neste cofre por {incoming} do backup? Exporte o cofre atual antes se precisar preservá-lo.",
   "backup.cancelled": "Importação cancelada. Seu cofre foi preservado.",
 
   'notes.unreadablePlural': '{count} notas não puderam ser abertas para edição. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',
