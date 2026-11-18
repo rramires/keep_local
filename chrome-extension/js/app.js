@@ -1,10 +1,11 @@
+import {renderVaultCard, renderVaultSection} from './vault-view.js';
 import {confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
-import { ensureVaultId, getMeta } from './db.js';
+import { ensureVaultId, getMeta, saveMeta } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
@@ -40,6 +41,7 @@ let searchText='';
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
+let vaultLayout = 'grid';
 let sidebarCollapsed = false;
 let unreadableCount = 0;
 let unreadableRecords=[];
@@ -115,7 +117,9 @@ async function showApp({reload=true}={}) {
   await purgeExpiredTrash();
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
+  const layout = await getMeta('vaultLayout');
   if(generation!==sessionGeneration)return;
+  vaultLayout = layout === 'list' ? 'list' : 'grid';
   renderCurrentView();
   await requestPersistence();
 }
@@ -172,6 +176,10 @@ function renderAppShell() {
             <span class="sidebar-item-text">${t('sidebar.editLabels')}</span>
           </div>
           <div class="sidebar-divider"></div>
+          <button type="button" class="sidebar-item ${currentView==='vault'?'active':''}" data-view="vault">
+            <span class="sidebar-icon">${icons.vault_key}</span>
+            <span class="sidebar-item-text">${t('vault.section')}</span>
+          </button>
           <div class="sidebar-item ${currentView==='archive'?'active':''}" data-view="archive">
             <span class="sidebar-icon">${icons.archive}</span>
             <span class="sidebar-item-text">${t('sidebar.archive')}</span>
@@ -473,6 +481,12 @@ function renderCurrentView() {
     case 'notes':
       renderNotesView(searchQuery);
       break;
+    case 'vault':
+      renderVaultSection(document.getElementById('main-inner'), {
+        items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
+        layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
+      });
+      break;
     case 'archive':
       renderArchiveView(searchQuery);
       break;
@@ -506,6 +520,34 @@ function renderCurrentView() {
     warning.append(recover);document.getElementById('main-inner').prepend(warning);
   }
   updateSidebarLabels();
+}
+
+const vaultCardActions = {
+  open: openNoteModal,
+  async change(item, intent) {
+    if (await changeFromUI(item, intent)) renderCurrentView();
+  },
+  async remove(item) {
+    if (await showConfirm(t('confirm.deletePermanently'), {danger:true}) && await deleteFromUI(item.id)) {
+      renderCurrentView();
+      showToast(t('toast.noteDeletedForever'));
+    }
+  },
+};
+
+async function setVaultLayout(layout) {
+  const signal = scope.signal;
+  try {
+    await saveMeta('vaultLayout', layout);
+    if (signal.aborted) return;
+    vaultLayout = layout;
+    if (currentView === 'vault') {
+      renderCurrentView();
+      document.querySelector(`[data-vault-layout="${layout}"]`)?.focus();
+    }
+  } catch {
+    if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
 }
 
 function filterNotes(notesList, searchQuery) {
@@ -580,6 +622,7 @@ function renderTrashView(searchQuery) {
   const filtered = filterNotes(trashed, searchQuery);
 
   const valid=filtered;
+  const vaultItems = searchQuery ? [] : trashed.filter(note => note.type === 'vault');
 
   const mainInner = document.getElementById('main-inner');
   let html = '';
@@ -591,7 +634,7 @@ function renderTrashView(searchQuery) {
     </div>`;
   }
 
-  if (valid.length === 0) {
+  if (valid.length === 0 && vaultItems.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.delete_icon}</div>
       <div class="empty-text">${t('trash.empty')}</div>
@@ -601,6 +644,8 @@ function renderTrashView(searchQuery) {
   }
 
   mainInner.innerHTML = html;
+  const grid = mainInner.querySelector('.notes-grid');
+  for (const item of vaultItems) grid.append(renderVaultCard(item, {...vaultCardActions, trash:true}));
   initCardListeners();
 
   document.getElementById('empty-trash-btn')?.addEventListener('click', async () => {

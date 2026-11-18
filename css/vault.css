@@ -1,0 +1,34 @@
+/* Vault cards and controls share the app's theme tokens. */
+.vault-section { min-width: 0; margin: 0 auto; max-width: 1120px; }
+.vault-toolbar { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.vault-toolbar h1 { margin: 0; font-size: clamp(1.3rem, 3vw, 1.75rem); }
+.vault-toolbar-actions, .vault-card-actions, .vault-card-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.vault-toolbar-actions [aria-pressed="true"], .vault-card-actions [aria-pressed="true"] { border-color: var(--accent-color); }
+.vault-empty { padding: 3rem 1rem; text-align: center; color: var(--text-secondary); }
+.vault-cards { display: grid; gap: 12px; align-items: start; }
+.vault-cards[data-layout="grid"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.vault-card { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--card-border); border-radius: 12px; background: var(--vault-color, var(--card-bg)); }
+.vault-card-open { display: block; min-width: 0; color: inherit; text-align: start; padding: 3px; border: 0; background: transparent; cursor: pointer; }
+.vault-card-title, .vault-card-subtitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-card-title { font-size: 1rem; margin: 0; }
+.vault-card-subtitle, .vault-card-meta { color: var(--text-secondary); font-size: .875rem; }
+.vault-chip { border: 1px solid var(--card-border); border-radius: 1rem; padding: 2px 8px; max-width: 100%; overflow-wrap: anywhere; }
+.vault-card-actions { align-items: start; }
+.vault-card-actions .btn-secondary, .vault-card-options summary { font-size: .8rem; padding: 5px 8px; }
+.vault-card-options { max-width: 100%; }
+.vault-card-options summary { cursor: pointer; }
+.vault-palette { display: flex; flex-wrap: wrap; gap: 4px; padding: 5px; }
+.vault-swatch { width: 25px; height: 25px; border: 1px solid var(--card-border); border-radius: 50%; background: var(--vault-color, var(--card-bg)); cursor: pointer; }
+.vault-label-form { display: flex; flex-wrap: wrap; gap: 4px; }
+.vault-label-form input { min-width: 0; max-width: 100%; }
+:is(.vault-card, .vault-swatch)[data-color="coral"] { --vault-color: var(--note-coral); }
+:is(.vault-card, .vault-swatch)[data-color="peach"] { --vault-color: var(--note-peach); }
+:is(.vault-card, .vault-swatch)[data-color="sand"] { --vault-color: var(--note-sand); }
+:is(.vault-card, .vault-swatch)[data-color="mint"] { --vault-color: var(--note-mint); }
+:is(.vault-card, .vault-swatch)[data-color="sage"] { --vault-color: var(--note-sage); }
+:is(.vault-card, .vault-swatch)[data-color="fog"] { --vault-color: var(--note-fog); }
+:is(.vault-card, .vault-swatch)[data-color="storm"] { --vault-color: var(--note-storm); }
+:is(.vault-card, .vault-swatch)[data-color="dusk"] { --vault-color: var(--note-dusk); }
+:is(.vault-card, .vault-swatch)[data-color="blossom"] { --vault-color: var(--note-blossom); }
+:is(.vault-card, .vault-swatch)[data-color="clay"] { --vault-color: var(--note-clay); }
+:is(.vault-card, .vault-swatch)[data-color="chalk"] { --vault-color: var(--note-chalk); }

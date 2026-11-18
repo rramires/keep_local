@@ -59,4 +59,46 @@ export async function run({browser,check,assert}) {
       assert.deepEqual([...p.errors,...q.errors],[]);
     } finally {await p.close();await q.close();}
   });
+  await check('T4.2 vault list and grid persist and render only safe card content',async()=>{
+    const p=await browser.page();
+    try {
+      await p.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+      await create(p);
+      const item=vaultFixture({labels:['Fictional label']});
+      item.blocks.unshift({id:crypto.randomUUID(),kind:'text',value:'fictional-text-only'});
+      await save(p,item);
+      assert.equal(await p.eval("!!document.querySelector('[data-view=vault]')"),true);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await p.until("!!document.querySelector('.vault-card')");
+      assert.equal(await p.eval("document.querySelector('.vault-card-title').textContent"),item.title);
+      assert.equal(await p.eval("document.querySelector('.vault-card-subtitle').textContent"),'example.invalid');
+      assert.equal(await p.eval("document.querySelector('.vault-card').outerHTML.includes('fictional-secret') || document.querySelector('.vault-card').outerHTML.includes('fictional-text-only')"),false);
+      assert.equal(await p.eval("document.documentElement.scrollWidth<=innerWidth"),true);
+      assert.equal(await p.eval("document.querySelector('[data-vault-layout=grid]').getAttribute('aria-pressed')"),'true');
+
+      await p.eval("document.querySelector('[data-vault-layout=list]').click()");
+      await p.until("document.querySelector('[data-vault-layout=list]').getAttribute('aria-pressed')==='true'");
+      assert.equal(await p.eval("await(await import('./js/db.js')).getMeta('vaultLayout')"),'list');
+      await p.reload();
+      await unlock(p);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await p.until("document.querySelector('[data-vault-layout=list]').getAttribute('aria-pressed')==='true'");
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await unlock(p);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await p.until("document.querySelector('[data-vault-layout=list]').getAttribute('aria-pressed')==='true'");
+
+      await p.eval("document.querySelector('[data-vault-action=pin]').click()");
+      await p.until("document.querySelector('[data-vault-action=pin]').getAttribute('aria-pressed')==='true'");
+      await p.eval("document.querySelector('[data-vault-action=trash]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('.vault-card')");
+      assert.equal(await p.eval("document.querySelector('.vault-card').outerHTML.includes('fictional-secret')"),false);
+      await p.eval("document.querySelector('[data-vault-action=restore]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
 }

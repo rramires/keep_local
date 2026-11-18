@@ -30,3 +30,15 @@ export function validVaultBlocks(blocks, uuid) {
   }
   return true;
 }
+
+export function secretLabel(label) {
+  return /senha|secret|token|key|chave|pass/i.test(label);
+}
+
+export function isSecretField(block) {
+  return block.kind === 'field' && (block.secret ?? secretLabel(block.label));
+}
+
+export function vaultSubtitle(item) {
+  return item.blocks.find(block => block.kind === 'field' && !isSecretField(block))?.value ?? '';
+}
