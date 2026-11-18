@@ -2,7 +2,7 @@ import {createEditSession} from './edit-session.js';
 import {validateNote} from './note-model.js';
 import {t} from './i18n.js';
 import {element, vaultButton} from './vault-view.js';
-import {isSecretField, secretLabel, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
+import {isSecretField, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
 import {SECRET_MASK} from './secret-ui.js';
 
 function privateInput(tag, label, maxLength) {
@@ -33,7 +33,6 @@ export function newVaultItem(order) {
 
 export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, onDirty, onPin}) {
   let draft = structuredClone(item);
-  const touched = new Set(item.blocks.filter(block => block.secret === false).map(block => block.id));
   const secretCleanups = new Set();
   const panel = element('section', 'panel-form vault-editor');
   panel.setAttribute('translate', 'no');
@@ -173,14 +172,11 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
       const fieldLabel = element('label', 'vault-form-field', t('vault.fieldLabel'));
       fieldLabel.append(label);
       label.addEventListener('input', () => {
-        if (!patch(current => {
-          current.label = label.value;
-          if (!touched.has(id) && secretLabel(current.label)) current.secret = true;
-        })) label.value = get().label;
+        if (!patch(current => { current.label = label.value; })) label.value = get().label;
         syncValue();
       });
       toggleSecret = vaultButton(t('vault.secret'), () => {
-        if (patch(current => { current.secret = !isSecretField(current); })) touched.add(id);
+        patch(current => { current.secret = !isSecretField(current); });
         syncValue();
       });
       toggleSecret.dataset.vaultToggleSecret = '';

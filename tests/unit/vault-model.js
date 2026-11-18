@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateNote,MAX_NOTE_BYTES} from '../../js/note-model.js';
 import {createNoteWriteQueue,editorFields,metadataFields} from '../../js/note-write-queue.js';
+import {isSecretField,secretLabel} from '../../js/vault-model.js';
 import {serialQueue} from '../../js/edit-session.js';
 
 const field=(patch={})=>({id:crypto.randomUUID(),kind:'field',label:'Login',value:'fictional',...patch});
@@ -78,4 +79,26 @@ test('T4.6 vault search indexes safe fields while excluding secret and free-text
   for (const query of ['FictionalSecretToken','SECRETTO','unflaggedimportsecret','private scratch']) {
     assert.equal(vaultMatches(item,query),false);
   }
+});
+
+test('D1.1 field privacy defaults to secret and honors explicit overrides',()=>{
+  const publicLabels=[
+    'host','hostname','servidor','server','url','uri','endpoint','domínio','domain',
+    'Usuário','USER','username','login','e-mail','email','porta','port','banco',
+    'database','db','bucket','Região','region','ip','conta','account','Server_IP','ID.endpoint',
+  ];
+  const unknownLabels=['','   ','zip','recipient','portable','βip','ip東京','serverless','Notes'];
+  const sensitiveLabels=[
+    'Senha do usuário','Host key','Login password','Database password','Access Key ID',
+    ...['PIN','pwd','cvv','cvc','otp','totp','2FA','mfa','Seed phrase','mnemonic','recovery',
+      'recuperação','credential','credencial','private','privada','auth','cert','pem','ssh','api']
+      .map(label=>'Host '+label),
+  ];
+  assert.deepEqual(publicLabels.filter(label=>isSecretField(field({label}))),[]);
+  assert.deepEqual([...unknownLabels,...sensitiveLabels].filter(label=>!isSecretField(field({label}))),[]);
+  assert.deepEqual(['skipping host','shipping host','uthor URL','xotp server'].filter(secretLabel),[]);
+  assert.equal(isSecretField(field({label:'',secret:false})),false);
+  assert.equal(isSecretField(field({label:'Senha',secret:false})),false);
+  assert.equal(isSecretField(field({label:'Host',secret:true})),true);
+  assert.equal(isSecretField({kind:'text',label:'Senha'}),false);
 });

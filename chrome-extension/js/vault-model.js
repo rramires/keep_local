@@ -31,12 +31,35 @@ export function validVaultBlocks(blocks, uuid) {
   return true;
 }
 
+function labelWords(terms) {
+  return new RegExp(String.raw`(?<![\p{L}\p{M}\p{N}])(?:${terms})(?![\p{L}\p{M}\p{N}])`, 'u');
+}
+
+const publicWords = labelWords(
+  String.raw`host|hostname|servidor|server|url|uri|endpoint|dominio|domain|usuario|user|username|login|e\s+mail|email|porta|port|banco|database|db|bucket|regiao|region|ip|conta|account`,
+);
+const shortSecretWords = labelWords('pin|pwd|cvv|cvc|otp|totp|2fa|mfa|seed|auth|cert|pem|ssh|api');
+const sensitiveTerms = /senha|secret|token|key|chave|pass|mnemonic|recovery|recuperacao|credential|credencial|private|privada/;
+
+function normalizeLabel(label) {
+  return label.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[-_.]/g, ' ');
+}
+
 export function secretLabel(label) {
-  return /senha|secret|token|key|chave|pass/i.test(label);
+  const normalized = normalizeLabel(label);
+  return sensitiveTerms.test(normalized) || shortSecretWords.test(normalized);
+}
+
+function publicLabel(label) {
+  return publicWords.test(normalizeLabel(label));
+}
+
+function autoSecret(label) {
+  return secretLabel(label) || !publicLabel(label);
 }
 
 export function isSecretField(block) {
-  return block.kind === 'field' && (block.secret ?? secretLabel(block.label));
+  return block.kind === 'field' && (block.secret ?? autoSecret(block.label));
 }
 
 export function vaultSubtitle(item) {

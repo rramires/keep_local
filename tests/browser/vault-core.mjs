@@ -82,6 +82,78 @@ export async function fillVaultInput(p,selector,value) {
   })()`);
 }
 
+const testSentinel=()=> 'SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
+
+async function makeVaultScanner(browser,p,assert,values) {
+  const markers=values.flatMap(value=>[value,value.slice(13,21)]).map(value=>value.toLowerCase());
+  const alerts=[];
+  const listener=message=>{
+    if(['Runtime.consoleAPICalled','Runtime.exceptionThrown','Log.entryAdded'].includes(message.method)) {
+      alerts.push(JSON.stringify(message.params));
+    }
+  };
+  browser.cdp.listeners.push(listener);
+  // Capture message arguments at every level, including structured console values.
+  await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
+    const entries=[];
+    Object.defineProperty(window,'vaultConsoleEntries',{value:entries});
+    for(const key of ['log','info','debug','warn','error','trace','dir','table','assert','group','groupCollapsed']) {
+      const original=console[key].bind(console);
+      console[key]=(...args)=>{
+        for(const value of args) {
+          try {entries.push(value instanceof Error?value.stack:JSON.stringify(value));}
+          catch {entries.push(String(value));}
+        }
+        original(...args);
+      };
+    }
+  })()`});
+  await p.reload();
+  const scan=async(label,allowed=null)=>{
+    const readout=await p.eval(`(async()=>{
+      const markers=${JSON.stringify(markers)};
+      const allowed=${JSON.stringify(allowed)};
+      const element=allowed && document.querySelector(allowed.selector);
+      const clone=document.documentElement.cloneNode(true);
+      let innerText=document.documentElement.innerText;
+      if(element&&allowed.property==='textContent'){
+        clone.querySelector(allowed.selector).textContent='';
+        innerText=innerText.replace(element.textContent,'');
+      }
+      const inputs=[...document.querySelectorAll('input,textarea')].filter(input =>
+        !(element===input && allowed?.property==='value' && document.activeElement===input)
+      );
+      const attributes=[...document.querySelectorAll('*')].flatMap(node=>
+        [...node.attributes].filter(attr=>/^(title|aria-|data-|placeholder)/.test(attr.name)).map(attr=>attr.value)
+      );
+      const db=await import('./js/db.js');
+      const channels={
+        html:clone.outerHTML,
+        innerText,
+        inputs:inputs.map(input=>input.value),
+        attributes,
+        title:document.title,
+        toasts:[...document.querySelectorAll('.toast')].map(node=>node.textContent),
+        local:Object.entries(localStorage),
+        session:Object.entries(sessionStorage),
+        meta:await db.getAllMetaRecords(),
+        console:window.vaultConsoleEntries,
+      };
+      return Object.entries(channels).filter(([,value])=>{
+        const serialized=String(JSON.stringify(value)).toLowerCase();
+        return markers.some(marker=>serialized.includes(marker));
+      }).map(([name])=>name);
+    })()`);
+    const browserMessages=JSON.stringify([...alerts,...p.errors]).toLowerCase();
+    if(markers.some(marker=>browserMessages.includes(marker))) readout.push('CDP console');
+    assert.deepEqual(readout,[],label);
+  };
+  return {
+    scan,
+    dispose() { browser.cdp.listeners.splice(browser.cdp.listeners.indexOf(listener),1); },
+  };
+}
+
 export async function run({browser,check,assert}) {
   await check('T4.1 vault records stay out of notes and round-trip in the existing v2 envelope',async()=>{
     const p=await browser.page();
@@ -327,8 +399,8 @@ export async function run({browser,check,assert}) {
       const restored=await p.eval("(await import('./js/app.js')).getNotes().find(note=>note.type==='vault')");
       assert.equal(restored.title,'Fictional Login');
       assert.deepEqual(restored.blocks.map(block=>block.kind),['field','field','divider','text']);
-      assert.deepEqual({secret:restored.blocks[0].secret,multiline:restored.blocks[0].multiline,value:restored.blocks[0].value},
-        {secret:true,multiline:true,value:'fictional-editor-secret\nfictional-second-line'});
+      assert.deepEqual({hasSecret:Object.hasOwn(restored.blocks[0],'secret'),multiline:restored.blocks[0].multiline,value:restored.blocks[0].value},
+        {hasSecret:false,multiline:true,value:'fictional-editor-secret\nfictional-second-line'});
       assert.equal(restored.blocks[1].secret,false);
       assert.equal(restored.blocks[3].value,'Final fictional text');
       assert.deepEqual(p.errors,[]);
@@ -470,33 +542,9 @@ export async function run({browser,check,assert}) {
 
   await check('T4.12 distinct random sentinel strings stay out of all closed and masked surfaces',async()=>{
     const p=await browser.page();
-    const alerts=[];
-    const listener=message=>{
-      if(['Runtime.consoleAPICalled','Runtime.exceptionThrown','Log.entryAdded'].includes(message.method)) {
-        alerts.push(JSON.stringify(message.params));
-      }
-    };
-    browser.cdp.listeners.push(listener);
+    const single=testSentinel(), multi=testSentinel();
+    const {scan,dispose}=await makeVaultScanner(browser,p,assert,[single,multi]);
     try {
-      // Capture message arguments at every level, including structured console values.
-      await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
-        const entries=[];
-        Object.defineProperty(window,'vaultConsoleEntries',{value:entries});
-        for(const key of ['log','info','debug','warn','error','trace','dir','table','assert','group','groupCollapsed']) {
-          const original=console[key].bind(console);
-          console[key]=(...args)=>{
-            for(const value of args) {
-              try {entries.push(value instanceof Error?value.stack:JSON.stringify(value));}
-              catch {entries.push(String(value));}
-            }
-            original(...args);
-          };
-        }
-      })()`});
-      await p.reload();
-      const sentinel=()=> 'SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
-      const single=sentinel(), multi=sentinel();
-      const markers=[single,multi,single.slice(13,21),multi.slice(13,21)].map(text=>text.toLowerCase());
       const item=vaultFixture({title:'Fictitious credentials for scan',labels:['Vault audit'],
         blocks:[
           {id:crypto.randomUUID(),kind:'field',label:'Password',value:single,secret:true},
@@ -504,45 +552,6 @@ export async function run({browser,check,assert}) {
           {id:crypto.randomUUID(),kind:'field',label:'Host',value:'example.invalid',secret:false},
         ],
       });
-      const scan=async(label,allowed=null)=>{
-        const readout=await p.eval(`(async()=>{
-          const markers=${JSON.stringify(markers)};
-          const allowed=${JSON.stringify(allowed)};
-          const element=allowed && document.querySelector(allowed.selector);
-          const clone=document.documentElement.cloneNode(true);
-          let innerText=document.documentElement.innerText;
-          if(element&&allowed.property==='textContent'){
-            clone.querySelector(allowed.selector).textContent='';
-            innerText=innerText.replace(element.textContent,'');
-          }
-          const inputs=[...document.querySelectorAll('input,textarea')].filter(input =>
-            !(element===input && allowed?.property==='value' && document.activeElement===input)
-          );
-          const attributes=[...document.querySelectorAll('*')].flatMap(node=>
-            [...node.attributes].filter(attr=>/^(title|aria-|data-|placeholder)/.test(attr.name)).map(attr=>attr.value)
-          );
-          const db=await import('./js/db.js');
-          const channels={
-            html:clone.outerHTML,
-            innerText,
-            inputs:inputs.map(input=>input.value),
-            attributes,
-            title:document.title,
-            toasts:[...document.querySelectorAll('.toast')].map(node=>node.textContent),
-            local:Object.entries(localStorage),
-            session:Object.entries(sessionStorage),
-            meta:await db.getAllMetaRecords(),
-            console:window.vaultConsoleEntries,
-          };
-          return Object.entries(channels).filter(([,value])=>{
-            const serialized=String(JSON.stringify(value)).toLowerCase();
-            return markers.some(marker=>serialized.includes(marker));
-          }).map(([name])=>name);
-        })()`);
-        const browserMessages=JSON.stringify([...alerts,...p.errors]).toLowerCase();
-        if(markers.some(marker=>browserMessages.includes(marker))) readout.push('CDP console');
-        assert.deepEqual(readout,[],label);
-      };
       await create(p);
       await save(p,item);
       await p.eval("document.querySelector('[data-view=notes]').click()");
@@ -604,7 +613,7 @@ export async function run({browser,check,assert}) {
       await scan('Login after lock');
       assert.deepEqual(p.errors,[]);
     } finally {
-      browser.cdp.listeners.splice(browser.cdp.listeners.indexOf(listener),1);
+      dispose();
       await p.close();
     }
   });
@@ -650,6 +659,105 @@ export async function run({browser,check,assert}) {
       assert.equal(inspected.unreadable,0);
       assert.equal(inspected.profile,2);
       assert.ok(inspected.preferences.every(key=>['theme','lang'].includes(key)));
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('D1.1 an unlabeled field from the new item stays out of masked surfaces',async()=>{
+    const p=await browser.page();
+    const sentinel=testSentinel();
+    const {scan,dispose}=await makeVaultScanner(browser,p,assert,[sentinel]);
+    try {
+      await create(p);
+      await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('#vault-new-item').click()");
+      await fillVaultInput(p,'[data-vault-title]','An unlabeled fictional credential');
+      await fillVaultInput(p,'[data-vault-value]',sentinel);
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')&&!!document.querySelector('.vault-card')");
+      await scan('New item, vault grid');
+      await p.eval("document.querySelector('[data-vault-layout=list]').click()");
+      await p.until("document.querySelector('.vault-cards').dataset.layout==='list'");
+      await scan('New item, vault list');
+      await p.eval("document.querySelector('[data-vault-open]').click()");
+      await p.until("!!document.querySelector('.vault-detail')");
+      await scan('New item, masked detail');
+      assert.equal(await p.eval("document.querySelector('.vault-secret-value').textContent"),'••••••••');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-detail')");
+      await p.eval(`(()=>{
+        const search=document.querySelector('#search-input');
+        search.value=${JSON.stringify(sentinel.slice(13,21))};
+        search.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      await p.until("document.querySelector('.vault-section').dataset.vaultSearchActive==='true'&&document.querySelector('#search-input').value===''");
+      assert.equal(await p.eval("document.querySelectorAll('.vault-card').length"),0);
+      await scan('New item, search for the eight-character fragment');
+      assert.deepEqual(p.errors,[]);
+    } finally {dispose();await p.close();}
+  });
+
+  await check('D1.1 Q6 public labels show and ambiguous or sensitive labels stay masked',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      const hidden=['PIN','pwd','CVV','OTP','Credencial','Seed phrase','Recovery code','Passphrase','Private Key','Access Key ID','Host key'];
+      const visible=['Host','Usuário'];
+      const entries=[...hidden,...visible].map((label,order)=>vaultFixture({
+        title:'Case '+order,order,blocks:[{id:crypto.randomUUID(),kind:'field',label,value:'fixture-'+order}],
+      }));
+      for(const entry of entries) await save(p,entry);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      const subtitles=await p.eval("[...document.querySelectorAll('.vault-card')].map(card=>card.querySelector('.vault-card-subtitle')?.textContent ?? null)");
+      assert.deepEqual(subtitles,[...hidden.map(()=>null),...visible.map((_,i)=>'fixture-'+(hidden.length+i))]);
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('D1.1 editor follows the label until the user persists either lock choice',async()=>{
+    const p=await browser.page();
+    const locked=()=>p.eval("document.querySelector('[data-vault-toggle-secret]').getAttribute('aria-pressed')==='true'");
+    const toggle=()=>p.eval("document.querySelector('[data-vault-toggle-secret]').click()");
+    const label=value=>fillVaultInput(p,'[data-vault-label]',value);
+    const close=async()=>{
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+    };
+    const savedBlock=()=>p.eval("(await import('./js/app.js')).getNotes().find(item=>item.type==='vault').blocks[0]");
+    try {
+      await create(p);
+      await save(p,vaultFixture({blocks:[{id:crypto.randomUUID(),kind:'field',label:'Host',value:'env.example.invalid'}]}));
+      await enterVaultEditor(p,assert);
+      assert.equal(await locked(),false);
+      await label('Password');
+      assert.equal(await locked(),true);
+      assert.equal(await p.eval("document.querySelector('[data-vault-value]').value"),'');
+      await close();
+      assert.equal(Object.hasOwn(await savedBlock(),'secret'),false,'Automatic masking must not persist a flag');
+      await enterVaultEditor(p,assert);
+      await label('Host');
+      assert.equal(await locked(),false);
+      await toggle();
+      await close();
+      assert.equal((await savedBlock()).secret,true);
+      await p.reload();
+      await unlock(p);
+      await enterVaultEditor(p,assert);
+      await label('Usuário');
+      assert.equal(await locked(),true);
+      await close();
+      assert.equal((await savedBlock()).secret,true);
+
+      await p.eval("document.querySelector('#vault-new-item').click()");
+      await fillVaultInput(p,'[data-vault-title]','Explicitly public fictional entry');
+      assert.equal(await locked(),true);
+      await toggle();
+      assert.equal(await locked(),false);
+      await fillVaultInput(p,'[data-vault-value]','public-fictitious');
+      await close();
+      const block=await p.eval("(await import('./js/app.js')).getNotes().find(item=>item.title==='Explicitly public fictional entry').blocks[0]");
+      assert.equal(block.label,'');
+      assert.equal(block.secret,false);
+      assert.equal(await p.eval("document.querySelector('#main-inner').innerText.includes('public-fictitious')"),true);
       assert.deepEqual(p.errors,[]);
     } finally {await p.close();}
   });
