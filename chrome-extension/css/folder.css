@@ -17,3 +17,9 @@
 
 .folder-settings-trigger { width: 100%; text-align: start; }
 .folder-settings h3, .folder-settings p { margin: 0; }
+
+.folder-indicator { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.folder-indicator[hidden] { display: none; }
+.sidebar .folder-indicator { padding: 8px 16px; }
+.folder-review .folder-actions { margin-top: 12px; }
+.folder-review select { max-width: 100%; }

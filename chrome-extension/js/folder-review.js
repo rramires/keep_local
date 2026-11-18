@@ -1,3 +1,4 @@
+import {folderTime} from './folder-status.js';
 import {t,tp} from './i18n.js';
 import {wordDialog} from './dialogs.js';
 import {focusPanel} from './form-ui.js';
@@ -10,11 +11,6 @@ function tag(name,text,className) {
   if(text!==undefined)node.textContent=text;
   if(className)node.className=className;
   return node;
-}
-
-export function folderTime(timestamp) {
-  return new Intl.DateTimeFormat(document.documentElement.lang,{hour:'2-digit',minute:'2-digit',hour12:false})
-    .format(new Date(timestamp));
 }
 
 export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,notify,onRefresh}) {

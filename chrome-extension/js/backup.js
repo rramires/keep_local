@@ -1,4 +1,5 @@
 import {confirmDialog} from './dialogs.js';
+import {folderUnloadWarning} from './folder-status.js';
 import {withVaultLineage} from './folder-write.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
@@ -41,7 +42,8 @@ export function isUnsaved() {
 export async function initBeforeUnload() {
   await refreshBackupState();
   window.addEventListener('beforeunload', (e) => {
-    if (isUnsaved()) {
+    const folderWarning=folderUnloadWarning();
+    if (folderWarning===null?isUnsaved():folderWarning||hasPendingDrafts()) {
       e.preventDefault();
       e.returnValue = '';
     }

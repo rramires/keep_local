@@ -10,7 +10,8 @@ import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './ba
 import { purgeTrash } from './trash.js';
 import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
-import {folderTime,renderFolderReview} from './folder-review.js';
+import {renderFolderReview} from './folder-review.js';
+import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
@@ -88,6 +89,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 function teardownSession() {
   secretUI.dispose();
   folderGate=null;
+  setFolderStatus(null);
   folderSync?.dispose();folderSync=null;folderKey=null;folderLoaded=null;
   setWriteMode('readWrite');
   closeDialogs();
@@ -120,6 +122,7 @@ async function showAuth(message='') {
       const status=await checkFolder(attempt.handle,attempt.permissionFailure);
       if(signal.aborted)return;
       if(status!=='ok'){
+        setFolderStatus('readOnly');
         folderGate=folderGateFor(attempt.handle,status,key,signal);
         folderGate.renderBlock();
         return;
@@ -188,7 +191,8 @@ async function configureFolderSync({admit=false,selected}={}) {
   const signal=sessionController?.signal,key=cryptoKey;
   if(!folderSupported()||!key||(!admit&&isReadOnly()))return false;
   const handle=selected??await readSyncFolder();
-  if(!handle||signal?.aborted||key!==cryptoKey)return false;
+  if(signal?.aborted||key!==cryptoKey)return false;
+  if(!handle){setFolderStatus(null);return false;}
   const rerenderPulled=async head=>{
     modalController?.abort();modalController=null;
     if(activeEdit){activeEdit.cancel();activeEdit.cleanup?.();activeEdit=null;}
@@ -199,7 +203,7 @@ async function configureFolderSync({admit=false,selected}={}) {
     if(document.querySelector('.app-view'))await showApp();
   };
   const sync=createFolderSync({
-    handle,key,signal,onPulled:rerenderPulled,
+    handle,key,signal,onPulled:rerenderPulled,onIgnored:()=>showToast(t('folder.ignoredCopies')),
     onUnavailable:(folder,status)=>{
       folderGate=folderGateFor(folder,status,key,signal);
       if(document.querySelector('.app-view'))void showApp();
@@ -207,6 +211,7 @@ async function configureFolderSync({admit=false,selected}={}) {
     },
     onReview:review=>{
       modalController?.abort();modalController=null;
+      setFolderStatus('readOnly',undefined,{conflict:review.status==='conflict'});
       folderGate=folderGateFor(handle,review.status,key,signal);
       renderFolderReview(appContainer,review,{
         handle,signal,notify:showToast,onExit:logout,onOpenReadOnly:showApp,
@@ -214,7 +219,10 @@ async function configureFolderSync({admit=false,selected}={}) {
         resolve:async(choice,name)=>{await sync.resolve(review,choice,name);await showApp();},
       });
     },
-    onStatus:(status,reason)=>{if(reason==='folder.unreadable')showToast(t(reason));},
+    onStatus:(status,detail)=>{
+      setFolderStatus(status,detail,{onRetry:()=>folderSync?.flush()});
+      if(detail==='folder.unreadable')showToast(t(detail));
+    },
   });
   folderSync=sync;
   if(admit)return sync.admit();
@@ -317,6 +325,7 @@ function renderAppShell() {
   } else if(folderSupported()){
     addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
+  if(folderSupported())document.getElementById('backup-btn').after(createFolderIndicator());
   initAppListeners();
 }
 

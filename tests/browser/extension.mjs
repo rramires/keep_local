@@ -402,7 +402,7 @@ export async function run({check,assert}) {
       assert.match(selected,/^KL-TEST-/);
       assert.equal(await p.eval("folderTest.events.find(event=>event.kind==='picker').active"),true);
       assert.match(await text(),new RegExp('Folder connected: '+selected));
-      assert.match(await text(),/Automatic folder writes will arrive in a later stage/);
+      assert.match(await text(),/Folder write pending|Written to folder/);
       assert.doesNotMatch(await text(),/\bsynced\b|\bsynchronized\b/i);
       assert.deepEqual(await p.eval('folderTest.entries()'),[]);
 
@@ -728,5 +728,44 @@ export async function run({check,assert}) {
       assert.equal(await pb.eval('folderTest.writeAttempts'),0);
       assert.deepEqual(await pb.eval('folderTest.writes'),{});
     }finally{await Promise.all([a.close(),b.close()]);}
+  });
+
+  await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {writeFolderFixture}=await import('./folder-transfer.mjs');
+    const browser=await harness.launchExtension();
+    try{
+      const p=await browser.page(undefined,folderFixtureSource());
+      const warns=()=>p.eval("!window.dispatchEvent(new Event('beforeunload',{cancelable:true}))");
+      await harness.create(p);
+      await harness.add(p,'Indicator fixture','Fictitious note');
+      await p.eval("folderTest.failWrites=100;document.querySelector('#folder-settings-btn').click()");
+      await p.until("!!document.querySelector('[data-folder-action=choose]')");
+      await p.eval("document.querySelector('[data-folder-action=choose]').click()");
+      await p.until("!!document.querySelector('.folder-settings [data-folder-state=pending]')");
+      assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Folder write pending/);
+      assert.equal(await warns(),true);
+      await p.until("!!document.querySelector('.folder-settings [data-folder-state=error] [data-folder-retry]')");
+      assert.match(await p.eval("document.querySelector('.folder-settings [data-folder-state=error]').innerText"),/Error writing to folder: NoModificationAllowedError/);
+      assert.equal(await warns(),true);
+      await p.eval("folderTest.failWrites=0;document.querySelector('.folder-settings [data-folder-retry]').click()");
+      await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
+      assert.match(await p.eval("document.querySelector('.folder-settings [data-folder-state=saved]').innerText"),/Written to folder at \d\d:\d\d/);
+      assert.equal(await p.eval("(await import('./js/backup.js')).isUnsaved()"),true);
+      assert.equal(await warns(),false);
+      assert.doesNotMatch(await p.eval("document.querySelector('.folder-settings').innerText"),/sync|cloud|sincroniz|nuvem/i);
+
+      await writeFolderFixture(p,'unreadable-side-copy.keeplocal',Buffer.from('fictional').toString('base64'));
+      await p.eval("window.dispatchEvent(new Event('focus'))");
+      await p.until("document.querySelector('#toast-container').innerText.includes('unreadable folder copies')");
+      await p.eval("document.querySelector('#modal-close').click();document.querySelector('#lang-toggle').click()");
+      await p.until("document.documentElement.lang==='pt-BR'&&!!document.querySelector('.sidebar [data-folder-state=saved]')");
+      assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Gravado na pasta às \d\d:\d\d/);
+
+      await p.eval("await folderTest.remove();window.dispatchEvent(new Event('focus'))");
+      await p.until("!!document.querySelector('.folder-banner')&&!!document.querySelector('.sidebar [data-folder-state=readOnly]')");
+      assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Somente leitura/);
+      assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),true);
+    }finally{await browser.close();}
   });
 }

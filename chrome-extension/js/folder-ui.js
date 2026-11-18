@@ -1,6 +1,7 @@
 import {t} from './i18n.js';
 import {focusPanel} from './form-ui.js';
 import {confirmDialog} from './dialogs.js';
+import {createFolderIndicator} from './folder-status.js';
 import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,readSyncFolder,requestFolderAccess} from './folder-store.js';
 
 function element(tag, className, text) {
@@ -197,7 +198,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
         : element('p','',t('folder.description')),
     ];
     if(!handle) groups.push(element('p','help-text',t('folder.permissionTip')));
-    groups.push(element('p','help-text',t('folder.future')));
+    groups.push(createFolderIndicator());
     const controls=element('div','folder-actions');
     const choose=action(handle?'change':'choose',()=>void run(async()=>{
       const chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable()});

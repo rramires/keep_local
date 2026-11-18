@@ -4,11 +4,11 @@ import {enableFolderWrites} from './folder-store.js';
 import {createFolderWriter,folderFailure,withVaultLineage} from './folder-write.js';
 import {decideFolderAction,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
 
-export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{}}) {
+export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onIgnored=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
-  let timer=null,running=false,queued=false,backoff=1000;
+  let timer=null,running=false,queued=false,backoff=1000,lastWarning=null;
 
   function schedule(delay=1500) {
     if(lifetime.aborted||isReadOnly())return;
@@ -27,6 +27,12 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(!admitting&&isReadOnly())return {status:'paused'};
     if(!admitting&&hasPendingDrafts())return {status:'push'};
     const decision=decideFolderAction(snapshot,state);
+    if(['push','pull','saved'].includes(decision)){
+      const ignored=[...state.unreadable,...state.tooLarge,...state.otherSalt].sort();
+      const warning=JSON.stringify(ignored);
+      if(ignored.length&&warning!==lastWarning)onIgnored();
+      lastWarning=warning;
+    }
     if(decision==='pull'){
       const reading=isReadOnly();
       setWriteMode('readOnly');
@@ -92,7 +98,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       if(outcome.hasNewChanges)queued=true;
     }catch(error){
       if(lifetime.aborted||error.code==='session.ended'||accessIssue(error))return;
-      onStatus('error',error.code||error.name);
+      onStatus('error',typeof error.code==='string'?error.code:error.name);
       if(error.code!=='folder.unreadable'){
         retry=backoff;
         backoff=Math.min(backoff*2,30000);
