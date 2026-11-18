@@ -89,9 +89,9 @@ export function renderAuthView(container, { onAuthenticated }) {
                 <li id="rule-common">${t('validation.common')}</li>
               </ul>
             </div>
-            <p id="password-strength" role="status"></p>
-            <p>${t('auth.passphraseHint')}</p>
-            <div class="form-error" id="create-error"></div>
+            <p class="password-strength" id="password-strength" role="status"></p>
+            <p class="help-text">${t('auth.passphraseHint')}</p>
+            <div class="form-error" id="create-error" role="alert"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary" id="create-btn" disabled>${t('auth.createAccount')}</button>
             </div>
@@ -183,6 +183,7 @@ function initAuthListeners(container, onAuthenticated) {
     container.querySelector('#rule-common').classList.toggle('valid',checks.notCommon);
     container.querySelector('#rule-common').textContent=t('validation.'+(reason||'common'));
     container.querySelector('#password-strength').textContent=t('password.strength.'+strength);
+    container.querySelector('#password-strength').dataset.strength=strength;
 
     const allValid = valid;
     const matches = pw === createConfirm.value && createConfirm.value.length > 0;

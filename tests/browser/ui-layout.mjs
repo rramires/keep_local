@@ -50,4 +50,11 @@ export async function run({browser,check,assert}) {
   }finally{await p.close();}}
  });
 
+ await check('U6 create passphrase uses smaller strength/help text and distinct strength colors without overflow',async()=>{
+  for(const theme of ['dark','light'])for(const width of [1100,390]){const p=await browser.page();try{await p.send('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:false});await p.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);const colors=[];
+   for(const [pw,strength] of [['abcdefghijklmn','weak'],['Vento Cobre 82!','adequate'],['cedro neblina foguete vidro lontra','long']]){const v=await p.eval(`(()=>{const i=document.querySelector('#create-password');i.value=${JSON.stringify(pw)};i.dispatchEvent(new Event('input'));const s=document.querySelector('#password-strength'),h=document.querySelector('#create-form .help-text'),rules=document.querySelector('#password-rules');return {strength:s.dataset.strength,color:getComputedStyle(s).color,smaller:parseFloat(getComputedStyle(s).fontSize)<parseFloat(getComputedStyle(rules).fontSize)&&parseFloat(getComputedStyle(h).fontSize)<parseFloat(getComputedStyle(rules).fontSize),gap:h.getBoundingClientRect().top-s.getBoundingClientRect().bottom,within:i.getBoundingClientRect().right<=innerWidth,overflow:document.documentElement.scrollWidth>innerWidth}})()`);assert.equal(v.strength,strength);assert.ok(v.smaller&&v.within);assert.ok(v.gap>=0&&v.gap<=12);assert.equal(v.overflow,false);colors.push(v.color);}
+   assert.equal(new Set(colors).size,3);assert.deepEqual(p.errors,[]);
+  }finally{await p.close();}}
+ });
+
 }
