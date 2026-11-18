@@ -390,4 +390,40 @@ export async function run({browser,check,assert}) {
     } finally {if(q) await q.close();await p.close();}
   });
 
+  await check('T4.6 vault search only returns safe matches and Trash only matches vault titles',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      const item=vaultFixture({title:'Fictitious credentials',labels:['Search Label']});
+      item.blocks.push(
+        {id:crypto.randomUUID(),kind:'text',value:'private scratch text'},
+        {id:crypto.randomUUID(),kind:'field',label:'User',value:'fictitious-login'},
+      );
+      await save(p,item);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      const search=async query=>{
+        await p.eval(`(()=>{const input=document.querySelector('#search-input');input.value=${JSON.stringify(query)};input.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+        await p.until("document.querySelector('#search-input').value===''&&document.querySelector('.vault-section').dataset.vaultSearchActive==='true'");
+      };
+      for(const query of ['fictional-secret','CTIONAL-SE','private scratch']) {
+        await search(query);
+        assert.equal(await p.eval("document.querySelectorAll('.vault-card').length"),0);
+      }
+      for(const query of ['EXAMPLE.INVALID','fictitious-login','Host','Search Label']) {
+        await search(query);
+        assert.equal(await p.eval("document.querySelectorAll('.vault-card').length"),1);
+        assert.equal(await p.eval("!!document.querySelector('.vault-card mark')"),false);
+      }
+      await p.eval("document.querySelector('[data-vault-action=trash]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('.vault-card')");
+      await p.eval("const q=document.querySelector('#search-input');q.value='example.invalid';q.dispatchEvent(new Event('input'))");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("const q=document.querySelector('#search-input');q.value='fictitious credentials';q.dispatchEvent(new Event('input'))");
+      await p.until("!!document.querySelector('.vault-card')");
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
 }

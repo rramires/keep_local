@@ -100,9 +100,10 @@ export function renderVaultCard(item, {open, change, remove, trash = false}) {
   return card;
 }
 
-export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, ...cardActions}) {
+export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, searchActive, ...cardActions}) {
   const section = element('section', 'vault-section');
   section.setAttribute('translate', 'no');
+  section.dataset.vaultSearchActive = String(!!searchActive);
   const toolbar = element('header', 'vault-toolbar');
   toolbar.append(element('h1', '', t('vault.section')));
   const controls = element('div', 'vault-toolbar-actions');
@@ -129,7 +130,7 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, onDism
     for (const item of sorted) cards.append(renderVaultCard(item, cardActions));
     section.append(cards);
   } else {
-    section.append(element('p', 'vault-empty', t('vault.empty')));
+    section.append(element('p', 'vault-empty', t(searchActive ? 'vault.noResults' : 'vault.empty')));
   }
   root.replaceChildren(section);
 }

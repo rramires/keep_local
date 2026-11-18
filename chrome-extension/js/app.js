@@ -1,3 +1,4 @@
+import {vaultMatches} from './vault-model.js';
 import {newVaultItem, renderVaultEditor} from './vault-editor.js';
 import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
@@ -41,6 +42,7 @@ let newDraft={title:'',content:'',expanded:false};
 let barSaving=null;
 const newTodoIds=new Set();
 let searchText='';
+let vaultSearch='';
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
@@ -86,7 +88,7 @@ function teardownSession() {
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
-  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';
+  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
 function showAuth(message='') {
@@ -145,7 +147,7 @@ function renderAppShell() {
         <div class="header-search">
           <div class="search-container">
             <span class="search-icon">${icons.search}</span>
-            <input type="text" placeholder="${t('header.search')}" id="search-input" aria-label="${t('header.search')}" autocomplete="off" spellcheck="false" autocapitalize="off">
+            <input type="text" placeholder="${t('header.search')}" id="search-input" translate="no" autocorrect="off" aria-label="${t('header.search')}" autocomplete="off" spellcheck="false" autocapitalize="off">
             <button class="icon-btn search-clear" id="search-clear" aria-label="${t('header.clearSearch')}" data-tooltip="${t('header.clearSearch')}">
               ${icons.close}
             </button>
@@ -219,7 +221,7 @@ function renderAppShell() {
     </div>
   `;
 
-  document.getElementById('search-input').value=searchText;
+  document.getElementById('search-input').value=currentView==='vault'?'':searchText;
   initAppListeners();
 }
 
@@ -277,7 +279,12 @@ function initAppListeners() {
   // Sidebar navigation
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
     item.addEventListener('click', async () => {
-      currentView = item.dataset.view;
+      const view = item.dataset.view;
+      if (currentView !== view && (currentView === 'vault' || view === 'vault')) {
+        clearTimeout(searchTimeout);
+        resetVaultSearch();
+      }
+      currentView = view;
       if(currentView==='trash')await purgeExpiredTrash();
       currentLabel = null;
       updateSidebarActive(item);
@@ -291,16 +298,24 @@ function initAppListeners() {
   const searchClear = document.getElementById('search-clear');
   let searchTimeout;
 
+  searchClear.classList.toggle('visible', !!(currentView === 'vault' ? vaultSearch : searchText));
   searchInput.addEventListener('input', () => {
-    searchText=searchInput.value;
+    const inVault = currentView === 'vault';
+    if (inVault) vaultSearch = searchInput.value.trim();
+    else searchText = searchInput.value;
     clearTimeout(searchTimeout);
     searchClear.classList.toggle('visible', searchInput.value.length > 0);
-    searchTimeout = scope.later(() => renderCurrentView(), 300);
+    searchTimeout = scope.later(() => {
+      if (inVault) searchInput.value = '';
+      renderCurrentView();
+    }, 300);
   });
-
+  searchInput.addEventListener('blur', () => {
+    if (currentView === 'vault') searchInput.value = '';
+  });
   searchClear.addEventListener('click', () => {
-    searchInput.value = '';searchText='';
-    searchClear.classList.remove('visible');
+    clearTimeout(searchTimeout);
+    resetVaultSearch();
     renderCurrentView();
   });
 
@@ -334,6 +349,13 @@ function initAppListeners() {
       }
     }
   }, 'escape');
+}
+
+function resetVaultSearch() {
+  vaultSearch = '';
+  searchText = '';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-clear').classList.remove('visible');
 }
 
 function closeMobileSidebar() {
@@ -490,7 +512,8 @@ function renderCurrentView() {
       break;
     case 'vault':
       renderVaultSection(document.getElementById('main-inner'), {
-        items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
+        items: notes.filter(note => note.type === 'vault' && !note.deletedAt && vaultMatches(note,vaultSearch)),
+        searchActive: !!vaultSearch,
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
         onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
@@ -643,7 +666,7 @@ function renderTrashView(searchQuery) {
   const filtered = filterNotes(trashed, searchQuery);
 
   const valid=filtered;
-  const vaultItems = searchQuery ? [] : trashed.filter(note => note.type === 'vault');
+  const vaultItems = trashed.filter(note => note.type === 'vault' && note.title.toLowerCase().includes(searchQuery));
 
   const mainInner = document.getElementById('main-inner');
   let html = '';
@@ -1709,6 +1732,7 @@ function updateSidebarLabels() {
 
   container.querySelectorAll('.sidebar-item[data-label]').forEach(item => {
     item.addEventListener('click', () => {
+      if (currentView === 'vault') resetVaultSearch();
       currentView = 'label';
       currentLabel = item.dataset.label;
       updateSidebarActive(item);

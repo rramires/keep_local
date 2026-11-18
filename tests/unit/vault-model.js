@@ -60,3 +60,22 @@ test('T4.1 local pin and block edit compose without publishing blocks as metadat
   assert.equal(live.pinned,true);
   assert.deepEqual(live.blocks,draft.blocks);
 });
+
+test('T4.6 vault search indexes safe fields while excluding secret and free-text values',async()=>{
+  const {vaultMatches}=await import('../../js/vault-model.js');
+  assert.equal(typeof vaultMatches,'function');
+  const item=vault([
+    field({value:'example.invalid',label:'Host address'}),
+    field({value:'fictional-login',label:'User'}),
+    field({value:'FictionalSecretToken',label:'Password',secret:true}),
+    field({value:'UnflaggedImportSecret',label:'API key'}),
+    {id:crypto.randomUUID(),kind:'text',value:'private scratch text'},
+  ]);
+  item.labels=['Fixture label'];
+  for (const query of ['EXAMPLE.INVALID','Fictional-login','address','fixture label','Password','API key','']) {
+    assert.equal(vaultMatches(item,query),true);
+  }
+  for (const query of ['FictionalSecretToken','SECRETTO','unflaggedimportsecret','private scratch']) {
+    assert.equal(vaultMatches(item,query),false);
+  }
+});

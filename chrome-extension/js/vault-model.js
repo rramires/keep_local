@@ -42,3 +42,12 @@ export function isSecretField(block) {
 export function vaultSubtitle(item) {
   return item.blocks.find(block => block.kind === 'field' && !isSecretField(block))?.value ?? '';
 }
+
+export function vaultMatches(item, query) {
+  const term = query.trim().toLowerCase();
+  if (!term) return true;
+  const includes = value => value.toLowerCase().includes(term);
+  if (includes(item.title) || item.labels.some(includes)) return true;
+  return item.blocks.some(block => block.kind === 'field' &&
+    (includes(block.label) || (!isSecretField(block) && includes(block.value))));
+}
