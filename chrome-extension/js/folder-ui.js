@@ -1,6 +1,7 @@
 import {t} from './i18n.js';
 import {focusPanel} from './form-ui.js';
-import {checkFolder,chooseSyncFolder,enableFolderWrites,requestFolderAccess} from './folder-store.js';
+import {confirmDialog} from './dialogs.js';
+import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,readSyncFolder,requestFolderAccess} from './folder-store.js';
 
 function element(tag, className, text) {
   const node=document.createElement(tag);
@@ -157,4 +158,76 @@ function taskLine(task) {
   label.append(check,element('span','',task.text));
   line.append(label);
   return line;
+}
+
+export function addFolderSettingsTrigger(anchor,onOpen) {
+  const trigger=element('button','sidebar-item folder-settings-trigger',t('folder.settings'));
+  trigger.type='button';
+  trigger.id='folder-settings-btn';
+  trigger.addEventListener('click',()=>onOpen(trigger));
+  anchor.before(trigger);
+}
+
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable}) {
+  const panel=element('section','panel-form folder-settings');
+  const header=element('header','panel-header');
+  const title=element('h2','',t('folder.settings'));
+  title.id='folder-settings-title';
+  const close=element('button','btn-secondary',t('modal.close'));
+  close.type='button';
+  close.id='modal-close';
+  close.addEventListener('click',onClose);
+  header.append(title,close);
+  const body=element('section','panel-body form-stack');
+  panel.append(header,body);
+  container.replaceChildren(panel);
+  focusPanel(container,{signal,trigger,titleId:title.id,initial:'#modal-close'});
+
+  let busy=false;
+  async function refresh(focus) {
+    const handle=await readSyncFolder();
+    if(signal.aborted) return;
+    const heading=element('h3','',t('folder.section'));
+    const groups=[
+      heading,
+      handle
+        ? element('p','folder-name',t('folder.connected',{name:handle.name}))
+        : element('p','',t('folder.description')),
+    ];
+    if(!handle) groups.push(element('p','help-text',t('folder.permissionTip')));
+    groups.push(element('p','help-text',t('folder.future')));
+    const controls=element('div','folder-actions');
+    const choose=action(handle?'change':'choose',()=>void run(async()=>{
+      const chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable()});
+      if(signal.aborted) return;
+      if(chosen.status!=='ok'){notify(folderReason(chosen.status));return;}
+      await refresh(true);
+    }),true);
+    controls.append(choose);
+    if(handle){
+      controls.append(action('disconnect',()=>void run(async()=>{
+        if(!await confirmDialog(t('folder.disconnectConfirm',{name:handle.name}),{signal}))return;
+        await disconnectSyncFolder({key,signal});
+        await refresh(true);
+      })));
+    }
+    body.replaceChildren(...groups,controls);
+    if(focus) choose.focus();
+  }
+
+  async function run(work) {
+    if(busy||signal.aborted) return;
+    const buttons=[...body.querySelectorAll('button')];
+    busy=true;
+    for(const button of buttons) button.disabled=true;
+    try {await work();}
+    catch(error) {
+      if(!signal.aborted&&error?.name!=='AbortError') notify(t(error?.code||'folder.actionFailed'));
+    } finally {
+      busy=false;
+      for(const button of buttons) button.disabled=false;
+    }
+  }
+
+  void refresh(false).catch(()=>{if(!signal.aborted)notify(t('folder.actionFailed'));});
 }

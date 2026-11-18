@@ -95,6 +95,15 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false}={}) {
   return {handle,status};
 }
 
+export async function disconnectSyncFolder({key,signal}={}) {
+  if(!folderSupported()) throw failure('folder.unsupported');
+  await requireSession(key,signal);
+  const snapshot=Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
+  if(vaultIdentity(snapshot)!==getSessionVaultId()) throw failure('vault.changed');
+  await requireSession(key,signal);
+  await writeSyncFolder(null,snapshot,signal);
+}
+
 export async function enableFolderWrites({key,signal}={}) {
   await requireSession(key,signal);
   const values=Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));

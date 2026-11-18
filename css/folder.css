@@ -14,3 +14,6 @@
   .card-action, .vault-card > .vault-card-actions, #vault-new-item,
   #recovery-copy, .recovery-step
 ) { display: none; }
+
+.folder-settings-trigger { width: 100%; text-align: start; }
+.folder-settings h3, .folder-settings p { margin: 0; }

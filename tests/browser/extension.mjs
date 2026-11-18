@@ -376,4 +376,77 @@ export async function run({check,assert}) {
       assert.deepEqual(p.errors,[]);
     } finally { await browser.close(); }
   });
+
+  await check('F5 extension settings select, replace and disconnect folders in English and Portuguese',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      const open=async action=>{
+        await p.eval("document.querySelector('#folder-settings-btn').click()");
+        await p.until(`document.activeElement.id==='modal-close'&&!!document.querySelector('.folder-settings [data-folder-action=${action}]')`);
+      };
+      const close=async()=>{
+        await p.eval("document.querySelector('#modal-close').click()");
+        await p.until("!document.querySelector('.folder-settings')");
+      };
+      const text=()=>p.eval("document.querySelector('.folder-settings').innerText");
+      const name=()=>p.eval("(await(await import('./js/folder-store.js')).readSyncFolder())?.name ?? null");
+      await open('choose');
+      assert.match(await text(),/Settings[\s\S]+Vault folder[\s\S]+Allow on every visit/);
+      await p.eval("document.querySelector('[data-folder-action=choose]').focus()");
+      await pressEnter(p);
+      await p.until("!!document.querySelector('[data-folder-action=change]')");
+      const selected=await name();
+      assert.match(selected,/^KL-TEST-/);
+      assert.equal(await p.eval("folderTest.events.find(event=>event.kind==='picker').active"),true);
+      assert.match(await text(),new RegExp('Folder connected: '+selected));
+      assert.match(await text(),/Automatic folder writes will arrive in a later stage/);
+      assert.doesNotMatch(await text(),/\bsynced\b|\bsynchronized\b/i);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+
+      await p.eval("folderTest.name='KL-TEST-settings-replacement';document.querySelector('[data-folder-action=change]').click()");
+      await p.until("document.querySelector('.folder-settings .folder-name')?.textContent.includes('KL-TEST-settings-replacement')");
+      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+      // Existing content stands in for unrelated user data without a file write.
+      await p.eval("(await folderTest.directory()).getDirectoryHandle('FICTITIOUS-EXISTING-FOLDER',{create:true})");
+      await close();
+      await p.reload();
+      await p.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('#folder-settings-btn')");
+      assert.equal(await name(),'KL-TEST-settings-replacement');
+      await p.eval("document.querySelector('#lang-toggle').click()");
+      await p.until("document.documentElement.lang==='pt-BR'&&document.querySelector('#folder-settings-btn')?.textContent==='Configurações'");
+      await open('disconnect');
+      assert.match(await text(),/Configurações[\s\S]+Pasta do cofre[\s\S]+Pasta conectada: KL-TEST-settings-replacement/);
+
+      const ask=async()=>{
+        await p.eval("document.querySelector('[data-folder-action=disconnect]').click()");
+        await p.until("document.activeElement.dataset.dialogAction==='cancel'");
+      };
+      await ask();
+      await pressEnter(p);
+      await p.until("!document.querySelector('.app-dialog')&&!document.querySelector('[data-folder-action=disconnect]').disabled");
+      assert.equal(await name(),'KL-TEST-settings-replacement');
+      await ask();
+      await p.eval("document.querySelector('[data-dialog-action=confirm]').focus()");
+      await pressEnter(p);
+      await p.until("!!document.querySelector('[data-folder-action=choose]')");
+      assert.equal(await name(),null);
+      assert.match(await text(),/Escolher pasta…/);
+      assert.match(await text(),/Permitir em todas as visitas/);
+      const contents=await p.eval(`(async()=>{
+        const root=await navigator.storage.getDirectory(), rows={};
+        for await(const [name,dir] of root.entries()){
+          rows[name]=[];
+          for await(const child of dir.values()) rows[name].push([child.kind,child.name]);
+        }
+        return rows;
+      })()`);
+      assert.deepEqual(contents,{[selected]:[],'KL-TEST-settings-replacement':[['directory','FICTITIOUS-EXISTING-FOLDER']]});
+      assert.deepEqual(p.errors,[]);
+    } finally { await browser.close(); }
+  });
 }

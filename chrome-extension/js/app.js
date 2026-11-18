@@ -9,7 +9,7 @@ import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
 import {checkFolder,enableFolderWrites,folderSupported,readSyncFolder} from './folder-store.js';
-import {createFolderGate,quietReadOnlyCards,renderReadOnlyNote} from './folder-ui.js';
+import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
@@ -259,8 +259,22 @@ function renderAppShell() {
   if(isReadOnly()){
     appContainer.querySelector('.app-view').setAttribute('data-vault-read-only','');
     folderGate?.renderBanner(document.getElementById('main-content'));
+  } else if(folderSupported()){
+    addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
   initAppListeners();
+}
+
+async function openFolderSettings(trigger) {
+  if(!await closeModal()||!cryptoKey||!trigger.isConnected) return;
+  closeMobileSidebar();
+  modalController=new AbortController();
+  renderFolderSettings(document.getElementById('modal-card'),{
+    key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
+    trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
+    hasUnreadable:()=>unreadableCount>0,
+  });
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 function initAppListeners() {
