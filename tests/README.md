@@ -41,12 +41,13 @@ checks. The browser cases control promises and observe queued writes; the old
 Repeat the complete browser command above **three times consecutively**, stopping
 on the first failure; do not retry individual cases to obtain a green gate.
 The independent review stress scripts live in the owner's ignored folder. From
-the repository checkout (not the worktree), run them with CHROME_BIN set:
+the main repository checkout (work happens on a task branch there, never in a
+separate worktree), run them with CHROME_BIN set:
 
 ```bash
-node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/worktree-security-integrity timer 200
-node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/worktree-security-integrity close 100
-node _temp/revisao-claude-fase-2b/run-one.mjs /absolute/path/to/worktree-security-integrity 'review: queued toolbar writes' 5
+node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/keep_local timer 200
+node _temp/revisao-claude-fase-2b/race.mjs /absolute/path/to/keep_local close 100
+node _temp/revisao-claude-fase-2b/run-one.mjs /absolute/path/to/keep_local 'review: queued toolbar writes' 5
 ```
 
 Both stress JSON results must have `fail: 0` and `pass: N`. These review scripts

@@ -1,6 +1,6 @@
 # Phase 2d–2e verification
 
-Run from the task worktree. No npm packages or previous source checkout are needed.
+Run from the main repository checkout, on the task branch. No npm packages or previous source checkout are needed.
 Use only fictional notes and disposable browser contexts/profiles.
 
 ```bash
