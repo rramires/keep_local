@@ -13,7 +13,7 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
 ## Como trabalhamos
 
 - **Claude (esta sessão):** análise, plano e **revisão independente**. Não aceitar relatório de execução como prova: reproduzir o gate, comparar com a base e tentar quebrar (sondas próprias).
-- **Codex:** executa o plano numa branch/worktree, com gate verde por commit, e escreve um relatório.
+- **Codex:** executa o plano numa branch **no próprio checkout** (`git switch`; nunca worktree separado, para o dono acompanhar no VS Code), com gate verde por commit, e escreve um relatório. Depois do merge, o checkout volta para a `master`.
 - **Dono:** autoriza cada etapa, **faz todo `git push`**, aprova merges e faz os testes manuais (Windows, Mega, extensão instalada).
 - **Fonte da verdade do plano:** `_temp/plano-correcoes-keeplocal.md` (caixas, registro de execução, Desvios, Pendências). Pareceres em `_temp/parecer-*.md`; evidências e scripts de revisão em `_temp/revisao-claude-*/`; relatórios do Codex em `_temp/relatorio-execucao-*.md`. `_temp/` é ignorado pelo Git (já está no `.gitignore`).
 - Cada etapa termina em **parada**: nenhuma fase seguinte começa sem pedido do dono.
@@ -22,6 +22,7 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
 
 - Trabalho planejado ou não trivial: **branch primeiro**, a partir da `master`; **commits por fase/tarefa**, logo depois do gate verde; Conventional Commits em inglês.
 - **Nunca `git push`.** Merge na `master` **só com aprovação explícita** do dono (feito com `--no-ff`).
+- Branches já mescladas podem ser apagadas com `git branch -d` (autorizado pelo dono em 2026-11-18).
 - Mudança trivial (docs) na `master` só **depois de o dono aprovar**.
 - Adicionar ao stage **sempre por caminho explícito** (nunca `git add -A`/`.`).
 - `chrome-extension/{js,css,lib,index.html}` são cópias **versionadas**: depois de mexer em `js/`, `css/`, `lib/` ou `index.html`, rodar `bash build-extension.sh` e commitar as cópias no mesmo commit.
@@ -65,12 +66,12 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 
 ## Estado (2026-11-18)
 
-- Fases 0–2c **mescladas na `master`** (merge `--no-ff`, `4c8391b`), revisadas de forma independente a cada etapa. Branch `fix/security-integrity` e o worktree `_temp/worktree-security-integrity` ainda existem (limpeza só com OK do dono).
+- Fases 0–2c **mescladas na `master`** (merge `--no-ff`, `4c8391b`), revisadas de forma independente a cada etapa. Branch e worktree dessa etapa já foram removidos.
 - **Ainda não há dados reais.** A versão antiga só foi usada em testes (informado pelo dono em 2026-11-17); o dono **avisa quando for usar de verdade**. Até lá, **não** exigir migração com cópia, troca de senha por causa do verificador antigo nem limpeza de backups antigos do Mega.
 - **Pendente do dono (sem urgência de dados):** extensão instalada (clique no ícone foca a aba aberta) e spike no Windows/Mega, que destrava o desenho do T3.1. Antes do uso real: escolher a senha mestra (5–6 palavras sorteadas) e conferir as configurações do Chrome (nunca salvar senhas, sem autofill, ortografia básica).
-- **Etapa C executada na branch `feat/ui-polish-cleanup` (revisão do dono/Claude pendente):** formulários, alertas, plurais, textos e diálogos do app; lote com proveniência local e replanejamento dentro das filas; fuzz de 40000 execuções; texto do recibo simplificado.
+- **Etapa C (Fases 2d/2e + C1) mesclada na `master`** (merge `--no-ff` `de53ea6`), revisada de forma independente: formulários, alertas, plurais, textos e diálogos do app (Enter aciona o botão focado); lote com proveniência local e replanejamento dentro das filas; fuzz de 40000 execuções; texto do recibo simplificado.
 - **Compatibilidade removida por autorização do dono:** não há importação JSON v1 nem migração de login antigo. Cofre com salt e sem `keyCheck` é recusado com instrução de reset explícito, sem apagar dados automaticamente. O gate usa somente dados v2 fabricados, sem checkout-base. O perfil 2 binário continua imutável.
-- A master original permanece na base desta etapa até revisão e nova autorização de merge. Fases 3.1–3.9 e 4 continuam bloqueadas.
+- Fases 3.1–3.9 e 4 continuam bloqueadas.
 
 ## Armadilhas de ferramenta
 
