@@ -6,7 +6,7 @@ O arquivo importado acima é o **contrato técnico** (formato dos dados, módulo
 
 ## Contexto
 
-Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. Hoje o único caminho para a nuvem é o **backup manual** (`.keeplocal`); gravação automática em pasta sincronizada (Mega) e a seção "Senhas e Chaves" são as Fases 3 e 4 e **estão bloqueadas** (ver "Decisões aprovadas").
+Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. Hoje o único caminho para a nuvem é o **backup manual** (`.keeplocal`); a seção "Senhas e Chaves" (Fase 4) tem o **núcleo mesclado** (Etapa D) e o restante (Etapa E) aguarda pedido do dono; a gravação automática em pasta sincronizada (Mega, Fase 3) **está bloqueada** (ver "Decisões aprovadas").
 
 O dono escreve em **português (pt-BR)**. Respostas e relatórios em português; **código, commits e identificadores em inglês**; todo texto de interface com chaves **EN e pt-BR** (`t()`/`tp()`).
 
@@ -46,8 +46,12 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
 6. **A UI nunca afirma "sincronizado com a nuvem"** (o app não enxerga o Mega); iniciar um download não confirma gravação.
 7. **Sem recurso remoto**: CSP restritiva, Markdown sanitizado, sem imagem/rede. Manifest `1.0.0` e `permissions: []`.
 8. Para ver qualquer mudança de comportamento: escrever primeiro o teste que **falha antes e passa depois**.
+9. **Segredo de item `vault` fica fora da tela por padrão:**
+   - **Onde nunca aparece:** DOM de card/lista/grade/busca/toast/console, armazenamento e meta. Aparece só no campo revelado (com auto-ocultar) e no `value` do campo em edição.
+   - **Campo nasce secreto:** `isSecretField = secret ?? (secretLabel || !publicLabel)`. Só fica público, automaticamente, um rótulo claramente público (palavra inteira).
+   - **Quem grava a flag:** só o cadeado grava `secret`, e a escolha manual vence o rótulo.
 
-## Decisões aprovadas para as fases bloqueadas
+## Decisões aprovadas (Fase 3 bloqueada; Fase 4 em andamento)
 
 Detalhe completo no plano (Fases 3 e 4). Resumo:
 
@@ -59,8 +63,9 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 - Abrir de outra pasta (ex.: pen-drive criptografado) é **recuperação, somente leitura por padrão**; só vira pasta de sincronização por escolha explícita. Perfis antigos de formato abrem para sempre.
 - Sincronização só ativa com **0 registros ilegíveis**. Fotos com trailer (T3.8) são opcionais e só depois do spike; kit de emergência e ferramenta de recuperação independente (T3.9).
 
-**Fase 4 — "Senhas e Chaves"**
-- Nota `type: 'vault'` com **blocos** livres (texto, campo, divisor); campo com flag `secret` (nasce `secret` se o rótulo sugerir senha/token/key/chave/pass) e `multiline`.
+**Fase 4 — "Senhas e Chaves"** (núcleo = Etapa D, mesclado; Etapa E = T4.7 modelos, T4.8 cópia rápida/estrela, T4.9 gerador, T4.11 desfazer/timeout, aguarda pedido do dono)
+- Nota `type: 'vault'` com **blocos** livres (texto, campo, divisor); campo com flag `secret` e `multiline`. O campo **nasce secreto** (decisão do dono, 2026-11-18, opção A do D-B1). Fica público automaticamente só com rótulo claramente público (host, usuário, url, e-mail, porta, banco, bucket, região, ip, conta…). Termo sensível vence termo público. O cadeado manual vence o rótulo.
+- Itens `vault` não têm "arquivar"; usam a Lixeira comum. `meta.vaultLayout` (lista/grade) é **só local** e não entra no export. Blocos de texto ficam fora da busca.
 - Segredo **nunca** no DOM de card/lista/busca/toast; revelar com auto-ocultar; copiar com limpeza do clipboard; busca só em título, tags, rótulos e campos **não secretos**; tags isoladas por seção.
 - Visões lista ⇄ grade guardada por seção; modo leitura por padrão; modelos (Servidor, Banco, API key, SSH, Login web, Cloudflare R2/S3); gerador de senha.
 
@@ -71,7 +76,8 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 - **Pendente do dono (sem urgência de dados):** extensão instalada (clique no ícone foca a aba aberta) e spike no Windows/Mega, que destrava o desenho do T3.1. Antes do uso real: escolher a senha mestra (5–6 palavras sorteadas) e conferir as configurações do Chrome (nunca salvar senhas, sem autofill, ortografia básica).
 - **Etapa C (Fases 2d/2e + C1) mesclada na `master`** (merge `--no-ff` `de53ea6`), revisada de forma independente: formulários, alertas, plurais, textos e diálogos do app (Enter aciona o botão focado); lote com proveniência local e replanejamento dentro das filas; fuzz de 40000 execuções; texto do recibo simplificado.
 - **Compatibilidade removida por autorização do dono:** não há importação JSON v1 nem migração de login antigo. Cofre com salt e sem `keyCheck` é recusado com instrução de reset explícito, sem apagar dados automaticamente. O gate usa somente dados v2 fabricados, sem checkout-base. O perfil 2 binário continua imutável.
-- Fases 3.1–3.9 e 4 continuam bloqueadas.
+- **Etapa D (Fase 4, núcleo) + D1 mesclada na `master`** (merge `--no-ff` `3ac58c8`), revisada de forma independente: modelo `vault`, seção lista/grade, detalhe em leitura, editor de blocos pela fila, revelar/copiar com limpeza do clipboard, busca só em campos públicos, labels isoladas e campo que nasce secreto. Pareceres: `_temp/parecer-revisao-etapa-d-claude.md` e `_temp/parecer-revisao-etapa-d1-claude.md`. **Pendente do dono:** teste manual do clipboard com a aba sem foco, Win+V, gerenciador de senhas/autofill do Chrome real e extensão instalada.
+- Fase 3 (T3.1–T3.9) continua bloqueada pelo spike. A Etapa E da Fase 4 só começa com pedido do dono.
 
 ## Armadilhas de ferramenta
 

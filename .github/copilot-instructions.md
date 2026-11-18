@@ -8,7 +8,8 @@ dependencies. Browser tests use fictional data in disposable contexts only.
 
 IndexedDB `KeepLocalDB` v1 has `notes` and `meta`. Note records are
 `{id,iv,ciphertext,updatedAt}`; IV/ciphertext are Base64 AES-256-GCM values. Decrypted
-notes are UUID `text|todo`, validated by `note-model.js`. Local outer IDs/timestamps
+notes are UUID `text|todo|vault`, validated by `note-model.js`
+(`vault` = `blocks` of text/field/divider, checked by `vault-model.js`). Local outer IDs/timestamps
 and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`,
 preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
 attempt), `exportRev` and `exportParent` (export lineage). An existing salt without an encrypted
@@ -48,11 +49,21 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   archive encode/decode must preserve unreadable records; strict record/model
   validation belongs to import, within the whole-file bound.
 - `note-write-queue.js`: resolve local intents inside the per-note queue, merge
-  only editor-owned title/content/tasks, retain local version ancestry and publish
+  only editor-owned title/content/tasks (title/blocks for vault), retain local version ancestry and publish
   after persistence. Remote versions still conflict; DB guards are authoritative.
 - `note-actions.js`: copy-first actions, atomic collective label/order changes,
   target-presence checks and publication before releasing the note locks.
 - `record-health.js`: classify unreadable records before exports.
+- `vault-model.js`: vault block validation and the single secrecy rule:
+  `isSecretField = secret ?? (secretLabel || !publicLabel)`. Fields are born
+  secret; only whole-word public labels are auto-public; only the lock button
+  writes `secret`, and a manual choice wins. Also subtitle and public-only search.
+- `vault-view.js`, `vault-editor.js`, `secret-ui.js`, `css/vault.css`: section
+  list/grid, read-only detail, block editor through the note queue, reveal with
+  auto-hide and copy with clipboard clearing (`dispose()` on teardown). Secrets
+  never reach card/list/search/toast/console DOM, storage or meta. Vault items are
+  excluded from note views, archive and the label manager; `meta.vaultLayout`
+  stays local and is not exported.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `dialogs.js`, `form-ui.js`: themed promise dialogs, keyboard/focus and shared form presentation.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
@@ -89,6 +100,7 @@ tracked copies and writes the matching ZIP. Include copied sources in the same
 commit. Verify vendor SHA256SUMS in unit tests. No real vault, browser profile,
 Mega account or synchronized data folder in tests.
 
-Phases 3 (automatic synchronized-folder writing/merge) and 4 (password/key notes)
-remain blocked until explicit owner authorization. Reserving encrypted export
-`rev`/`parent` fields does not authorize either phase.
+Phase 3 (automatic synchronized-folder writing/merge) remains blocked until explicit
+owner authorization. Phase 4 core (Etapa D) is merged; Etapa E (templates, quick
+copy/star, generator, section undo/timeout) waits for an owner request. Reserving
+encrypted export `rev`/`parent` fields does not authorize Phase 3.
