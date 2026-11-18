@@ -509,8 +509,9 @@ function renderCurrentView() {
 }
 
 function filterNotes(notesList, searchQuery) {
-  if (!searchQuery) return notesList;
-  return notesList.filter(n => {
+  const visibleNotes = notesList.filter(note => note.type !== 'vault');
+  if (!searchQuery) return visibleNotes;
+  return visibleNotes.filter(n => {
     const titleMatch = n.title?.toLowerCase().includes(searchQuery);
     const contentMatch = n.type === 'text' && n.content?.toLowerCase().includes(searchQuery);
     const taskMatch = n.type === 'todo' && n.tasks?.some(t => t.text?.toLowerCase().includes(searchQuery));
@@ -865,6 +866,7 @@ async function createNewNote(type, title = '', content = '', render=true) {
 // --- Note Modal ---
 
 async function openNoteModal(note) {
+  if (note.type === 'vault') return;
   if (activeEdit && !await closeModal()) return;
   note=structuredClone(note);
   if (note.type === 'text') {
