@@ -22,6 +22,7 @@
     "service_worker": "service-worker.js"
   },
   "permissions": [],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3K/mPUy1qgBVsvqRe28j24EUalOI9q/7UW0KUhz4CuZMRFgAmfObYYdAyaw4EccsDRhtFsObgasXwi+FBKunK9Cm3nuf91N+BmbfvUaN+TVL51lTqqwpVE4eozTeOfhS4XkmiJhghIAfo8T0IHsRr/i+TSwLBjPJbttDMHx7mmsrf7oE/FmBXBsjJeFGXcLUl0bHVAxePZ5XLEvOmckexbyxSgciBAjtrcpZQrQxiZvkj4xOT4VICqht8ocVjOIooJMSAV5o95XTOPmQllgyGI49prxpUsdimAUQoNamLX0CW41vNHcJW5er21vNKW6SHdn/1ifU+MU8QdrlNgfQpQIDAQAB",
   "homepage_url": "https://github.com/rramires/keep_local",
   "content_security_policy": {
     "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'"
