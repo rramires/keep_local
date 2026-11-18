@@ -40,7 +40,7 @@ export async function readFolderState(handle,key,salt) {
   for(const {name,entry} of entries){
     const result=await readFolderCandidate(entry,key,salt);
     const {payload,...summary}=result;
-    state.candidates.push({name,...summary});
+    state.candidates.push({name,...summary,...(payload?{noteCount:payload.notes.length}:{})});
     if(result.status!=='valid'){
       state[result.status].push(name);
       continue;

@@ -673,6 +673,7 @@ export async function run({check,assert}) {
       assert.equal(common,await rev(pb));
 
       await harness.add(pa,'Independent A','Fictitious branch A');
+      await harness.add(pa,'Second independent A','Fictitious note count differs');
       await harness.add(pb,'Independent B','Fictitious branch B');
       await Promise.all([waitForWrite(pa,common),waitForWrite(pb,common)]);
       const independentA=await readFolderFixture(pa,primary),independentB=await readFolderFixture(pb,primary);
@@ -704,6 +705,8 @@ export async function run({check,assert}) {
       await hasNote(pb,'Independent A');
       assert.equal(await pb.eval('folderTest.writeAttempts'),0);
 
+      await pa.eval("const picker=document.querySelector('.folder-review select');picker.value='keeplocal-vault (1).keeplocal';picker.dispatchEvent(new Event('change'))");
+      assert.match(await pa.eval("document.querySelector('.folder-review').innerText"),/Folder: revision [^\n]+4 notes/);
       await pa.eval("document.querySelector('[data-folder-action=useLocal]').click()");
       await pa.until("!!document.querySelector('.app-dialog input')");
       await pa.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
@@ -835,6 +838,41 @@ export async function run({check,assert}) {
         await p.eval(`folderTest.name=${JSON.stringify(name)}`);
         assert.equal(await readFolderFixture(p,file),expected);
       }
+    }finally{await browser.close();}
+  });
+
+  await check('G6 a write in flight confirms its own snapshot and schedules later edits',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const {decodeV2}=await import('../../js/backup-v2.js');
+    const {decryptRecords}=await import('../../js/backup-format.js');
+    const browser=await harness.launchExtension();
+    try{
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      await harness.add(p,'Snapshot barrier fixture','original');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev===1)");
+      const update=content=>p.eval(`(async()=>{
+        const app=await import('./js/app.js');await app.saveNote({...app.getNotes()[0],content:${JSON.stringify(content)}});
+      })()`);
+      await p.eval('folderTest.holdWriteAttempt=2');
+      await update('snapshot before the next edit');
+      await p.until("typeof folderTest.releaseWrite==='function'");
+      await update('newer committed local edit');
+      await p.eval('folderTest.releaseWrite()');
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev===2)");
+      const checkpoint=await p.eval(`(async()=>{
+        const {meta}=await(await import('./js/db.js')).readVault();
+        return {revision:meta.revision,confirmed:meta.folderSyncedRevision,dirty:meta.dirtySinceBackup};
+      })()`);
+      assert.equal(checkpoint.revision,checkpoint.confirmed+1);
+      assert.equal(checkpoint.dirty,true);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev===3)");
+      const {payload,key}=await decodeV2(Buffer.from(await readFolderFixture(p,'keeplocal-vault.keeplocal'),'base64'),harness.PASSWORD);
+      assert.equal((await decryptRecords(payload.notes,key))[0].content,'newer committed local edit');
+      assert.equal(await p.eval('folderTest.writeAttempts'),3);
     }finally{await browser.close();}
   });
 }

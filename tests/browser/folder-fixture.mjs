@@ -58,6 +58,8 @@ function installFolderFixture(name) {
       fixture.failWrites--;
       throw new DOMException('Test writer occupied','NoModificationAllowedError');
     }
+    if(fixture.holdWriteAttempt===fixture.writeAttempts)
+      await new Promise(resolve=>{fixture.releaseWrite=resolve;});
     const stream=await createWritable.apply(this,args);
     if(fixture.badReadback){
       const close=stream.close.bind(stream);

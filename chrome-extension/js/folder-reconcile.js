@@ -68,7 +68,9 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
-    const result=await writer.write(snapshot,state,{replace:true});
+    const parent=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head.rev);
+    if(!parent)throw folderFailure('folder.changed');
+    const result=await writer.write(snapshot,{...state,head:parent},{replace:true});
     return {status:'saved',result};
   }catch(error){
     if(reading&&!signal.aborted)setWriteMode('readOnly');

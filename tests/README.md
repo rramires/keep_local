@@ -36,10 +36,12 @@ runner three consecutive times.
 
 The extension fixtures install the picker substitute and permission, PBKDF2 and
 IndexedDB spies via CDP. They use the origin-private file system with fictitious
-directories. The app lists the chosen directory and stores its handle locally.
-The tests check that it creates zero files, and that read-only mode starts zero
-IndexedDB readwrite transactions. The Windows Chrome chooser and persistent grant
-are covered by the owner's manual procedure.
+directories. The tests exercise profile 2 writes and readback, limits, retries, two-profile
+reconciliation and confirmed local reset. Two Chromium profiles use separate
+OPFS directories; the test helper copies only the .keeplocal files between them.
+Read-only checks count both file writes and IndexedDB readwrite transactions.
+The Windows Chrome chooser and persistent grant are covered by the owner's
+manual procedure.
 
 ## Phase 2c verification
 

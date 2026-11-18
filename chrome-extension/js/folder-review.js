@@ -6,6 +6,7 @@ import {exportBackup} from './backup.js';
 import {readVault} from './db.js';
 import {MAIN_FILE} from './folder-vault.js';
 import {folderLocalStamp} from './folder-reconcile.js';
+import {localFolderDirty} from './folder-write.js';
 
 function tag(name,text,className) {
   const node=document.createElement(name);
@@ -44,9 +45,16 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   const report=tag('p',undefined,'folder-reason');
   report.setAttribute('role','status');
   panel.append(heading,tag('p',handle.name,'folder-name'));
+  const diskSummary=tag('p');
+  const describe=row=>{
+    diskSummary.textContent=t('folder.diskSummary',{
+      rev:row.rev,time:folderTime(row.exportedAt),notes:tp('backup.noteCount',row.noteCount),
+    });
+  };
   if(head){
-    panel.append(tag('p',t('folder.localSummary',{notes:tp('backup.noteCount',snapshot.notes.length)})),
-      tag('p',t('folder.diskSummary',{rev:head.rev,time:folderTime(head.exportedAt),notes:tp('backup.noteCount',head.payload.notes.length)})));
+    const format=localFolderDirty(snapshot.meta)?'folder.localDirtySummary':'folder.localSummary';
+    describe({...head,noteCount:head.payload.notes.length});
+    panel.append(tag('p',t(format,{notes:tp('backup.noteCount',snapshot.notes.length)})),diskSummary);
   }
   let selection;
   if(state.divergent&&head){
@@ -58,6 +66,10 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
       selection.append(option);
     }
     selection.value=head.name;
+    selection.addEventListener('change',()=>{
+      const candidate=state.candidates.find(row=>row.name===selection.value);
+      if(candidate)describe(candidate);
+    });
     label.append(selection);
     panel.append(label);
   }
@@ -97,7 +109,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
       if(exported||await confirm())await resolve('remote',selection?.value??head.name);
     });
     if(state.candidates.some(row=>row.name===MAIN_FILE&&row.status==='valid')){
-      button('useLocal',async()=>{if(await confirm())await resolve('local');});
+      button('useLocal',async()=>{if(await confirm())await resolve('local',selection?.value??head.name);});
     }
   }
   button('openReadOnly',onOpenReadOnly);
