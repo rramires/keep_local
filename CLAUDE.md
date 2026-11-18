@@ -67,7 +67,10 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 ## Estado (2026-11-17)
 
 - Fases 0–2c **mescladas na `master`** (merge `--no-ff`, `4c8391b`), revisadas de forma independente a cada etapa. Branch `fix/security-integrity` e o worktree `_temp/worktree-security-integrity` ainda existem (limpeza só com OK do dono).
-- **Pendente do dono:** teste da migração com **cópia** dos dados reais (contador de "notas ilegíveis" deve ser 0), extensão instalada (clique no ícone foca a aba aberta), spike no Windows/Mega, trocar a senha mestra por 5–6 palavras sorteadas e **apagar os backups antigos do Mega, inclusive o histórico de versões** (contêm o verificador antigo).
+- **Ainda não há dados reais.** A versão antiga só foi usada em testes (informado pelo dono em 2026-11-17); o dono **avisa quando for usar de verdade**. Até lá, **não** exigir migração com cópia, troca de senha por causa do verificador antigo nem limpeza de backups antigos do Mega.
+- **Pendente do dono (sem urgência de dados):** extensão instalada (clique no ícone foca a aba aberta) e spike no Windows/Mega, que destrava o desenho do T3.1. Antes do uso real: escolher a senha mestra (5–6 palavras sorteadas) e conferir as configurações do Chrome (nunca salvar senhas, sem autofill, ortografia básica).
+- **Ideia para depois (decisão do dono):** como não há dados legados, a compatibilidade v1 (migração do verificador, import de backup v1, `hashPassword`) pode ser removida numa atualização futura. Isso reduz superfície e código e **elimina a exigência de `KL_BASE_ROOT`** nos testes. Não fazer sem pedido.
+- **Backlog de UI (proposta, não autorizada):** telas novas das Fases 2–2c sem layout/estilo (modal "Trocar senha mestra", Recuperação, aviso de ilegíveis, `prompt/confirm/alert` nativos, plural "1 notes"). Detalhe em `Fase 2d` do plano; capturas em `_temp/ui-review-2026-11-17/`. Só visual: não mexer na lógica.
 - Achados abertos, não bloqueadores: lote com ação local pendente mostra o falso "Outra aba…" (N1); suíte unitária da fila sem liberação no meio nem remoto entre submissão e execução (N2).
 
 ## Armadilhas de ferramenta
