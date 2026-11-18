@@ -246,7 +246,7 @@ function initAppListeners() {
     const {renderPasswordChange}=await import('./account.js');
     const controller=new AbortController();modalController=controller;
     scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
-    renderPasswordChange(document.getElementById('modal-card'),async key=>{if(controller.signal.aborted)return;cryptoKey=key;await closeModal();await showApp();},{signal:controller.signal,onRecovery:()=>document.getElementById('recover-notes-btn')?.click()});
+    renderPasswordChange(document.getElementById('modal-card'),async key=>{if(controller.signal.aborted)return;cryptoKey=key;await closeModal();await showApp();},{signal:controller.signal,onClose:closeModal,onRecovery:()=>document.getElementById('recover-notes-btn')?.click()});
     document.getElementById('modal-overlay').classList.add('open');
   });
 
