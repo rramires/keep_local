@@ -43,4 +43,11 @@ export async function run({browser,check,assert}) {
   }
  });
 
+ await check('U5 login has no empty-error gap and reset is a smaller separated footer action',async()=>{
+  for(const theme of ['dark','light'])for(const width of [1100,390]){const p=await browser.page();try{await p.send('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:false});await create(p);await p.eval("document.querySelector('#lock-btn').click()");await p.until("!!document.querySelector('.auth-view')");await p.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+   const v=await p.eval(`(()=>{const input=document.querySelector('#login-password'),button=document.querySelector('#login-form [type=submit]'),reset=document.querySelector('#reset-vault'),footer=reset.closest('footer');return {gap:button.getBoundingClientRect().top-input.getBoundingClientRect().bottom,error:getComputedStyle(document.querySelector('#login-error')).display,small:parseFloat(getComputedStyle(reset).fontSize)<parseFloat(getComputedStyle(button).fontSize),footer:!!footer,below:reset.getBoundingClientRect().top>button.getBoundingClientRect().bottom,within:reset.getBoundingClientRect().right<=innerWidth,warning:!!footer?.querySelector('p')?.textContent}})()`);
+   assert.ok(v.gap<=28);assert.equal(v.error,'none');assert.ok(v.small&&v.footer&&v.below&&v.within&&v.warning);assert.deepEqual(p.errors,[]);
+  }finally{await p.close();}}
+ });
+
 }

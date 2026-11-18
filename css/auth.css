@@ -193,3 +193,8 @@
     }
   }
 }
+
+#login-error:empty { display: none; }
+.auth-reset { margin-top: 12px; padding-top: 20px; border-top: 1px solid var(--border-color-light); text-align: center; }
+.reset-link { color: var(--text-secondary); font-size: 12px; text-decoration: underline; padding: 10px 4px; min-height: 44px; }
+.reset-link:hover { color: var(--error-color); }

@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'account.resetHint': 'Only start again if you no longer need the local notes. Erasing is permanent.',
   'recovery.exportStep': '1. Export a preserved copy',
   'recovery.discardStep': '2. Discard this record',
   'validation.repeated': 'Avoid repeated characters or short repeated patterns.',
@@ -227,6 +228,7 @@ const en = {
 };
 
 const ptBR = {
+  'account.resetHint': 'Recomece apenas se não precisar mais das notas locais. A exclusão é permanente.',
   'recovery.exportStep': '1. Exportar uma cópia preservada',
   'recovery.discardStep': '2. Descartar este registro',
   'validation.repeated': 'Evite caracteres repetidos ou padrões curtos repetidos.',

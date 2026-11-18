@@ -106,11 +106,11 @@ export function renderAuthView(container, { onAuthenticated }) {
               <label for="login-password">${t('auth.password')}</label>
               <input type="password" id="login-password" placeholder="${t('auth.passwordPlaceholder')}" autocomplete="current-password">
             </div>
-            <div class="form-error" id="login-error"></div>
+            <div class="form-error" id="login-error" role="alert"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary">${t('auth.login')}</button>
             </div>
-            <button type="button" class="btn-secondary" id="reset-vault">${t('account.reset')}</button>
+            <footer class="auth-reset"><p class="help-text">${t('account.resetHint')}</p><button type="button" class="reset-link" id="reset-vault">${t('account.reset')}</button></footer>
           </form>
 
           <!-- Import Tab -->
@@ -125,7 +125,7 @@ export function renderAuthView(container, { onAuthenticated }) {
               <label for="import-password">${t('import.backupPassword')}</label>
               <input type="password" id="import-password" placeholder="${t('import.backupPlaceholder')}">
             </div>
-            <div class="form-error" id="import-error"></div>
+            <div class="form-error" id="import-error" role="alert"></div>
             <div class="form-actions">
               <button type="button" class="btn-primary" id="import-btn" disabled>${t('import.importButton')}</button>
             </div>
