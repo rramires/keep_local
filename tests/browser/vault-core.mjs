@@ -830,4 +830,25 @@ export async function run({browser,check,assert}) {
     } finally {await p.close();}
   });
 
+  await check('D1.4 losing window focus masks revealed secrets in the read-only detail',async()=>{
+    const p=await browser.page();
+    const sentinel=testSentinel();
+    const {scan,dispose}=await makeVaultScanner(browser,p,assert,[sentinel]);
+    try {
+      await create(p);
+      await mockVaultTimers(p);
+      await save(p,vaultFixture({blocks:[{id:crypto.randomUUID(),kind:'field',label:'Password',value:sentinel,secret:true}]}));
+      await openVaultFirst(p);
+      const value=()=>p.eval("document.querySelector('.vault-secret-value').textContent");
+      await p.eval("document.querySelector('[data-vault-reveal]').click()");
+      assert.equal(await value(),sentinel);
+      await p.eval("window.dispatchEvent(new Event('blur'))");
+      await scan('Read-only detail after window blur');
+      assert.equal(await value(),'••••••••');
+      assert.equal(await p.eval("document.querySelector('[data-vault-reveal]').getAttribute('aria-pressed')"),'false');
+      assert.equal(await p.eval("vaultTimers.has(15000)"),false);
+      assert.deepEqual(p.errors,[]);
+    } finally {dispose();await p.close();}
+  });
+
 }

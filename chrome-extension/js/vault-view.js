@@ -198,6 +198,11 @@ export function renderVaultDetail(modal, item, {onClose, onEdit, controls, signa
   header.append(title, close);
   const body = element('div', 'panel-body form-stack');
   for (const block of item.blocks) body.append(readingBlock(block, {controls, signal}));
+  if (controls) {
+    window.addEventListener('blur', () => {
+      for (const value of body.querySelectorAll('.vault-secret-value')) controls.hide(value);
+    }, {signal});
+  }
   if (!item.deletedAt) {
     const edit = vaultButton(t('vault.edit'), onEdit, 'btn-primary');
     edit.dataset.vaultEdit = '';
