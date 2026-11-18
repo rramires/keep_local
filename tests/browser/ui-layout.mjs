@@ -57,4 +57,8 @@ export async function run({browser,check,assert}) {
   }finally{await p.close();}}
  });
 
+ await check('U7 visible credential labels consistently say passphrase in both languages',async()=>{
+  for(const lang of ['en','pt-BR']){const p=await browser.page();try{await p.eval(`await(await import('./js/i18n.js')).setLang(${JSON.stringify(lang)})`);await p.reload();const labels=await p.eval("['auth.newPassword','auth.confirmPassword','auth.password','account.change','account.current','account.new','import.backupPassword'].map((await import('./js/i18n.js')).t)");for(const label of labels)assert.match(label,lang==='en'?/passphrase/i:/frase-senha/i);assert.deepEqual(p.errors,[]);}finally{await p.close();}}
+ });
+
 }

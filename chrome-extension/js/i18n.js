@@ -41,9 +41,9 @@ const en = {
   'recovery.help': 'Read preserved data or create a valid copy. To discard: first export this snapshot, verify the saved file, then confirm and type the discard word. Changes to the vault require a new export.',
   "recovery.record": "Record {number}",
   "recovery.reason.decrypt": "Cannot decrypt this record. Keep an encrypted backup for recovery.",
-  "recovery.reason.json": "Decryption succeeded, but the text is not valid note JSON.",
-  "recovery.reason.model": "Decryption succeeded, but the data does not meet the note model or field limits.",
-  "recovery.reason.limit": "Decryption succeeded, but this legacy note exceeds the editing size limit.",
+  "recovery.reason.json": "The record was decrypted, but its content could not be read as a note.",
+  "recovery.reason.model": "The record was decrypted, but its content cannot be edited as a note.",
+  "recovery.reason.limit": "The note is too large to edit. Read or copy its content here.",
   "recovery.content": "Decrypted data for recovery, read-only",
   "session.exportCancelled": "Export cancelled because the session ended or changed.",
   "session.discardAndLock": "Some edits could not be saved. Cancel to retry or use Save as a new note. OK discards the unsaved drafts and locks; stored notes are preserved.",
@@ -53,8 +53,8 @@ const en = {
   "vault.changed": "The vault changed in another tab. Unlock the current vault before editing.",
   "note.conflict": "Another tab saved a newer version. Your draft is still open.",
   "note.saveAsNew": "Save as a new note",
-  "account.change": "Change master password",
-  "account.current": "Current password",
+  "account.change": "Change master passphrase",
+  "account.current": "Current passphrase",
   "account.new": "New passphrase",
   "account.rotateWarning": "After changing your passphrase, export a new backup. Existing backups still use your previous passphrase.",
   "account.reset": "Erase everything and start again",
@@ -187,35 +187,35 @@ const en = {
 
   // Auth
   'auth.subtitle': 'Your notes — secure, offline and encrypted',
-  'auth.createTab': 'Create Password',
+  'auth.createTab': 'Create vault',
   'auth.loginTab': 'Login',
   'auth.importTab': 'Import',
-  'auth.newPassword': 'New Password',
-  'auth.passwordPlaceholder': 'Enter your password',
+  'auth.newPassword': 'New passphrase',
+  'auth.passwordPlaceholder': 'Enter your passphrase',
   'auth.confirmPassword': 'Confirm passphrase',
-  'auth.confirmPlaceholder': 'Confirm your password',
+  'auth.confirmPlaceholder': 'Confirm your passphrase',
   'auth.minLength': 'Minimum 14 characters',
   'auth.hasUppercase': 'At least 1 uppercase letter',
   'auth.hasSpecial': 'At least 1 special character',
-  'auth.passwordsNoMatch': 'Passwords do not match',
-  'auth.memorizeWarning': 'Memorize your password! There is no recovery.',
-  'auth.createAccount': 'Create Account',
-  'auth.password': 'Password',
+  'auth.passwordsNoMatch': 'Passphrases do not match',
+  'auth.memorizeWarning': 'Keep your passphrase safe. Without it, your encrypted notes cannot be recovered.',
+  'auth.createAccount': 'Create vault',
+  'auth.password': 'Passphrase',
   'auth.login': 'Login',
 
   // Import
   'import.dropzoneText': 'Drag the backup file or click to select',
-  'import.backupPassword': 'Backup Password',
-  'import.backupPlaceholder': 'Enter the password used in the backup',
-  'import.importButton': 'Import Backup',
+  'import.backupPassword': 'Backup passphrase',
+  'import.backupPlaceholder': 'Enter the passphrase used for this backup',
+  'import.importButton': 'Import backup',
   'import.importError': 'Error importing backup.',
 
   // Backup errors
   'backup.invalidFile': 'Invalid backup file.',
   'backup.unrecognizedFormat': 'Unrecognized backup format.',
   'backup.corruptedSalt': 'Corrupted backup: salt not found.',
-  'backup.wrongPassword': 'Incorrect password.',
-  'backup.wrongPasswordOrCorrupted': 'Incorrect password or corrupted backup.',
+  'backup.wrongPassword': 'Incorrect passphrase.',
+  'backup.wrongPasswordOrCorrupted': 'Incorrect passphrase or corrupted backup.',
 
   // Validation errors (auth.js validatePassword)
   'validation.minLength': 'Minimum 14 characters',
@@ -224,7 +224,7 @@ const en = {
 
   // Login errors
   'login.noAccount': 'No account found. Create a new password or import a backup.',
-  'login.wrongPassword': 'Incorrect password.',
+  'login.wrongPassword': 'Incorrect passphrase.',
 };
 
 const ptBR = {
@@ -264,9 +264,9 @@ const ptBR = {
   'recovery.help': 'Leia os dados preservados ou crie uma cópia válida. Para descartar: primeiro exporte este snapshot, confira o arquivo salvo, depois confirme e digite a palavra. Alterações no cofre exigem novo export.',
   "recovery.record": "Registro {number}",
   "recovery.reason.decrypt": "Não foi possível decifrar este registro. Guarde um backup cifrado para recuperação.",
-  "recovery.reason.json": "A decifragem funcionou, mas o texto não é um JSON de nota válido.",
-  "recovery.reason.model": "A decifragem funcionou, mas os dados não atendem ao modelo ou aos limites dos campos.",
-  "recovery.reason.limit": "A decifragem funcionou, mas esta nota antiga excede o limite de tamanho para edição.",
+  "recovery.reason.json": "O registro foi decifrado, mas seu conteúdo não pôde ser lido como nota.",
+  "recovery.reason.model": "O registro foi decifrado, mas seu conteúdo não pode ser editado como nota.",
+  "recovery.reason.limit": "A nota é grande demais para editar. Leia ou copie seu conteúdo aqui.",
   "recovery.content": "Dados decifrados para recuperação, somente leitura",
   "session.exportCancelled": "Exportação cancelada porque a sessão terminou ou mudou.",
   "session.discardAndLock": "Algumas alterações não foram salvas. Cancele para tentar novamente ou salvar como nova nota. OK descarta os rascunhos não salvos e bloqueia; as notas gravadas são preservadas.",
@@ -276,8 +276,8 @@ const ptBR = {
   "vault.changed": "O cofre foi alterado em outra aba. Desbloqueie o cofre atual antes de editar.",
   "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",
   "note.saveAsNew": "Salvar como nova nota",
-  "account.change": "Trocar senha mestra",
-  "account.current": "Senha atual",
+  "account.change": "Trocar frase-senha mestra",
+  "account.current": "Frase-senha atual",
   "account.new": "Nova frase-senha",
   "account.rotateWarning": "Após trocar a frase-senha, exporte um novo backup. As cópias anteriores continuam usando a frase-senha antiga.",
   "account.reset": "Apagar tudo e recomeçar",
@@ -410,35 +410,35 @@ const ptBR = {
 
   // Auth
   'auth.subtitle': 'Suas notas seguras, offline e criptografadas',
-  'auth.createTab': 'Criar Senha',
+  'auth.createTab': 'Criar cofre',
   'auth.loginTab': 'Entrar',
   'auth.importTab': 'Importar',
-  'auth.newPassword': 'Nova Senha',
-  'auth.passwordPlaceholder': 'Digite sua senha',
+  'auth.newPassword': 'Nova frase-senha',
+  'auth.passwordPlaceholder': 'Digite sua frase-senha',
   'auth.confirmPassword': 'Confirmar frase-senha',
-  'auth.confirmPlaceholder': 'Confirme sua senha',
+  'auth.confirmPlaceholder': 'Confirme sua frase-senha',
   'auth.minLength': 'Mínimo de 14 caracteres',
   'auth.hasUppercase': 'Pelo menos 1 letra maiúscula',
   'auth.hasSpecial': 'Pelo menos 1 caractere especial',
-  'auth.passwordsNoMatch': 'As senhas não coincidem',
-  'auth.memorizeWarning': 'Memorize sua senha! Não há recuperação.',
-  'auth.createAccount': 'Criar Conta',
-  'auth.password': 'Senha',
+  'auth.passwordsNoMatch': 'As frases-senha não coincidem',
+  'auth.memorizeWarning': 'Guarde sua frase-senha com segurança. Sem ela, suas notas cifradas não podem ser recuperadas.',
+  'auth.createAccount': 'Criar cofre',
+  'auth.password': 'Frase-senha',
   'auth.login': 'Entrar',
 
   // Import
   'import.dropzoneText': 'Arraste o arquivo de backup ou clique para selecionar',
-  'import.backupPassword': 'Senha do Backup',
-  'import.backupPlaceholder': 'Digite a senha usada no backup',
-  'import.importButton': 'Importar Backup',
+  'import.backupPassword': 'Frase-senha do backup',
+  'import.backupPlaceholder': 'Digite a frase-senha usada neste backup',
+  'import.importButton': 'Importar backup',
   'import.importError': 'Erro ao importar backup.',
 
   // Backup errors
   'backup.invalidFile': 'Arquivo de backup inválido.',
   'backup.unrecognizedFormat': 'Formato de backup não reconhecido.',
   'backup.corruptedSalt': 'Backup corrompido: salt não encontrado.',
-  'backup.wrongPassword': 'Senha incorreta.',
-  'backup.wrongPasswordOrCorrupted': 'Senha incorreta ou backup corrompido.',
+  'backup.wrongPassword': 'Frase-senha incorreta.',
+  'backup.wrongPasswordOrCorrupted': 'Frase-senha incorreta ou backup corrompido.',
 
   // Validation errors
   'validation.minLength': 'Mínimo de 14 caracteres',
@@ -446,8 +446,8 @@ const ptBR = {
   'validation.hasSpecial': 'Pelo menos 1 caractere especial',
 
   // Login errors
-  'login.noAccount': 'Nenhuma conta encontrada. Crie uma nova senha ou importe um backup.',
-  'login.wrongPassword': 'Senha incorreta.',
+  'login.noAccount': 'Nenhum cofre encontrado. Crie um cofre ou importe um backup.',
+  'login.wrongPassword': 'Frase-senha incorreta.',
 };
 
 const dictionaries = { en, 'pt-BR': ptBR };
