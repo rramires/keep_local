@@ -29,3 +29,18 @@ test('G1 strict session-key decoding preserves profile 2 and caps candidate read
   assert.equal(extra.entries.length,32);
   assert.equal(extra.limitExceeded,true);
 });
+
+test('G3 reconciliation distinguishes dirty data, previous revisions and foreign copies',async()=>{
+  const {decideFolderAction}=await import('../../js/folder-reconcile.js');
+  const head={hash:'head',rev:3};
+  const state={head,candidates:[{name:'keeplocal-vault.keeplocal',status:'valid'}],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
+  const clean={notes:[{}],meta:{revision:4,folderSyncedRevision:4,folderSeenRev:2,folderSyncedHash:'prior'}};
+  assert.equal(decideFolderAction(clean,state),'pull');
+  assert.equal(decideFolderAction({...clean,meta:{...clean.meta,revision:5}},state),'conflict');
+  assert.equal(decideFolderAction({...clean,meta:{...clean.meta,folderSeenRev:4}},state),'rollback');
+  assert.equal(decideFolderAction(clean,{...state,divergent:true}),'conflict');
+  assert.equal(decideFolderAction({notes:[],meta:{}},state),'pull');
+  assert.equal(decideFolderAction({notes:[{}],meta:{}},state),'conflict');
+  assert.equal(decideFolderAction(clean,{...state,head:null,candidates:[]}), 'push');
+  assert.equal(decideFolderAction(clean,{...state,candidates:[{name:'keeplocal-vault.keeplocal',status:'otherSalt'}],otherSalt:['keeplocal-vault.keeplocal']}),'otherSalt');
+});

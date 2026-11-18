@@ -212,6 +212,10 @@ export function resetFolderLockedVault(expected,vaultId) {
   return replaceLocalVault([],{vaultId},expected,undefined,true);
 }
 
+export function replaceVaultFromFolder({notes,meta},expected,{signal}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true);
+}
+
 function replaceLocalVault(records,values,expected,signal,explicitTransition=false) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
@@ -343,7 +347,7 @@ export function acknowledgeDownload(expected,at,{signal}={}) {
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(values.vaultId!==expected.vaultId)throw new Error('vault.changed');
+      assertVaultSnapshot(values,expected,{allowNewEdits:true});
       meta.put({key:'lastBackupAt',value:at});
       const clean=(values.revision||0)===(expected.revision||0);
       if(clean)meta.put({key:'dirtySinceBackup',value:false});done(clean);

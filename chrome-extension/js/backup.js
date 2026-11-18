@@ -15,6 +15,7 @@ let unsavedChanges = false;
 const drafts=new Set();
 export function setDraftDirty(id,dirty){if(dirty)drafts.add(id);else drafts.delete(id);}
 export function clearDrafts(){drafts.clear();}
+export function hasPendingDrafts(){return drafts.size>0;}
 export async function refreshBackupState(){unsavedChanges=!!await getMeta('dirtySinceBackup');}
 
 
@@ -79,7 +80,7 @@ async function makeBackupDownload({recovery=false}={}) {
   const a=document.createElement('a');a.href=url;a.download=`keeplocal-backup-${new Date().toISOString().slice(0,10)}.keeplocal`;
   try{document.body.appendChild(a);a.click();}finally{a.remove();URL.revokeObjectURL(url);}
   await assertCurrent();
-  if(!readOnly) unsavedChanges=!await acknowledgeDownload(meta,Date.now(),{signal});
+  if(!readOnly) unsavedChanges=!await acknowledgeDownload(receiptMeta,Date.now(),{signal});
   return {unreadableCount,meta:receiptMeta,notes};
 }
 

@@ -638,4 +638,95 @@ export async function run({check,assert}) {
       } finally {await browser.close();}
     }
   });
+
+  await check('G3 two extension profiles travel both ways and resolve divergence without erasing an unchosen copy',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture,copyFolderFiles}=await import('./folder-transfer.mjs');
+    const {backupFixture,importExpression}=await import('./backup-fixture.mjs');
+    const a=await harness.launchExtension(),b=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    const attach=p=>p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+    const relogin=async p=>{
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+    };
+    const rev=p=>p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+    const waitForWrite=(p,n)=>p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${n})`);
+    const hasNote=(p,title)=>p.until(`(await import('./js/app.js')).getNotes().some(note=>note.title===${JSON.stringify(title)})`);
+    try{
+      const pa=await a.page(undefined,folderFixtureSource('KL-TEST-PC-A'));
+      const pb=await b.page(undefined,folderFixtureSource('KL-TEST-PC-B'));
+      await harness.create(pa);
+      await harness.add(pa,'Only on A initially','Fictitious A');
+      const salt=await pa.eval("(await import('./js/db.js')).getMeta('salt')");
+      await pb.eval(importExpression((await backupFixture([],harness.PASSWORD,Buffer.from(salt,'base64'))).base64));
+      await pb.reload();await harness.unlock(pb);
+      await attach(pa);await relogin(pa);await waitForWrite(pa,0);
+      await attach(pb);await copyFolderFiles(pa,pb);await relogin(pb);
+      await hasNote(pb,'Only on A initially');
+      const first=await rev(pb);
+      assert.equal(await pb.eval('folderTest.writeAttempts'),0);
+      await harness.add(pb,'Notebook edit','Fictitious B');
+      await waitForWrite(pb,first);
+      await copyFolderFiles(pb,pa);await relogin(pa);
+      await hasNote(pa,'Notebook edit');
+      const old=await readFolderFixture(pa,primary),common=await rev(pa);
+      assert.equal(common,await rev(pb));
+
+      await harness.add(pa,'Independent A','Fictitious branch A');
+      await harness.add(pb,'Independent B','Fictitious branch B');
+      await Promise.all([waitForWrite(pa,common),waitForWrite(pb,common)]);
+      const independentA=await readFolderFixture(pa,primary),independentB=await readFolderFixture(pb,primary);
+      await writeFolderFixture(pa,primary,independentB);
+      await writeFolderFixture(pa,'keeplocal-vault (1).keeplocal',independentA);
+      await writeFolderFixture(pb,primary,independentA);
+      await relogin(pa);await relogin(pb);
+      for(const p of [pa,pb]){
+        await p.until("!!document.querySelector('[data-folder-status=conflict]')");
+        assert.equal(await p.eval('folderTest.writeAttempts'),0);
+        assert.deepEqual(await p.eval('folderTest.writes'),{});
+        assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),true);
+      }
+
+      await pb.eval(`(()=>{
+        URL.createObjectURL=blob=>{window.g3Archive=blob;return 'blob:fixture';};URL.revokeObjectURL=()=>{};
+        HTMLAnchorElement.prototype.click=()=>{};
+        document.querySelector('[data-folder-action=exportLocal]').click();
+      })()`);
+      await pb.until("document.querySelector('.folder-review [role=status]').textContent.includes('Verify the saved file')");
+      const archive=await pb.eval(`(async()=>{
+        const b=await import('./js/backup-v2.js'),f=await import('./js/backup-format.js');
+        const result=await b.decodeV2(new Uint8Array(await g3Archive.arrayBuffer()),${JSON.stringify(harness.PASSWORD)});
+        return (await f.decryptRecords(result.payload.notes,result.key)).map(note=>note.title);
+      })()`);
+      assert.ok(archive.includes('Independent B'));
+      assert.deepEqual(await pb.eval('folderTest.writes'),{});
+      await pb.eval("document.querySelector('[data-folder-action=useFolder]').click()");
+      await hasNote(pb,'Independent A');
+      assert.equal(await pb.eval('folderTest.writeAttempts'),0);
+
+      await pa.eval("document.querySelector('[data-folder-action=useLocal]').click()");
+      await pa.until("!!document.querySelector('.app-dialog input')");
+      await pa.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
+      await waitForWrite(pa,common+1);
+      assert.equal(await readFolderFixture(pa,'keeplocal-vault (1).keeplocal'),independentA);
+      await hasNote(pa,'Independent A');
+      const written=await readFolderFixture(pa,primary);
+      await writeFolderFixture(pb,'keeplocal-vault (2).keeplocal',written);
+      await pb.eval("window.dispatchEvent(new Event('focus'))");
+      await pb.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${common+1})`);
+      assert.deepEqual(await pb.eval('folderTest.entries()'),['keeplocal-vault (2).keeplocal',primary]);
+
+      await writeFolderFixture(pa,primary,old);
+      // Leave the old copy in place as an independent candidate. Both are now below the seen revision.
+      await relogin(pa);
+      await pa.until("!!document.querySelector('[data-folder-status=rollback]')");
+      assert.equal(await pa.eval('folderTest.writeAttempts'),0);
+      assert.deepEqual(await pa.eval('folderTest.writes'),{});
+      await writeFolderFixture(pb,primary,(await backupFixture()).base64);
+      await relogin(pb);
+      await pb.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      assert.equal(await pb.eval('folderTest.writeAttempts'),0);
+      assert.deepEqual(await pb.eval('folderTest.writes'),{});
+    }finally{await Promise.all([a.close(),b.close()]);}
+  });
 }

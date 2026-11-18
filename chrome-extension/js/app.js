@@ -8,8 +8,9 @@ import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-act
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
-import {checkFolder,enableFolderWrites,folderSupported,readSyncFolder} from './folder-store.js';
+import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
+import {folderTime,renderFolderReview} from './folder-review.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
@@ -40,7 +41,7 @@ let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
 let loadedVaultId=null;
-let folderGate=null,folderSync=null,folderKey=null;
+let folderGate=null,folderSync=null,folderKey=null,folderLoaded=null;
 let newDraft={title:'',content:'',expanded:false};
 let barSaving=null;
 const newTodoIds=new Set();
@@ -87,7 +88,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 function teardownSession() {
   secretUI.dispose();
   folderGate=null;
-  folderSync?.dispose();folderSync=null;folderKey=null;
+  folderSync?.dispose();folderSync=null;folderKey=null;folderLoaded=null;
   setWriteMode('readWrite');
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
@@ -119,13 +120,11 @@ async function showAuth(message='') {
       const status=await checkFolder(attempt.handle,attempt.permissionFailure);
       if(signal.aborted)return;
       if(status!=='ok'){
-        folderGate=createFolderGate(appContainer,{
-          handle:attempt.handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
-        });
+        folderGate=folderGateFor(attempt.handle,status,key,signal);
         folderGate.renderBlock();
         return;
       }
-      try {await enableFolderWrites({key,signal});}
+      try {if(!await configureFolderSync({admit:true,selected:attempt.handle}))return;}
       catch {if(!signal.aborted)void showAuth(t('vault.changed'));return;}
       if(signal.aborted)return;
     }
@@ -166,29 +165,61 @@ async function showApp({reload=true}={}) {
     vaultClipboardWarningDismissed = warningDismissed === true;
   }
   renderCurrentView();
+  if(folderLoaded){
+    const {rev,exportedAt}=folderLoaded;
+    folderLoaded=null;
+    showToast(t('folder.loaded',{rev,time:folderTime(exportedAt)}));
+  }
   if(!isReadOnly()) await requestPersistence();
   if(generation===sessionGeneration&&!isReadOnly()&&folderKey!==cryptoKey) await configureFolderSync();
 }
 
-async function configureFolderSync() {
+function folderGateFor(handle,status,key,signal) {
+  return createFolderGate(appContainer,{
+    handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
+    onResume:selected=>configureFolderSync({admit:true,selected}),
+  });
+}
+
+async function configureFolderSync({admit=false,selected}={}) {
   folderSync?.dispose();
   folderSync=null;
   folderKey=cryptoKey;
   const signal=sessionController?.signal,key=cryptoKey;
-  if(!folderSupported()||!key||isReadOnly())return;
-  const handle=await readSyncFolder();
-  if(!handle||signal?.aborted||key!==cryptoKey)return;
-  folderSync=createFolderSync({
-    handle,key,signal,
+  if(!folderSupported()||!key||(!admit&&isReadOnly()))return false;
+  const handle=selected??await readSyncFolder();
+  if(!handle||signal?.aborted||key!==cryptoKey)return false;
+  const rerenderPulled=async head=>{
+    modalController?.abort();modalController=null;
+    if(activeEdit){activeEdit.cancel();activeEdit.cleanup?.();activeEdit=null;}
+    await initI18n();await initTheme();
+    document.title=t('app.title');
+    if(signal.aborted)return;
+    folderLoaded=head;
+    if(document.querySelector('.app-view'))await showApp();
+  };
+  const sync=createFolderSync({
+    handle,key,signal,onPulled:rerenderPulled,
     onUnavailable:(folder,status)=>{
-      setWriteMode('readOnly');
-      folderSync?.dispose();folderSync=null;folderKey=null;
-      folderGate=createFolderGate(appContainer,{handle:folder,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast});
-      void showApp();
+      folderGate=folderGateFor(folder,status,key,signal);
+      if(document.querySelector('.app-view'))void showApp();
+      else folderGate.renderBlock();
+    },
+    onReview:review=>{
+      modalController?.abort();modalController=null;
+      folderGate=folderGateFor(handle,review.status,key,signal);
+      renderFolderReview(appContainer,review,{
+        handle,signal,notify:showToast,onExit:logout,onOpenReadOnly:showApp,
+        onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
+        resolve:async(choice,name)=>{await sync.resolve(review,choice,name);await showApp();},
+      });
     },
     onStatus:(status,reason)=>{if(reason==='folder.unreadable')showToast(t(reason));},
   });
-  folderSync.schedule();
+  folderSync=sync;
+  if(admit)return sync.admit();
+  sync.schedule();
+  return true;
 }
 
 function renderAppShell() {

@@ -22,7 +22,9 @@ export function localFolderDirty(meta) {
 }
 
 export function unsafeFolder(state) {
-  return state.limitExceeded||state.otherSalt.length||state.unreadable.length||state.tooLarge.length;
+  const main=state.candidates.find(row=>row.name===MAIN_FILE);
+  return !!(state.limitExceeded||(main&&main.status!=='valid')||
+    (!state.head&&(state.otherSalt.length||state.unreadable.length||state.tooLarge.length)));
 }
 
 export function createFolderWriter(handle,key,signal) {

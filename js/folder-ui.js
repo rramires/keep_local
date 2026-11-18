@@ -19,11 +19,11 @@ function action(name,handler,primary=false) {
 }
 
 function folderReason(status) {
-  if(status==='notFound'||status==='denied') return t('folder.'+status);
+  if(['notFound','denied','conflict','rollback','otherSalt','unreadableCopy'].includes(status))return t('folder.'+status);
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
-export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify}) {
+export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume}) {
   let busy=false, reading=false, issue=status;
 
   async function run(event,work) {
@@ -52,7 +52,8 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     const result=await checkFolder(handle,permissionFailure);
     if(signal.aborted) return;
     if(result!=='ok'){ showIssue(result);return; }
-    await enableFolderWrites({key,signal});
+    if(onResume){if(!await onResume(handle))return;}
+    else await enableFolderWrites({key,signal});
     await openVault();
   }
 
@@ -60,6 +61,7 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     const result=await chooseSyncFolder({key,signal});
     if(signal.aborted) return;
     if(result.status!=='ok'){ notify(folderReason(result.status));return; }
+    if(onResume&&!await onResume(result.handle))return;
     await openVault();
   }
 
