@@ -44,3 +44,13 @@
 .vault-clipboard-tip, .vault-clipboard-pending { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .vault-clipboard-tip { margin-block: 0 14px; }
 .vault-clipboard-pending { position: fixed; z-index: 160; bottom: 12px; inset-inline-end: 12px; max-width: min(440px, calc(100vw - 24px)); background-color: var(--bg-secondary); }
+
+.vault-editor .panel-body { min-width: 0; overflow-x: hidden; }
+.vault-editor-blocks { display: grid; gap: 10px; }
+.vault-block { min-width: 0; display: grid; gap: 10px; padding: 10px; border: 1px solid var(--card-border); border-radius: 8px; }
+.vault-form-field { display: grid; gap: 4px; min-width: 0; color: var(--text-secondary); font-size: .875rem; }
+.vault-form-field :is(input, textarea) { min-width: 0; width: 100%; color: var(--text-primary); }
+.vault-form-field textarea { resize: vertical; font-family: monospace; }
+.vault-editor [hidden], #recovery-show-sensitive[hidden] { display: none; }
+.vault-edit-secret { -webkit-text-security: disc; }
+.vault-editor-status:empty { display: none; }

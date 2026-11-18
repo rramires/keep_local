@@ -1,3 +1,4 @@
+import {newVaultItem, renderVaultEditor} from './vault-editor.js';
 import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
 import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
@@ -491,6 +492,7 @@ function renderCurrentView() {
       renderVaultSection(document.getElementById('main-inner'), {
         items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
+        onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
       });
       break;
@@ -933,7 +935,7 @@ async function openNoteModal(note) {
   if ((activeEdit || modalController) && !await closeModal()) return;
   note=structuredClone(note);
   if (note.type === 'vault') {
-    openVaultDetail(note);
+    showVaultModal(note);
   } else if (note.type === 'text') {
     openTextModal(note);
   } else {
@@ -942,15 +944,36 @@ async function openNoteModal(note) {
   return note;
 }
 
-function openVaultDetail(item) {
+function showVaultModal(item, {editor = false, isNew = false} = {}) {
   const modal = document.getElementById('modal-card');
   const controller = new AbortController();
   modalController = controller;
   const signal = controller.signal;
-  const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`);
-  renderVaultDetail(modal, item, {onClose: closeModal, controls: secretUI, signal});
-  focusPanel(modal, {signal, trigger, titleId: 'vault-detail-title', initial: '#modal-close'});
+  const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`) || document.getElementById('vault-new-item');
+  if (editor) {
+    activeEdit = renderVaultEditor(modal, item, {
+      signal, isNew, onClose: closeModal,
+      onSave: draft => saveFromUI(draft, {mergeDraft:false}),
+      onDirty: dirty => setDraftDirty('editor',dirty),
+      onPin: draft => changeFromUI(draft, next => { next.pinned = !next.pinned; }),
+    });
+  } else {
+    renderVaultDetail(modal, item, {
+      onClose: closeModal, controls: secretUI, signal,
+      onEdit: () => openVaultEditor(item),
+    });
+  }
+  focusPanel(modal, {
+    signal, trigger,
+    titleId: editor ? 'vault-editor-title' : 'vault-detail-title',
+    initial: editor ? '[data-vault-title]' : '#modal-close',
+  });
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function openVaultEditor(item, isNew = false) {
+  if (!await closeModal() || !cryptoKey) return;
+  showVaultModal(item, {editor:true, isNew});
 }
 
 function openTextModal(note) {
@@ -1526,6 +1549,7 @@ function initTodoModalListeners(note) {
 
 async function closeModal() {
   const edit=activeEdit;
+  edit?.mask?.();
   if(edit && !await edit.flush())return false;
   try{if(edit)await enqueueWrite.drain(edit.id);}catch{return false;}
   if(edit!==activeEdit)return false;

@@ -5,6 +5,18 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'vault.title': 'Title',
+  'vault.fieldLabel': 'Label',
+  'vault.value': 'Value',
+  'vault.text': 'Text',
+  'vault.secret': 'Secret',
+  'vault.multiline': 'Multiline',
+  'vault.addField': 'Add field',
+  'vault.addText': 'Add text',
+  'vault.addDivider': 'Add divider',
+  'vault.moveUp': 'Move up',
+  'vault.moveDown': 'Move down',
+  'vault.removeBlock': 'Remove block',
   'vault.hide': "Hide",
   'vault.copied': "Copied. The clipboard will be cleared in 20 seconds.",
   'vault.copyFailed': "Could not write to the clipboard.",
@@ -260,6 +272,18 @@ const en = {
 };
 
 const ptBR = {
+  'vault.title': 'Título',
+  'vault.fieldLabel': 'Rótulo',
+  'vault.value': 'Valor',
+  'vault.text': 'Texto',
+  'vault.secret': 'Secreto',
+  'vault.multiline': 'Várias linhas',
+  'vault.addField': 'Adicionar campo',
+  'vault.addText': 'Adicionar texto',
+  'vault.addDivider': 'Adicionar divisor',
+  'vault.moveUp': 'Mover para cima',
+  'vault.moveDown': 'Mover para baixo',
+  'vault.removeBlock': 'Remover bloco',
   'vault.hide': "Ocultar",
   'vault.copied': "Copiado. A área de transferência será limpa em 20 s.",
   'vault.copyFailed': "Não foi possível escrever na área de transferência.",

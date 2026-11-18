@@ -62,6 +62,25 @@ async function selectRecovery(p) {
   await p.eval("document.querySelector('.recovery-record').click()");
 }
 
+
+async function enterVaultEditor(p,assert) {
+  await openVaultFirst(p);
+  assert.equal(await p.eval("document.querySelector('[data-vault-edit]').disabled"),false);
+  await p.eval("document.querySelector('[data-vault-edit]').click()");
+  await p.until("!!document.querySelector('.vault-editor')");
+}
+
+export async function fillVaultInput(p,selector,value) {
+  await p.until(`(()=>{const input=document.querySelector(${JSON.stringify(selector)});return !!input&&getComputedStyle(input).visibility==='visible';})()`);
+  await p.eval(`(()=>{
+    const input=document.querySelector(${JSON.stringify(selector)});
+    input.focus();
+    if(document.activeElement!==input) throw Error('Editor input did not receive focus');
+    input.value=${JSON.stringify(value)};
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+  })()`);
+}
+
 export async function run({browser,check,assert}) {
   await check('T4.1 vault records stay out of notes and round-trip in the existing v2 envelope',async()=>{
     const p=await browser.page();
@@ -256,6 +275,119 @@ export async function run({browser,check,assert}) {
       assert.equal(await p.eval("document.querySelector('#recovery-content').value"),'');
       assert.deepEqual(p.errors,[]);
     } finally {await p.close();}
+  });
+
+  await check('T4.4 block editor persists operations and keeps secrets out of blurred inputs',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      assert.equal(await p.eval("document.querySelector('#vault-new-item').disabled"),false);
+      await p.eval("document.querySelector('#vault-new-item').click()");
+      await p.until("!!document.querySelector('.vault-editor')");
+      assert.equal(await p.eval("document.querySelectorAll('[data-vault-block=field]').length"),1);
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),0);
+      await p.eval("document.querySelector('#vault-new-item').click()");
+      await p.until("!!document.querySelector('.vault-editor')");
+      await fillVaultInput(p,'[data-vault-title]','Fictional Login');
+      await fillVaultInput(p,'[data-vault-label]','Senha');
+      assert.equal(await p.eval("document.querySelector('[data-vault-toggle-secret]').getAttribute('aria-pressed')"),'true');
+      await fillVaultInput(p,'[data-vault-value]','fictional-editor-secret');
+      assert.equal(await p.eval("getComputedStyle(document.querySelector('[data-vault-value]')).webkitTextSecurity"),'disc');
+      assert.equal(await p.eval("document.querySelector('[data-vault-value]').type"),'text');
+      await p.eval("document.querySelector('[data-vault-edit-reveal]').click()");
+      assert.equal(await p.eval("getComputedStyle(document.querySelector('[data-vault-value]')).webkitTextSecurity"),'none');
+      await p.eval("document.querySelector('[data-vault-title]').focus()");
+      assert.equal(await p.eval("document.querySelector('[data-vault-value]').value"),'');
+      await p.eval("document.querySelector('[data-vault-multiline]').click()");
+      await fillVaultInput(p,'textarea[data-vault-value]','fictional-editor-secret\nfictional-second-line');
+      await p.eval("document.querySelector('[data-vault-add=field]').click()");
+      const second='[data-vault-block=field]:nth-child(2)';
+      await fillVaultInput(p,second+' [data-vault-label]','API key');
+      assert.equal(await p.eval(`document.querySelector(${JSON.stringify(second+' [data-vault-toggle-secret]')}).getAttribute('aria-pressed')`),'true');
+      await p.eval(`document.querySelector(${JSON.stringify(second+' [data-vault-toggle-secret]')}).click()`);
+      await fillVaultInput(p,second+' [data-vault-label]','chave pública');
+      assert.equal(await p.eval(`document.querySelector(${JSON.stringify(second+' [data-vault-toggle-secret]')}).getAttribute('aria-pressed')`),'false');
+      await fillVaultInput(p,second+' [data-vault-value]','Publishable fictional key');
+      await p.eval("document.querySelector('[data-vault-add=text]').click()");
+      await fillVaultInput(p,'[data-vault-block=text] textarea','Temporary fictional text');
+      await p.eval("document.querySelector('[data-vault-add=divider]').click();document.querySelector('[data-vault-block=divider] [data-vault-move=up]').click();document.querySelector('[data-vault-block=text] [data-vault-remove]').click();document.querySelector('[data-vault-add=text]').click()");
+      await fillVaultInput(p,'[data-vault-block=text] textarea','Final fictional text');
+      assert.equal(await p.eval(`[...document.querySelectorAll('.vault-editor input,.vault-editor textarea')].every(input =>
+        input.spellcheck===false && ['autocomplete','autocapitalize','autocorrect'].every(attr=>input.getAttribute(attr)==='off') && !input.hasAttribute('name'))
+        && document.querySelector('.vault-editor').getAttribute('translate')==='no'`),true);
+      assert.equal(await p.eval("document.querySelector('textarea[data-vault-value]').value"),'');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      await p.reload();
+      await unlock(p);
+      const restored=await p.eval("(await import('./js/app.js')).getNotes().find(note=>note.type==='vault')");
+      assert.equal(restored.title,'Fictional Login');
+      assert.deepEqual(restored.blocks.map(block=>block.kind),['field','field','divider','text']);
+      assert.deepEqual({secret:restored.blocks[0].secret,multiline:restored.blocks[0].multiline,value:restored.blocks[0].value},
+        {secret:true,multiline:true,value:'fictional-editor-secret\nfictional-second-line'});
+      assert.equal(restored.blocks[1].secret,false);
+      assert.equal(restored.blocks[3].value,'Final fictional text');
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.4 pin queued during editing preserves blocks saved on close',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      await save(p,vaultFixture());
+      await enterVaultEditor(p,assert);
+      await p.eval(`(()=>{
+        const original=crypto.subtle.encrypt.bind(crypto.subtle);
+        crypto.subtle.encrypt=async(...args)=>{
+          crypto.subtle.encrypt=original;
+          await new Promise(resolve=>{window.releaseVaultPin=resolve;});
+          return original(...args);
+        };
+      })()`);
+      await fillVaultInput(p,'[data-vault-value]','fictional after toolbar edit');
+      await p.eval("document.querySelector('.vault-editor [data-vault-action=pin]').click()");
+      await p.until("typeof window.releaseVaultPin==='function'");
+      await p.eval("document.querySelector('#modal-close').click();window.releaseVaultPin()");
+      await p.until("!document.querySelector('.vault-editor')");
+      await p.reload();
+      await unlock(p);
+      const saved=await p.eval("(await import('./js/app.js')).getNotes().find(note=>note.type==='vault')");
+      assert.equal(saved.pinned,true);
+      assert.equal(saved.blocks[0].value,'fictional after toolbar edit');
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.4 vault block edit refuses a newer write from another tab',async()=>{
+    const p=await browser.page();
+    let q;
+    try {
+      await create(p);
+      const item=vaultFixture();
+      await save(p,item);
+      await enterVaultEditor(p,assert);
+      q=await browser.page(p.contextId);
+      await unlock(q);
+      await q.eval(`(async()=>{
+        const app=await import('./js/app.js');
+        const edited=structuredClone(app.getNotes().find(note=>note.type==='vault'));
+        edited.blocks[0].value='remote.example.invalid';
+        await app.saveNote(edited);
+      })()`);
+      await p.send('Page.bringToFront');
+      await p.until("document.visibilityState==='visible'");
+      await fillVaultInput(p,'[data-vault-value]','local.example.invalid');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!!document.querySelector('.vault-editor')&&!!document.querySelector('.toast-action')");
+      await q.reload();
+      await unlock(q);
+      assert.equal(await q.eval("(await import('./js/app.js')).getNotes().find(note=>note.type==='vault').blocks[0].value"),'remote.example.invalid');
+      assert.deepEqual([...p.errors,...q.errors],[]);
+    } finally {if(q) await q.close();await p.close();}
   });
 
 }

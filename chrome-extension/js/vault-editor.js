@@ -1,0 +1,273 @@
+import {createEditSession} from './edit-session.js';
+import {validateNote} from './note-model.js';
+import {t} from './i18n.js';
+import {element, vaultButton} from './vault-view.js';
+import {isSecretField, secretLabel, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
+import {SECRET_MASK} from './secret-ui.js';
+
+function privateInput(tag, label, maxLength) {
+  const input = element(tag);
+  if (tag === 'input') input.type = 'text';
+  input.setAttribute('aria-label', label);
+  input.spellcheck = false;
+  for (const setting of ['autocomplete', 'autocapitalize', 'autocorrect']) input.setAttribute(setting, 'off');
+  input.maxLength = maxLength;
+  return input;
+}
+
+function newBlock(kind) {
+  const base = {id: crypto.randomUUID(), kind};
+  if (kind === 'field') return {...base, label:'', value:''};
+  if (kind === 'text') return {...base, value:''};
+  return base;
+}
+
+export function newVaultItem(order) {
+  const now = Date.now();
+  return {
+    id:crypto.randomUUID(), type:'vault', title:'', blocks:[newBlock('field')],
+    color:'default', pinned:false, labels:[], createdAt:now, updatedAt:now,
+    deletedAt:null, archivedAt:null, order,
+  };
+}
+
+export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, onDirty, onPin}) {
+  let draft = structuredClone(item);
+  const touched = new Set(item.blocks.filter(block => block.secret === false).map(block => block.id));
+  const secretCleanups = new Set();
+  const panel = element('section', 'panel-form vault-editor');
+  panel.setAttribute('translate', 'no');
+  const header = element('header', 'panel-header');
+  const heading = element('h2', 'vault-detail-title', t('vault.edit'));
+  heading.id = 'vault-editor-title';
+  const close = vaultButton(t('modal.close'), onClose);
+  close.id = 'modal-close';
+  const body = element('div', 'panel-body form-stack');
+  const status = element('p', 'error-text vault-editor-status');
+  status.setAttribute('role', 'alert');
+  const title = privateInput('input', t('vault.title'), 4096);
+  const titleLabel = element('label', 'vault-form-field', t('vault.title'));
+  title.dataset.vaultTitle = '';
+  title.value = draft.title;
+  titleLabel.append(title);
+  const blocks = element('div', 'vault-editor-blocks');
+  const toolbar = element('div', 'vault-card-actions');
+  const addButtons = new Map();
+
+  const capture = () => structuredClone(draft);
+  const session = createEditSession({
+    capture, onDirty,
+    save: async snapshot => {
+      if (isNew && !snapshot.title.trim() && !snapshot.blocks.some(block => block.value)) return true;
+      const saved = await onSave(snapshot);
+      if (saved && !signal.aborted) {
+        isNew = false;
+        syncPin();
+      }
+      return saved;
+    },
+  });
+  const pin = vaultButton(t('card.pin'), () => onPin(capture()));
+  pin.dataset.vaultAction = 'pin';
+
+  function syncPin() {
+    pin.disabled = isNew;
+    pin.textContent = t(draft.pinned ? 'card.unpin' : 'card.pin');
+    pin.setAttribute('aria-pressed', String(draft.pinned));
+  }
+
+  function update(change) {
+    if (signal.aborted) return false;
+    const next = capture();
+    change(next);
+    try {
+      validateNote(next);
+    } catch (error) {
+      status.textContent = t(error.code === 'note.tooLarge' ? 'note.tooLarge' : 'note.invalid');
+      return false;
+    }
+    draft = next;
+    status.textContent = '';
+    session.schedule();
+    return true;
+  }
+
+  function scrubSecrets() {
+    for (const scrub of secretCleanups) scrub();
+  }
+
+  function renderBlock(block, index) {
+    const id = block.id;
+    const row = element('div', 'vault-block');
+    row.dataset.vaultBlock = block.kind;
+    const get = () => draft.blocks.find(current => current.id === id);
+    const patch = change => update(next => change(next.blocks.find(current => current.id === id)));
+    const controls = element('div', 'vault-card-actions');
+    const move = (direction, distance) => {
+      const button = vaultButton(t('vault.move' + direction), () => {
+        if (update(next => {
+          const position = next.blocks.findIndex(current => current.id === id);
+          [next.blocks[position], next.blocks[position + distance]] = [next.blocks[position + distance], next.blocks[position]];
+        })) {
+          drawBlocks();
+          blocks.children[index + distance]?.querySelector('button')?.focus();
+        }
+      });
+      button.dataset.vaultMove = direction.toLowerCase();
+      button.disabled = index + distance < 0 || index + distance >= draft.blocks.length;
+      return button;
+    };
+    const remove = vaultButton(t('vault.removeBlock'), () => {
+      if (update(next => { next.blocks = next.blocks.filter(current => current.id !== id); })) {
+        drawBlocks();
+        (blocks.children[Math.min(index, blocks.children.length - 1)]?.querySelector('button') || addButtons.get(block.kind))?.focus();
+      }
+    });
+    remove.dataset.vaultRemove = '';
+    controls.append(move('Up', -1), move('Down', 1), remove);
+
+    if (block.kind === 'divider') {
+      row.append(element('hr', 'vault-divider'), controls);
+      return row;
+    }
+
+    const field = block.kind === 'field';
+    const value = privateInput(field && !block.multiline ? 'input' : 'textarea', t(field ? 'vault.value' : 'vault.text'), MAX_VAULT_VALUE);
+    value.dataset.vaultValue = '';
+    const valueLabel = element('label', 'vault-form-field', t(field ? 'vault.value' : 'vault.text'));
+    valueLabel.append(value);
+    let revealing = false;
+    let reveal;
+    let toggleSecret;
+
+    function syncValue() {
+      const current = get();
+      const secret = isSecretField(current);
+      if (!secret) revealing = false;
+      const focused = value === document.activeElement && document.visibilityState !== 'hidden';
+      value.value = secret && !focused ? '' : current.value;
+      value.placeholder = secret ? SECRET_MASK : '';
+      value.classList.toggle('vault-edit-secret', secret && !revealing);
+      if (field) {
+        toggleSecret.textContent = (secret ? '🔒 ' : '🔓 ') + t('vault.secret');
+        toggleSecret.setAttribute('aria-pressed', String(secret));
+        reveal.hidden = !secret;
+        reveal.textContent = t(revealing ? 'vault.hide' : 'vault.reveal');
+        reveal.setAttribute('aria-pressed', String(revealing));
+      }
+    }
+
+    function scrubValue() {
+      if (!isSecretField(get() ?? block)) return;
+      revealing = false;
+      value.value = '';
+      value.classList.add('vault-edit-secret');
+      reveal.textContent = t('vault.reveal');
+      reveal.setAttribute('aria-pressed', 'false');
+    }
+
+    if (field) {
+      const label = privateInput('input', t('vault.fieldLabel'), MAX_VAULT_LABEL);
+      label.dataset.vaultLabel = '';
+      label.value = block.label;
+      const fieldLabel = element('label', 'vault-form-field', t('vault.fieldLabel'));
+      fieldLabel.append(label);
+      label.addEventListener('input', () => {
+        if (!patch(current => {
+          current.label = label.value;
+          if (!touched.has(id) && secretLabel(current.label)) current.secret = true;
+        })) label.value = get().label;
+        syncValue();
+      });
+      toggleSecret = vaultButton(t('vault.secret'), () => {
+        if (patch(current => { current.secret = !isSecretField(current); })) touched.add(id);
+        syncValue();
+      });
+      toggleSecret.dataset.vaultToggleSecret = '';
+      const multiline = vaultButton(t('vault.multiline'), () => {
+        if (patch(current => { current.multiline = !current.multiline; })) {
+          drawBlocks();
+          blocks.children[index]?.querySelector('[data-vault-multiline]')?.focus();
+        }
+      });
+      multiline.dataset.vaultMultiline = '';
+      multiline.setAttribute('aria-pressed', String(!!block.multiline));
+      reveal = vaultButton(t('vault.reveal'), () => {
+        value.focus();
+        revealing = !revealing;
+        syncValue();
+      });
+      reveal.dataset.vaultEditReveal = '';
+      reveal.addEventListener('pointerdown', event => {
+        if (document.activeElement === value) event.preventDefault();
+      });
+      controls.prepend(toggleSecret, multiline, reveal);
+      row.append(fieldLabel);
+      secretCleanups.add(scrubValue);
+      value.addEventListener('focus', syncValue);
+      value.addEventListener('blur', scrubValue);
+    }
+    value.addEventListener('input', () => {
+      if (isSecretField(get()) && document.activeElement !== value) {
+        scrubValue();
+        return;
+      }
+      if (!patch(current => { current.value = value.value; })) syncValue();
+    });
+    syncValue();
+    row.append(valueLabel, controls);
+    return row;
+  }
+
+  function drawBlocks() {
+    scrubSecrets();
+    secretCleanups.clear();
+    blocks.replaceChildren(...draft.blocks.map(renderBlock));
+    for (const button of addButtons.values()) button.disabled = draft.blocks.length >= MAX_VAULT_BLOCKS;
+  }
+
+  title.addEventListener('input', () => {
+    if (!update(next => { next.title = title.value; })) title.value = draft.title;
+  });
+  for (const [kind, key] of [['field', 'addField'], ['text', 'addText'], ['divider', 'addDivider']]) {
+    const button = vaultButton(t('vault.' + key), () => {
+      if (update(next => { next.blocks.push(newBlock(kind)); })) {
+        drawBlocks();
+        blocks.lastElementChild?.querySelector('input,textarea,button:not(:disabled)')?.focus();
+      }
+    });
+    button.dataset.vaultAdd = kind;
+    addButtons.set(kind, button);
+    toolbar.append(button);
+  }
+  toolbar.append(pin);
+  body.append(titleLabel, status, blocks, toolbar);
+  header.append(heading, close);
+  panel.append(header, body);
+  modal.replaceChildren(panel);
+  syncPin();
+  drawBlocks();
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (panel.contains(document.activeElement)) document.activeElement.blur();
+      scrubSecrets();
+    }
+  }, {signal});
+
+  return {
+    ...session, id:item.id,
+    mask() {
+      if (panel.contains(document.activeElement)) document.activeElement.blur();
+      scrubSecrets();
+    },
+    applyFields(fields) { Object.assign(draft, fields); syncPin(); },
+    cleanup() {
+      scrubSecrets();
+      for (const input of panel.querySelectorAll('input,textarea')) input.value = '';
+      draft.blocks = [];
+      draft.title = '';
+      secretCleanups.clear();
+    },
+  };
+}
