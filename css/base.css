@@ -204,3 +204,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 #recovery-status { font-size: 13px; overflow-wrap: anywhere; }
 #recovery-status:empty { display: none; }
 #recovery-content { width: 100%; min-height: 150px; font-size: 13px; }
+
+.unreadable-warning { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: 12px; margin-bottom: 24px; }
+.notice-icon { color: var(--warning-color); font-size: 22px; line-height: 1.2; }
+.unreadable-warning .btn-secondary { align-self: center; }
+@media (max-width: 600px) { .unreadable-warning { grid-template-columns: auto minmax(0,1fr); } .unreadable-warning button { grid-column: 2; justify-self: start; } }

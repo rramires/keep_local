@@ -31,4 +31,16 @@ export async function run({browser,check,assert}) {
   }
  });
 
+ await check('U3 unreadable banner flows above new-note bar and uses actual singular/plural in EN/pt-BR',async()=>{
+  for(const [lang,theme,width,count] of [['en','dark',1100,1],['en','light',390,2],['pt-BR','light',1100,1],['pt-BR','dark',390,2]]){
+   const p=await browser.page();try{await p.send('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:false});await create(p);
+    await p.eval(`await(await import('./js/i18n.js')).setLang(${JSON.stringify(lang)});const c=await import('./js/crypto.js'),d=await import('./js/db.js'),a=await import('./js/app.js');for(let i=0;i<${count};i++){const e=await c.encrypt(a.getCryptoKey(),'fictitious invalid JSON');await d.saveNoteRecord({id:crypto.randomUUID(),iv:c.arrayToBase64(e.iv),ciphertext:c.arrayBufferToBase64(e.ciphertext),updatedAt:1})}`);await p.reload();await unlockRecovery(p);
+    await p.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)}`);
+    const v=await p.eval(`(()=>{const w=document.querySelector('.unreadable-warning'),n=document.querySelector('.new-note-bar'),r=w.getBoundingClientRect();return {text:w.textContent,icon:!!w.querySelector('[aria-hidden=true]'),role:w.getAttribute('role'),border:parseFloat(getComputedStyle(w).borderTopWidth),gap:parseFloat(getComputedStyle(w).gap),above:r.bottom<n.getBoundingClientRect().top,within:r.x>=0&&r.right<=innerWidth}})()`);
+    assert.equal(v.role,'alert');assert.equal(v.icon,true);assert.ok(v.border>=1&&v.gap>=8);assert.ok(v.above&&v.within);assert.match(v.text,new RegExp(lang==='en'?`${count} note${count===1?' could':'s could'}`:`${count} nota${count===1?' não':'s não'}`));
+    await p.eval("document.querySelector('#recover-notes-btn').click()");await p.until("!!document.querySelector('.recovery-record')");await p.eval("HTMLAnchorElement.prototype.click=()=>{};document.querySelector('.recovery-record').click();document.querySelector('#recovery-export').click()");await p.until("!document.querySelector('#recovery-export').disabled&&document.querySelector('#recovery-status').textContent.includes('Download')");assert.match(await p.eval("document.querySelector('#recovery-status').textContent"),new RegExp(lang==='en'?`${count} unreadable record${count===1?'\\.':'s'}`:`${count} registro${count===1?' ilegível':'s ilegíveis'}`));assert.deepEqual(p.errors,[]);
+   }finally{await p.close();}
+  }
+ });
+
 }

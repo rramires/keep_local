@@ -1,6 +1,6 @@
 import { decrypt,base64ToArray } from './crypto.js';
 import { recoveredNote,discardRecord,exportForDiscard,validateDiscardReceipt,forgetDiscardReceipt } from './recovery-actions.js';
-import { t } from './i18n.js';
+import { t,tp } from './i18n.js';
 import { focusPanel } from './form-ui.js';
 export function renderRecovery(container,issues,key,{signal,onClose,onCreate,onDiscard}) {
   container.replaceChildren();
@@ -45,7 +45,7 @@ export function renderRecovery(container,issues,key,{signal,onClose,onCreate,onD
   });
   exportButton.addEventListener('click',async()=>{
     if(busy||!active||signal.aborted)return;busy=true;invalidate();void refresh();
-    try{receipt=await exportForDiscard(active.record,{key,signal});if(!signal.aborted)status.textContent=t('recovery.exported',{count:receipt.unreadableCount});}
+    try{receipt=await exportForDiscard(active.record,{key,signal});if(!signal.aborted)status.textContent=tp('recovery.exported',receipt.unreadableCount);}
     catch(error){if(!signal.aborted)status.textContent=t(error.code==='recovery.changed'?'recovery.changed':'recovery.failed');}
     finally{busy=false;if(!signal.aborted)void refresh();else invalidate();}
   });

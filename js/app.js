@@ -484,9 +484,10 @@ function renderCurrentView() {
 
   if (unreadableCount) {
     const warning = document.createElement('div');
-    warning.className = 'unreadable-warning';
+    warning.className = 'unreadable-warning notice notice-warning';
     warning.setAttribute('role', 'alert');
-    warning.textContent = t('notes.unreadable', { count: unreadableCount });
+    const icon=document.createElement('span');icon.className='notice-icon';icon.setAttribute('aria-hidden','true');icon.textContent='⚠';
+    const message=document.createElement('p');message.textContent=tp('notes.unreadable',unreadableCount);warning.append(icon,message);
     const recover=document.createElement('button');recover.id='recover-notes-btn';recover.className='btn-secondary';recover.textContent=t('recovery.open');
     recover.addEventListener('click',async()=>{
       if(!await closeModal())return;
