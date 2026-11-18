@@ -1,6 +1,10 @@
-export const editorFields = note => note.type === 'todo' ? ['title', 'tasks'] : ['title', 'content'];
+export function editorFields(note) {
+  if (note.type === 'todo') return ['title', 'tasks'];
+  if (note.type === 'vault') return ['title', 'blocks'];
+  return ['title', 'content'];
+}
 export function metadataFields(note) {
-  const owned = new Set(['title', 'content', 'tasks']);
+  const owned = new Set(['title', 'content', 'tasks', 'blocks']);
   return Object.fromEntries(Object.entries(note).filter(([name]) => !owned.has(name)));
 }
 export function createNoteWriteQueue({enqueue, read, version, session, persist, publish}) {

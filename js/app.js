@@ -1,10 +1,14 @@
+import {newVaultItem, renderVaultEditor} from './vault-editor.js';
+import {createSecretUI} from './secret-ui.js';
+import {focusPanel} from './form-ui.js';
+import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
 import {confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
-import { ensureVaultId, getMeta } from './db.js';
+import { ensureVaultId, getMeta, saveMeta } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
@@ -37,9 +41,13 @@ let newDraft={title:'',content:'',expanded:false};
 let barSaving=null;
 const newTodoIds=new Set();
 let searchText='';
+let vaultSearch='';
 let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
+let vaultLayout = 'grid';
+let vaultLabel = null;
+let vaultClipboardWarningDismissed = false;
 let sidebarCollapsed = false;
 let unreadableCount = 0;
 let unreadableRecords=[];
@@ -47,6 +55,7 @@ let notes = []; // Decrypted notes in memory
 
 // DOM references
 const appContainer = document.getElementById('app-container');
+const secretUI = createSecretUI({notify: showToast});
 
 // --- Bootstrap ---
 
@@ -71,6 +80,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
+  secretUI.dispose();
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
@@ -78,7 +88,7 @@ function teardownSession() {
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
-  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';
+  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';vaultLabel=null;
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
 function showAuth(message='') {
@@ -115,7 +125,10 @@ async function showApp({reload=true}={}) {
   await purgeExpiredTrash();
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
+  const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
   if(generation!==sessionGeneration)return;
+  vaultLayout = layout === 'list' ? 'list' : 'grid';
+  vaultClipboardWarningDismissed = warningDismissed === true;
   renderCurrentView();
   await requestPersistence();
 }
@@ -134,7 +147,7 @@ function renderAppShell() {
         <div class="header-search">
           <div class="search-container">
             <span class="search-icon">${icons.search}</span>
-            <input type="text" placeholder="${t('header.search')}" id="search-input" aria-label="${t('header.search')}" autocomplete="off" spellcheck="false" autocapitalize="off">
+            <input type="text" placeholder="${t('header.search')}" id="search-input" translate="no" autocorrect="off" aria-label="${t('header.search')}" autocomplete="off" spellcheck="false" autocapitalize="off">
             <button class="icon-btn search-clear" id="search-clear" aria-label="${t('header.clearSearch')}" data-tooltip="${t('header.clearSearch')}">
               ${icons.close}
             </button>
@@ -172,6 +185,10 @@ function renderAppShell() {
             <span class="sidebar-item-text">${t('sidebar.editLabels')}</span>
           </div>
           <div class="sidebar-divider"></div>
+          <button type="button" class="sidebar-item ${currentView==='vault'?'active':''}" data-view="vault">
+            <span class="sidebar-icon">${icons.vault_key}</span>
+            <span class="sidebar-item-text">${t('vault.section')}</span>
+          </button>
           <div class="sidebar-item ${currentView==='archive'?'active':''}" data-view="archive">
             <span class="sidebar-icon">${icons.archive}</span>
             <span class="sidebar-item-text">${t('sidebar.archive')}</span>
@@ -204,7 +221,7 @@ function renderAppShell() {
     </div>
   `;
 
-  document.getElementById('search-input').value=searchText;
+  document.getElementById('search-input').value=currentView==='vault'?'':searchText;
   initAppListeners();
 }
 
@@ -262,7 +279,12 @@ function initAppListeners() {
   // Sidebar navigation
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
     item.addEventListener('click', async () => {
-      currentView = item.dataset.view;
+      const view = item.dataset.view;
+      if (currentView !== view && (currentView === 'vault' || view === 'vault')) {
+        clearTimeout(searchTimeout);
+        resetVaultSearch();
+      }
+      currentView = view;
       if(currentView==='trash')await purgeExpiredTrash();
       currentLabel = null;
       updateSidebarActive(item);
@@ -276,16 +298,24 @@ function initAppListeners() {
   const searchClear = document.getElementById('search-clear');
   let searchTimeout;
 
+  searchClear.classList.toggle('visible', !!(currentView === 'vault' ? vaultSearch : searchText));
   searchInput.addEventListener('input', () => {
-    searchText=searchInput.value;
+    const inVault = currentView === 'vault';
+    if (inVault) vaultSearch = searchInput.value.trim();
+    else searchText = searchInput.value;
     clearTimeout(searchTimeout);
     searchClear.classList.toggle('visible', searchInput.value.length > 0);
-    searchTimeout = scope.later(() => renderCurrentView(), 300);
+    searchTimeout = scope.later(() => {
+      if (inVault) searchInput.value = '';
+      renderCurrentView();
+    }, 300);
   });
-
+  searchInput.addEventListener('blur', () => {
+    if (currentView === 'vault') searchInput.value = '';
+  });
   searchClear.addEventListener('click', () => {
-    searchInput.value = '';searchText='';
-    searchClear.classList.remove('visible');
+    clearTimeout(searchTimeout);
+    resetVaultSearch();
     renderCurrentView();
   });
 
@@ -319,6 +349,13 @@ function initAppListeners() {
       }
     }
   }, 'escape');
+}
+
+function resetVaultSearch() {
+  vaultSearch = '';
+  searchText = '';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-clear').classList.remove('visible');
 }
 
 function closeMobileSidebar() {
@@ -389,7 +426,7 @@ async function saveFromUI(note,{mergeDraft=true,context='editor',change=null}={}
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict'&&context==='action'&&error.origin==='local'){showToast(t('note.actionLocalConflict'));return false;}
-    if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t('note.saveAsNew'),async()=>{
+    if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t(note.type==='vault'?'vault.saveAsNew':'note.saveAsNew'),async()=>{
       if(generation!==sessionGeneration)return;
       const edit=activeEdit?.id===note.id?activeEdit:null;
       const source=edit?(edit.captureDraft?.()||edit.capture()):structuredClone(note),captured=JSON.stringify(source);
@@ -473,6 +510,16 @@ function renderCurrentView() {
     case 'notes':
       renderNotesView(searchQuery);
       break;
+    case 'vault':
+      renderVaultSection(document.getElementById('main-inner'), {
+        items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
+        query: vaultSearch,
+        selectedLabel: vaultLabel, onLabel: label => { vaultLabel=label; renderCurrentView(); },
+        layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
+        onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
+        onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
+      });
+      break;
     case 'archive':
       renderArchiveView(searchQuery);
       break;
@@ -500,7 +547,7 @@ function renderCurrentView() {
       if(controller.signal.aborted||!cryptoKey)return;
       renderCurrentView();
       if(!unreadableRecords.length){await closeModal();return;}
-      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
+      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,secretUI,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
       document.getElementById('modal-overlay').classList.add('open');
     });
     warning.append(recover);document.getElementById('main-inner').prepend(warning);
@@ -508,9 +555,50 @@ function renderCurrentView() {
   updateSidebarLabels();
 }
 
+const vaultCardActions = {
+  open: openNoteModal,
+  async change(item, intent) {
+    if (await changeFromUI(item, intent)) renderCurrentView();
+  },
+  async remove(item) {
+    if (await showConfirm(t('confirm.deletePermanently'), {danger:true}) && await deleteFromUI(item.id)) {
+      renderCurrentView();
+      showToast(t('toast.noteDeletedForever'));
+    }
+  },
+};
+
+async function dismissVaultClipboardWarning() {
+  const signal = scope.signal;
+  try {
+    await saveMeta('vaultClipboardWarningDismissed', true);
+    if (signal.aborted) return;
+    vaultClipboardWarningDismissed = true;
+    if (currentView === 'vault') renderCurrentView();
+  } catch {
+    if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
+}
+
+async function setVaultLayout(layout) {
+  const signal = scope.signal;
+  try {
+    await saveMeta('vaultLayout', layout);
+    if (signal.aborted) return;
+    vaultLayout = layout;
+    if (currentView === 'vault') {
+      renderCurrentView();
+      document.querySelector(`[data-vault-layout="${layout}"]`)?.focus();
+    }
+  } catch {
+    if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
+}
+
 function filterNotes(notesList, searchQuery) {
-  if (!searchQuery) return notesList;
-  return notesList.filter(n => {
+  const visibleNotes = notesList.filter(note => note.type !== 'vault');
+  if (!searchQuery) return visibleNotes;
+  return visibleNotes.filter(n => {
     const titleMatch = n.title?.toLowerCase().includes(searchQuery);
     const contentMatch = n.type === 'text' && n.content?.toLowerCase().includes(searchQuery);
     const taskMatch = n.type === 'todo' && n.tasks?.some(t => t.text?.toLowerCase().includes(searchQuery));
@@ -579,6 +667,7 @@ function renderTrashView(searchQuery) {
   const filtered = filterNotes(trashed, searchQuery);
 
   const valid=filtered;
+  const vaultItems = trashed.filter(note => note.type === 'vault' && note.title.toLowerCase().includes(searchQuery));
 
   const mainInner = document.getElementById('main-inner');
   let html = '';
@@ -590,7 +679,7 @@ function renderTrashView(searchQuery) {
     </div>`;
   }
 
-  if (valid.length === 0) {
+  if (valid.length === 0 && vaultItems.length === 0) {
     html += `<div class="empty-state">
       <div class="empty-icon">${icons.delete_icon}</div>
       <div class="empty-text">${t('trash.empty')}</div>
@@ -600,6 +689,8 @@ function renderTrashView(searchQuery) {
   }
 
   mainInner.innerHTML = html;
+  const grid = mainInner.querySelector('.notes-grid');
+  for (const item of vaultItems) grid.append(renderVaultCard(item, {...vaultCardActions, trash:true}));
   initCardListeners();
 
   document.getElementById('empty-trash-btn')?.addEventListener('click', async () => {
@@ -865,14 +956,48 @@ async function createNewNote(type, title = '', content = '', render=true) {
 // --- Note Modal ---
 
 async function openNoteModal(note) {
-  if (activeEdit && !await closeModal()) return;
+  if ((activeEdit || modalController) && !await closeModal()) return;
   note=structuredClone(note);
-  if (note.type === 'text') {
+  if (note.type === 'vault') {
+    showVaultModal(note);
+  } else if (note.type === 'text') {
     openTextModal(note);
   } else {
     openTodoModal(note);
   }
   return note;
+}
+
+function showVaultModal(item, {editor = false, isNew = false} = {}) {
+  const modal = document.getElementById('modal-card');
+  const controller = new AbortController();
+  modalController = controller;
+  const signal = controller.signal;
+  const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`) || document.getElementById('vault-new-item');
+  if (editor) {
+    activeEdit = renderVaultEditor(modal, item, {
+      signal, isNew, onClose: closeModal,
+      onSave: draft => saveFromUI(draft, {mergeDraft:false}),
+      onDirty: dirty => setDraftDirty('editor',dirty),
+      onPin: draft => changeFromUI(draft, next => { next.pinned = !next.pinned; }),
+    });
+  } else {
+    renderVaultDetail(modal, item, {
+      onClose: closeModal, controls: secretUI, signal,
+      onEdit: () => openVaultEditor(item),
+    });
+  }
+  focusPanel(modal, {
+    signal, trigger,
+    titleId: editor ? 'vault-editor-title' : 'vault-detail-title',
+    initial: editor ? '[data-vault-title]' : '#modal-close',
+  });
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function openVaultEditor(item, isNew = false) {
+  if (!await closeModal() || !cryptoKey) return;
+  showVaultModal(item, {editor:true, isNew});
 }
 
 function openTextModal(note) {
@@ -1448,6 +1573,7 @@ function initTodoModalListeners(note) {
 
 async function closeModal() {
   const edit=activeEdit;
+  edit?.mask?.();
   if(edit && !await edit.flush())return false;
   try{if(edit)await enqueueWrite.drain(edit.id);}catch{return false;}
   if(edit!==activeEdit)return false;
@@ -1588,6 +1714,7 @@ function openLabelsPickerModal(note) {
 function getAllLabels() {
   const labelSet = new Set();
   notes.forEach(n => {
+    if (n.type === 'vault') return;
     (n.labels || []).forEach(l => labelSet.add(l));
   });
   return Array.from(labelSet).sort();
@@ -1607,6 +1734,7 @@ function updateSidebarLabels() {
 
   container.querySelectorAll('.sidebar-item[data-label]').forEach(item => {
     item.addEventListener('click', () => {
+      if (currentView === 'vault') resetVaultSearch();
       currentView = 'label';
       currentLabel = item.dataset.label;
       updateSidebarActive(item);
@@ -1659,7 +1787,7 @@ function openLabelsManager() {
       const oldName = input.dataset.old;
       const newName = input.value.trim();
       if (newName && newName !== oldName) {
-        if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(oldName)),next=>{next.labels=[...new Set(next.labels.map(l=>l===oldName?newName:l))];})){input.value=oldName;return false;}
+        if(!await changeManyFromUI(notes.filter(n=>n.type!=='vault'&&n.labels?.includes(oldName)),next=>{next.labels=[...new Set(next.labels.map(l=>l===oldName?newName:l))];})){input.value=oldName;return false;}
         row.querySelector('.label-delete-btn').dataset.label=newName;
         if(currentLabel===oldName)currentLabel=newName;
         input.dataset.old = newName;
@@ -1674,7 +1802,7 @@ function openLabelsManager() {
     btn.addEventListener('click', async () => {
       if(await btn.closest('.label-row')._renaming===false)return;
       const label = btn.dataset.label;
-      if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(label)),next=>{next.labels=next.labels.filter(l=>l!==label);} ))return false;
+      if(!await changeManyFromUI(notes.filter(n=>n.type!=='vault'&&n.labels?.includes(label)),next=>{next.labels=next.labels.filter(l=>l!==label);} ))return false;
       btn.closest('.label-row').remove();
       updateSidebarLabels();
     });
