@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {validateNote,MAX_NOTE_BYTES} from '../../js/note-model.js';
+const note=()=>({id:crypto.randomUUID(),type:'text',title:'fictitious',content:'á 🚀',color:'default',pinned:false,labels:[],createdAt:1,updatedAt:1,deletedAt:null,archivedAt:null,order:0});
+test('note model rejects hostile attributes, invalid ids, tasks and oversized content',()=>{assert.equal(validateNote(note()).type,'text');for(const patch of [{color:'"><img src=x onerror=alert(1)>'},{id:'bad'},{id:[crypto.randomUUID()]},{labels:[{}]},{type:'vault'},{content:'a'.repeat(MAX_NOTE_BYTES)}])assert.throws(()=>validateNote({...note(),...patch}));assert.throws(()=>validateNote({...note(),type:'todo',tasks:[{id:'bad'}]}));});

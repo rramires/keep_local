@@ -1,44 +1,34 @@
 // auth.js — Password creation/validation, session management
 
-import { generateSalt, deriveKey, hashPassword, exportKey, importKey, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse } from './db.js';
+import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
+import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 
-const SESSION_KEY = 'keeplocal_session_key';
-const SESSION_TS_KEY = 'keeplocal_session_ts';
-const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-
-let sessionTimer = null;
-let onSessionExpired = null;
+import { storeSessionKey } from './session.js';
+export { storeSessionKey, getSessionKey, refreshSession, clearSession, logout, startSessionTimer, stopSessionTimer } from './session.js';
 
 // --- Password Validation ---
 
-export function validatePassword(pw) {
-  const errors = [];
-  const checks = {
-    minLength: pw.length >= 8,
-    hasUppercase: /[A-Z]/.test(pw),
-    hasSpecial: /[^a-zA-Z0-9]/.test(pw),
-  };
-
-  if (!checks.minLength) errors.push(t('validation.minLength'));
-  if (!checks.hasUppercase) errors.push(t('validation.hasUppercase'));
-  if (!checks.hasSpecial) errors.push(t('validation.hasSpecial'));
-
-  return { valid: errors.length === 0, errors, checks };
-}
+export { validatePassword } from './password-policy.js';
+import { validatePassword } from './password-policy.js';
 
 // --- Account Creation ---
 
 export async function createAccount(password) {
+  const policy=validatePassword(password);if(!policy.valid)throw new Error(policy.errors.join(' ' ));
   const salt = generateSalt();
-  const key = await deriveKey(password, salt, true);
-  const pwHash = await hashPassword(password, salt);
+  const key = await deriveKey(password, salt, false);
+  const keyCheck = await createKeyCheck(key);
 
-  await saveMeta('salt', arrayToBase64(salt));
-  await saveMeta('passwordVerifier', pwHash);
+  const vaultId=crypto.randomUUID();
+  try {
+    await createVault({ salt: arrayToBase64(salt), keyCheck,vaultId,dirtySinceBackup:true });
+  } catch (error) {
+    if (error.code === 'account.exists') throw new Error(t('account.exists'));
+    throw error;
+  }
 
-  await storeSessionKey(key);
+  await storeSessionKey(key,vaultId);
   return key;
 }
 
@@ -49,92 +39,19 @@ export async function login(password) {
   if (!saltB64) throw new Error(t('login.noAccount'));
 
   const salt = base64ToArray(saltB64);
-  const key = await deriveKey(password, salt, true);
-  const pwHash = await hashPassword(password, salt);
-  const storedHash = await getMeta('passwordVerifier');
-
-  if (pwHash !== storedHash) {
-    throw new Error(t('login.wrongPassword'));
+  const key = await deriveKey(password, salt, false);
+  const check = await getMeta('keyCheck');
+  if (check) {
+    if (!await verifyKeyCheck(key, check)) throw new Error(t('login.wrongPassword'));
+  } else {
+    const storedHash = await getMeta('passwordVerifier');
+    if (!storedHash || await hashPassword(password, salt) !== storedHash) throw new Error(t('login.wrongPassword'));
+    await migrateKeyCheck(saltB64, await createKeyCheck(key));
   }
 
-  await storeSessionKey(key);
+  const vaultId=await ensureVaultId(saltB64);
+  await storeSessionKey(key,vaultId);
   return key;
-}
-
-// --- Session Management ---
-
-async function storeSessionKey(key) {
-  const exported = await exportKey(key);
-  sessionStorage.setItem(SESSION_KEY, exported);
-  sessionStorage.setItem(SESSION_TS_KEY, Date.now().toString());
-}
-
-export async function getSessionKey() {
-  const exported = sessionStorage.getItem(SESSION_KEY);
-  const ts = sessionStorage.getItem(SESSION_TS_KEY);
-
-  if (!exported || !ts) return null;
-
-  const elapsed = Date.now() - parseInt(ts, 10);
-  if (elapsed > SESSION_TIMEOUT) {
-    clearSession();
-    return null;
-  }
-
-  try {
-    return await importKey(exported);
-  } catch {
-    clearSession();
-    return null;
-  }
-}
-
-export function refreshSession() {
-  if (sessionStorage.getItem(SESSION_KEY)) {
-    sessionStorage.setItem(SESSION_TS_KEY, Date.now().toString());
-  }
-}
-
-export function clearSession() {
-  sessionStorage.removeItem(SESSION_KEY);
-  sessionStorage.removeItem(SESSION_TS_KEY);
-}
-
-export function logout() {
-  clearSession();
-  if (onSessionExpired) onSessionExpired();
-}
-
-export function startSessionTimer(onExpire) {
-  onSessionExpired = onExpire;
-  resetSessionTimer();
-
-  const events = ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'];
-  events.forEach(evt => {
-    document.addEventListener(evt, handleActivity, { passive: true });
-  });
-}
-
-export function stopSessionTimer() {
-  clearTimeout(sessionTimer);
-  const events = ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'];
-  events.forEach(evt => {
-    document.removeEventListener(evt, handleActivity);
-  });
-}
-
-function handleActivity() {
-  refreshSession();
-  resetSessionTimer();
-}
-
-function resetSessionTimer() {
-  clearTimeout(sessionTimer);
-  sessionTimer = setTimeout(() => {
-    clearSession();
-    stopSessionTimer();
-    if (onSessionExpired) onSessionExpired();
-  }, SESSION_TIMEOUT);
 }
 
 // --- Auth UI Rendering ---
@@ -169,10 +86,11 @@ export function renderAuthView(container, { onAuthenticated }) {
             <div class="password-rules" id="password-rules">
               <ul>
                 <li id="rule-length">${t('auth.minLength')}</li>
-                <li id="rule-upper">${t('auth.hasUppercase')}</li>
-                <li id="rule-special">${t('auth.hasSpecial')}</li>
+                <li id="rule-common">${t('validation.common')}</li>
               </ul>
             </div>
+            <p id="password-strength" role="status"></p>
+            <p>${t('auth.passphraseHint')}</p>
             <div class="form-error" id="create-error"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary" id="create-btn" disabled>${t('auth.createAccount')}</button>
@@ -192,6 +110,7 @@ export function renderAuthView(container, { onAuthenticated }) {
             <div class="form-actions">
               <button type="submit" class="btn-primary">${t('auth.login')}</button>
             </div>
+            <button type="button" class="btn-secondary" id="reset-vault">${t('account.reset')}</button>
           </form>
 
           <!-- Import Tab -->
@@ -200,7 +119,7 @@ export function renderAuthView(container, { onAuthenticated }) {
               <div class="import-icon">📁</div>
               <div class="import-text">${t('import.dropzoneText')}</div>
               <div class="import-filename hidden" id="import-filename"></div>
-              <input type="file" id="import-file" accept=".json,.keeplocal.json" style="display:none">
+              <input type="file" id="import-file" accept=".keeplocal,.json,.keeplocal.json" style="display:none">
             </div>
             <div class="form-group">
               <label for="import-password">${t('import.backupPassword')}</label>
@@ -228,6 +147,7 @@ async function checkExistingAccount(container) {
   const loginTab = container.querySelector('[data-tab="login"]');
 
   if (hasAccount) {
+    container.querySelector('[data-tab="create"]').style.display = 'none';
     // Show login tab by default if account exists
     switchTab(container, 'login');
   } else {
@@ -257,13 +177,14 @@ function initAuthListeners(container, onAuthenticated) {
 
   function updateCreateValidation() {
     const pw = createPw.value;
-    const { checks } = validatePassword(pw);
+    const { checks,valid,strength,reason } = validatePassword(pw);
 
     container.querySelector('#rule-length').classList.toggle('valid', checks.minLength);
-    container.querySelector('#rule-upper').classList.toggle('valid', checks.hasUppercase);
-    container.querySelector('#rule-special').classList.toggle('valid', checks.hasSpecial);
+    container.querySelector('#rule-common').classList.toggle('valid',checks.notCommon);
+    container.querySelector('#rule-common').textContent=t('validation.'+(reason||'common'));
+    container.querySelector('#password-strength').textContent=t('password.strength.'+strength);
 
-    const allValid = checks.minLength && checks.hasUppercase && checks.hasSpecial;
+    const allValid = valid;
     const matches = pw === createConfirm.value && createConfirm.value.length > 0;
     createBtn.disabled = !(allValid && matches);
 
@@ -286,7 +207,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await createAccount(createPw.value);
       onAuthenticated(key);
     } catch (err) {
-      createError.textContent = err.message;
+      createError.textContent = t(typeof err.code==='string'?err.code:err.message);
       createBtn.disabled = false;
     }
   });
@@ -302,8 +223,14 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await login(loginPw.value);
       onAuthenticated(key);
     } catch (err) {
-      loginError.textContent = err.message;
+      loginError.textContent = t(typeof err.code==='string'?err.code:err.message);
     }
+  });
+
+  container.querySelector('#reset-vault').addEventListener('click',async()=>{
+    const {resetVault}=await import('./account.js');
+    const confirmation=window.prompt(t('account.resetPrompt'));
+    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
   });
 
   // --- Import ---
@@ -360,7 +287,7 @@ function initAuthListeners(container, onAuthenticated) {
       const key = await importBackup(selectedFile, importPw.value);
       onAuthenticated(key);
     } catch (err) {
-      importError.textContent = err.message || t('import.importError');
+      importError.textContent = t(typeof err.code==='string'?err.code:err.message||'import.importError');
       importBtn.disabled = false;
     }
   });

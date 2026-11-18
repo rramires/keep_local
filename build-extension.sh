@@ -4,7 +4,7 @@
 # ============================================================
 set -euo pipefail
 
-VERSION="1.0.1"
+VERSION="$(python3 -c 'import json; print(json.load(open("chrome-extension/manifest.json"))["version"])')"
 EXT_DIR="chrome-extension"
 DIST_DIR="dist"
 ZIP_NAME="keep_local_extension_v${VERSION}.zip"
@@ -64,7 +64,7 @@ rm -f "$DIST_DIR/$ZIP_NAME"
 echo ""
 echo "📦 Criando pacote ZIP..."
 cd "$EXT_DIR"
-zip -r -q "../$DIST_DIR/$ZIP_NAME" . -x ".*"
+zip -r -q "../$DIST_DIR/$ZIP_NAME" . -x ".*" "lib/VENDOR.md" "lib/SHA256SUMS"
 cd ..
 
 echo ""
@@ -79,5 +79,5 @@ echo ""
 SIZE=$(du -h "$DIST_DIR/$ZIP_NAME" | cut -f1)
 echo "📊 Tamanho: $SIZE"
 echo ""
-echo "🚀 Pronto para upload na Chrome Web Store!"
+echo "📦 Pacote pronto para teste local e revisão."
 echo "   Ou teste localmente: chrome://extensions > Modo desenvolvedor > Carregar sem compactação > selecione a pasta '$EXT_DIR/'"

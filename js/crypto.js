@@ -8,7 +8,8 @@ export function generateSalt() {
   return crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
 }
 
-export async function deriveKey(password, salt, extractable = true) {
+export async function deriveKey(password, salt, extractable = false, iterations = PBKDF2_ITERATIONS) {
+  if(!Number.isSafeInteger(iterations)||iterations<600000||iterations>5000000)throw new Error('backup.profile');
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -18,7 +19,7 @@ export async function deriveKey(password, salt, extractable = true) {
     ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     extractable,
@@ -26,21 +27,20 @@ export async function deriveKey(password, salt, extractable = true) {
   );
 }
 
-export async function encrypt(key, plaintext) {
+export async function encrypt(key, plaintext, additionalData, iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH))) {
   const enc = new TextEncoder();
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv, ...(additionalData?{additionalData}:{}) },
     key,
     enc.encode(plaintext)
   );
   return { iv, ciphertext };
 }
 
-export async function decrypt(key, iv, ciphertext) {
+export async function decrypt(key, iv, ciphertext, additionalData) {
   const dec = new TextDecoder();
   const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: 'AES-GCM', iv, ...(additionalData?{additionalData}:{}) },
     key,
     ciphertext
   );
@@ -54,24 +54,10 @@ export async function hashPassword(password, salt) {
   return arrayToBase64(new Uint8Array(hashBuffer));
 }
 
-export async function exportKey(key) {
-  const jwk = await crypto.subtle.exportKey('jwk', key);
-  return JSON.stringify(jwk);
-}
-
-export async function importKey(jwkString) {
-  const jwk = JSON.parse(jwkString);
-  return crypto.subtle.importKey(
-    'jwk',
-    jwk,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
-}
-
 export function arrayToBase64(arr) {
-  return btoa(String.fromCharCode(...arr));
+  let binary = '';
+  for (let i=0;i<arr.length;i+=8192) binary+=String.fromCharCode(...arr.subarray(i,i+8192));
+  return btoa(binary);
 }
 
 export function base64ToArray(b64) {
@@ -87,4 +73,14 @@ export function arrayBufferToBase64(buffer) {
 
 export function base64ToArrayBuffer(b64) {
   return base64ToArray(b64).buffer;
+}
+
+const KEY_CHECK_TEXT = 'KeepLocal password key check v1';
+export async function createKeyCheck(key) {
+  const { iv, ciphertext } = await encrypt(key, KEY_CHECK_TEXT);
+  return { iv: arrayToBase64(iv), ct: arrayBufferToBase64(ciphertext) };
+}
+export async function verifyKeyCheck(key, check) {
+  try { return await decrypt(key, base64ToArray(check.iv), base64ToArray(check.ct)) === KEY_CHECK_TEXT; }
+  catch { return false; }
 }

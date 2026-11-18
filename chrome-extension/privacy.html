@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="icons/icon-16.png">
   <title>KeepLocal — Privacy Policy / Política de Privacidade</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -93,17 +94,17 @@
 <body>
   <div class="container">
     <h1>📝 KeepLocal</h1>
-    <p class="subtitle">Last updated: March 2026 · Última atualização: Março 2026</p>
+    <p class="subtitle">Last updated: November 2026 · Última atualização: Novembro 2026</p>
 
     <div class="lang-switch">
-      <button class="lang-btn active" onclick="switchLang('en')">🇺🇸 English</button>
-      <button class="lang-btn" onclick="switchLang('pt')">🇧🇷 Português</button>
+      <button class="lang-btn active" data-lang="en">🇺🇸 English</button>
+      <button class="lang-btn" data-lang="pt">🇧🇷 Português</button>
     </div>
 
     <!-- English -->
     <div id="lang-en" class="lang-content active">
       <div class="highlight">
-        <strong>Summary:</strong> KeepLocal does not collect, transmit, or store any data outside your browser. All your data is encrypted locally and never leaves your device.
+        <strong>Summary:</strong> KeepLocal stores encrypted notes locally and sends no telemetry. You can explicitly export an encrypted backup or open an external link; the browser or your chosen sync service controls what happens to that file.
       </div>
 
       <h2>1. Data Collection</h2>
@@ -112,31 +113,32 @@
         <li>No information is sent to external servers</li>
         <li>No analytics or tracking is used</li>
         <li>No cookies are created</li>
-        <li>No network requests are made by the extension</li>
+        <li>The notes app makes no remote requests; external links open only on your action</li>
       </ul>
 
       <h2>2. Local Storage</h2>
-      <p>All data is stored exclusively in your browser's <strong>IndexedDB</strong>, on your device. Data includes:</p>
+      <p>Working vault data is stored in your browser's <strong>IndexedDB</strong>, on your device. Data includes:</p>
       <ul>
         <li>Notes and tasks (encrypted)</li>
         <li>Theme preference (dark/light)</li>
-        <li>Cryptographic salt and password verifier</li>
+        <li>Cryptographic salt, encrypted key check, language, vault identity and backup metadata</li>
       </ul>
 
       <h2>3. Encryption</h2>
       <p>All note and task data is encrypted using:</p>
       <ul>
-        <li><strong>AES-256-GCM</strong> — military-grade symmetric encryption</li>
+        <li><strong>AES-256-GCM</strong> — authenticated symmetric encryption</li>
         <li><strong>PBKDF2</strong> with 600,000 iterations and SHA-256 for key derivation</li>
         <li><strong>Random 12-byte IV</strong> generated for each encryption operation</li>
         <li><strong>Web Crypto API</strong> native to the browser (no external cryptography libraries)</li>
       </ul>
 
       <h2>4. Password</h2>
-      <p>Your password is never stored in plain text. Only a PBKDF2-derived hash is saved for verification. <strong>There is no password recovery</strong> — if you forget your password, your data cannot be recovered.</p>
+      <p>Your password is never stored. An encrypted known block verifies the derived key; the legacy fast verifier is removed atomically on login. The nonextractable session key stays only in memory. Reloading requires your password; inactivity locks after five minutes. New passwords require at least fourteen characters without composition rules. <strong>There is no password recovery</strong> — if you forget your password, your data cannot be recovered.</p>
 
+      <p>Backups use an authenticated binary v2 envelope with an encrypted manifest, revision and parent hash. Export starts a download; KeepLocal cannot confirm the file was saved and does not synchronize it to Mega. Legacy v1 imports are validated before atomic replacement. Local preferences and metadata remain unencrypted in IndexedDB.</p>
       <h2>5. Permissions</h2>
-      <p>KeepLocal <strong>does not request any permissions</strong> from Chrome. It works entirely with standard browser APIs (IndexedDB, Web Crypto API, sessionStorage).</p>
+      <p>KeepLocal <strong>does not request any permissions</strong> from Chrome. It works entirely with standard browser APIs (IndexedDB, Web Crypto API, BroadcastChannel).</p>
 
       <h2>6. Open Source</h2>
       <p>The complete source code is available at <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> under the MIT license. Anyone can audit the code to verify these privacy practices.</p>
@@ -148,7 +150,7 @@
     <!-- Português -->
     <div id="lang-pt" class="lang-content">
       <div class="highlight">
-        <strong>Resumo:</strong> O KeepLocal não coleta, transmite ou armazena nenhum dado fora do seu navegador. Todos os seus dados são criptografados localmente e nunca saem do seu dispositivo.
+        <strong>Resumo:</strong> O KeepLocal armazena notas cifradas localmente e não envia telemetria. Você pode exportar um backup cifrado ou abrir um link externo; o navegador ou seu serviço de sincronização controla o destino desse arquivo.
       </div>
 
       <h2>1. Coleta de Dados</h2>
@@ -157,31 +159,32 @@
         <li>Nenhuma informação é enviada para servidores externos</li>
         <li>Nenhum analytics ou rastreamento é utilizado</li>
         <li>Nenhum cookie é criado</li>
-        <li>Nenhuma requisição de rede é feita pela extensão</li>
+        <li>O app de notas não faz requisições remotas; links externos abrem por sua ação</li>
       </ul>
 
       <h2>2. Armazenamento Local</h2>
-      <p>Todos os dados são armazenados exclusivamente no <strong>IndexedDB</strong> do seu navegador, no seu dispositivo. Os dados incluem:</p>
+      <p>O cofre de trabalho é armazenado no <strong>IndexedDB</strong> do seu navegador, no seu dispositivo. Os dados incluem:</p>
       <ul>
         <li>Notas e tarefas (criptografadas)</li>
         <li>Preferência de tema (claro/escuro)</li>
-        <li>Salt criptográfico e verificador de senha</li>
+        <li>Salt criptográfico, bloco de verificação cifrado, idioma, identidade do cofre e metadados de backup</li>
       </ul>
 
       <h2>3. Criptografia</h2>
       <p>Todos os dados de notas e tarefas são criptografados usando:</p>
       <ul>
-        <li><strong>AES-256-GCM</strong> — criptografia simétrica de grau militar</li>
+        <li><strong>AES-256-GCM</strong> — criptografia simétrica autenticada</li>
         <li><strong>PBKDF2</strong> com 600.000 iterações e SHA-256 para derivação de chave</li>
         <li><strong>IV aleatório de 12 bytes</strong> gerado para cada operação de criptografia</li>
         <li><strong>Web Crypto API</strong> nativa do navegador (sem bibliotecas externas de criptografia)</li>
       </ul>
 
       <h2>4. Senha</h2>
-      <p>Sua senha nunca é armazenada em texto puro. Apenas um hash derivado via PBKDF2 é salvo para verificação. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
+      <p>Sua senha não é armazenada. Um bloco conhecido cifrado verifica a chave derivada; o verificador rápido legado é removido atomicamente ao entrar. A chave de sessão não exportável fica somente em memória. Recarregar exige senha; cinco minutos de inatividade bloqueiam a sessão. Senhas novas exigem quatorze caracteres, sem regras de composição. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
 
+      <p>Backups usam envelope binário v2 autenticado com manifesto, revisão e hash do pai cifrados. Exportar inicia um download; o KeepLocal não confirma a gravação nem sincroniza com o Mega. A importação legada v1 é validada antes da substituição atômica. Preferências e metadados locais permanecem sem cifra no IndexedDB.</p>
       <h2>5. Permissões</h2>
-      <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, sessionStorage).</p>
+      <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, BroadcastChannel).</p>
 
       <h2>6. Código Aberto</h2>
       <p>O código-fonte completo está disponível em <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> sob licença MIT. Qualquer pessoa pode auditar o código para verificar estas práticas de privacidade.</p>
@@ -196,16 +199,6 @@
     </div>
   </div>
 
-  <script>
-    function switchLang(lang) {
-      document.querySelectorAll('.lang-content').forEach(el => el.classList.remove('active'));
-      document.querySelectorAll('.lang-btn').forEach(el => el.classList.remove('active'));
-      document.getElementById('lang-' + lang).classList.add('active');
-      document.querySelector('[onclick="switchLang(\'' + lang + '\')"]').classList.add('active');
-      document.documentElement.lang = lang === 'pt' ? 'pt-BR' : 'en';
-    }
-    // Auto-detect language
-    if (navigator.language.startsWith('pt')) switchLang('pt');
-  </script>
+  <script src="privacy.js" defer></script>
 </body>
 </html>

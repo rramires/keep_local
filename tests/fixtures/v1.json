@@ -1,0 +1,217 @@
+{
+  "password": "Fictitious Vault Phrase 42!",
+  "notes": [
+    {
+      "id": "5db990ae-8f8a-454e-bec9-e860a58c99e2",
+      "type": "text",
+      "title": "V1 A",
+      "content": "Fictitious text á 🚀",
+      "color": "default",
+      "pinned": false,
+      "labels": [],
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "deletedAt": null,
+      "archivedAt": null,
+      "order": 0
+    },
+    {
+      "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+      "type": "text",
+      "title": "V1 B",
+      "content": "Fictitious text á 🚀",
+      "color": "default",
+      "pinned": false,
+      "labels": [],
+      "createdAt": 1700000000000,
+      "updatedAt": 1700000000000,
+      "deletedAt": null,
+      "archivedAt": null,
+      "order": 0
+    }
+  ],
+  "withNotes": {
+    "version": 1,
+    "exportedAt": "2026-11-17T18:44:15.435Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": [
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "lGUhQ/jHSwmfoaLM",
+        "ciphertext": "VPpg3/qcMPr8BbMheKDrZc57PoV5rwTL9yREcZarbw7RptD6rRoNe0NAD5P/Lx+b8T5R2cbHzrKa5irinKyrX8qnObnmlv15GE32rLJYQs+WEhAkdI/12wau3XT573rdCQ1C3gKS8APxCTPS8Gz2JIoAvmRn4dfJ8yoxz0ha7Jk0bSqzuwZ0+R5jJTSFkIsoQZZsraLRMAlZkDmcWR4lE1RVM+es8LFoViM3hKFg+y0GlZIS/7ZnqZjolVMuRCagcTwMZJndO6EECKzsL3F580Z8GNcTaArPd9kfG37/VPuXLyzgqzZlaUAcNTSpK/zFjXHdWl48QWwrk5SvLOLB555roOCasUZjR6ze+Q==",
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "5db990ae-8f8a-454e-bec9-e860a58c99e2",
+        "iv": "QRTbA8QhpFO9Bgvf",
+        "ciphertext": "l9IO15IZW/KajkM8MiTrvIFGfnKoMkR1E+pD5vsclnMWzKDCNthvhdj7WMz+twreoVjdBnYbCk930s7xzxYfvsqYMM//+Jyn2KV5rBvCDShrZfVkS0ZS2Wfv/PEfeAuHvOWVFSeLdQjxakrAOWt0d6fhqW7d+35pZwLqO0M5Fm5SgjKVTdcT8WMokbsEC8i30tcWxio5MCB8ljQV5GHstfRCW4HPABH2oF1x9kGdjsNXdSOguUVcQrSREMKrXT1ZeQrK5Y4YAtLmhlgjimvOY55IoiCdPhPxxhkhHD8NSLYHOcRjry3DnYkaZALKzo2NprqxySz1u2GZwHEDOLOcT0VqCv9RH6KgWvZhlQ==",
+        "updatedAt": 1700000000000
+      }
+    ]
+  },
+  "empty": {
+    "version": 1,
+    "exportedAt": "2026-11-17T18:44:15.437Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": []
+  },
+  "corruptSecond": {
+    "version": 1,
+    "exportedAt": "2026-11-17T18:44:15.435Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": [
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "lGUhQ/jHSwmfoaLM",
+        "ciphertext": "VPpg3/qcMPr8BbMheKDrZc57PoV5rwTL9yREcZarbw7RptD6rRoNe0NAD5P/Lx+b8T5R2cbHzrKa5irinKyrX8qnObnmlv15GE32rLJYQs+WEhAkdI/12wau3XT573rdCQ1C3gKS8APxCTPS8Gz2JIoAvmRn4dfJ8yoxz0ha7Jk0bSqzuwZ0+R5jJTSFkIsoQZZsraLRMAlZkDmcWR4lE1RVM+es8LFoViM3hKFg+y0GlZIS/7ZnqZjolVMuRCagcTwMZJndO6EECKzsL3F580Z8GNcTaArPd9kfG37/VPuXLyzgqzZlaUAcNTSpK/zFjXHdWl48QWwrk5SvLOLB555roOCasUZjR6ze+Q==",
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "5db990ae-8f8a-454e-bec9-e860a58c99e2",
+        "iv": "QRTbA8QhpFO9Bgvf",
+        "ciphertext": "AAAA",
+        "updatedAt": 1700000000000
+      }
+    ]
+  },
+  "missingId": {
+    "version": 1,
+    "exportedAt": "2026-11-17T18:44:15.435Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": [
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "lGUhQ/jHSwmfoaLM",
+        "ciphertext": "VPpg3/qcMPr8BbMheKDrZc57PoV5rwTL9yREcZarbw7RptD6rRoNe0NAD5P/Lx+b8T5R2cbHzrKa5irinKyrX8qnObnmlv15GE32rLJYQs+WEhAkdI/12wau3XT573rdCQ1C3gKS8APxCTPS8Gz2JIoAvmRn4dfJ8yoxz0ha7Jk0bSqzuwZ0+R5jJTSFkIsoQZZsraLRMAlZkDmcWR4lE1RVM+es8LFoViM3hKFg+y0GlZIS/7ZnqZjolVMuRCagcTwMZJndO6EECKzsL3F580Z8GNcTaArPd9kfG37/VPuXLyzgqzZlaUAcNTSpK/zFjXHdWl48QWwrk5SvLOLB555roOCasUZjR6ze+Q==",
+        "updatedAt": 1700000000000
+      },
+      {
+        "iv": "QRTbA8QhpFO9Bgvf",
+        "ciphertext": "l9IO15IZW/KajkM8MiTrvIFGfnKoMkR1E+pD5vsclnMWzKDCNthvhdj7WMz+twreoVjdBnYbCk930s7xzxYfvsqYMM//+Jyn2KV5rBvCDShrZfVkS0ZS2Wfv/PEfeAuHvOWVFSeLdQjxakrAOWt0d6fhqW7d+35pZwLqO0M5Fm5SgjKVTdcT8WMokbsEC8i30tcWxio5MCB8ljQV5GHstfRCW4HPABH2oF1x9kGdjsNXdSOguUVcQrSREMKrXT1ZeQrK5Y4YAtLmhlgjimvOY55IoiCdPhPxxhkhHD8NSLYHOcRjry3DnYkaZALKzo2NprqxySz1u2GZwHEDOLOcT0VqCv9RH6KgWvZhlQ==",
+        "updatedAt": 1700000000000
+      }
+    ]
+  },
+  "duplicateIds": {
+    "version": 1,
+    "exportedAt": "2026-11-17T18:44:15.435Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": [
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "lGUhQ/jHSwmfoaLM",
+        "ciphertext": "VPpg3/qcMPr8BbMheKDrZc57PoV5rwTL9yREcZarbw7RptD6rRoNe0NAD5P/Lx+b8T5R2cbHzrKa5irinKyrX8qnObnmlv15GE32rLJYQs+WEhAkdI/12wau3XT573rdCQ1C3gKS8APxCTPS8Gz2JIoAvmRn4dfJ8yoxz0ha7Jk0bSqzuwZ0+R5jJTSFkIsoQZZsraLRMAlZkDmcWR4lE1RVM+es8LFoViM3hKFg+y0GlZIS/7ZnqZjolVMuRCagcTwMZJndO6EECKzsL3F580Z8GNcTaArPd9kfG37/VPuXLyzgqzZlaUAcNTSpK/zFjXHdWl48QWwrk5SvLOLB555roOCasUZjR6ze+Q==",
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "QRTbA8QhpFO9Bgvf",
+        "ciphertext": "l9IO15IZW/KajkM8MiTrvIFGfnKoMkR1E+pD5vsclnMWzKDCNthvhdj7WMz+twreoVjdBnYbCk930s7xzxYfvsqYMM//+Jyn2KV5rBvCDShrZfVkS0ZS2Wfv/PEfeAuHvOWVFSeLdQjxakrAOWt0d6fhqW7d+35pZwLqO0M5Fm5SgjKVTdcT8WMokbsEC8i30tcWxio5MCB8ljQV5GHstfRCW4HPABH2oF1x9kGdjsNXdSOguUVcQrSREMKrXT1ZeQrK5Y4YAtLmhlgjimvOY55IoiCdPhPxxhkhHD8NSLYHOcRjry3DnYkaZALKzo2NprqxySz1u2GZwHEDOLOcT0VqCv9RH6KgWvZhlQ==",
+        "updatedAt": 1700000000000
+      }
+    ]
+  },
+  "unknownVersion": {
+    "version": 999,
+    "exportedAt": "2026-11-17T18:44:15.435Z",
+    "app": "KeepLocal",
+    "meta": [
+      {
+        "key": "lang",
+        "value": "en"
+      },
+      {
+        "key": "passwordVerifier",
+        "value": "7Q3TYNtROWE9WZXUFJ1fwVzBmDGX4RXiZsW5uBsU0CU="
+      },
+      {
+        "key": "salt",
+        "value": "7DqGcejq1oXWLpAboAjglQ=="
+      }
+    ],
+    "notes": [
+      {
+        "id": "5b4b4977-76c4-4aa2-819a-52b570f77f5e",
+        "iv": "lGUhQ/jHSwmfoaLM",
+        "ciphertext": "VPpg3/qcMPr8BbMheKDrZc57PoV5rwTL9yREcZarbw7RptD6rRoNe0NAD5P/Lx+b8T5R2cbHzrKa5irinKyrX8qnObnmlv15GE32rLJYQs+WEhAkdI/12wau3XT573rdCQ1C3gKS8APxCTPS8Gz2JIoAvmRn4dfJ8yoxz0ha7Jk0bSqzuwZ0+R5jJTSFkIsoQZZsraLRMAlZkDmcWR4lE1RVM+es8LFoViM3hKFg+y0GlZIS/7ZnqZjolVMuRCagcTwMZJndO6EECKzsL3F580Z8GNcTaArPd9kfG37/VPuXLyzgqzZlaUAcNTSpK/zFjXHdWl48QWwrk5SvLOLB555roOCasUZjR6ze+Q==",
+        "updatedAt": 1700000000000
+      },
+      {
+        "id": "5db990ae-8f8a-454e-bec9-e860a58c99e2",
+        "iv": "QRTbA8QhpFO9Bgvf",
+        "ciphertext": "l9IO15IZW/KajkM8MiTrvIFGfnKoMkR1E+pD5vsclnMWzKDCNthvhdj7WMz+twreoVjdBnYbCk930s7xzxYfvsqYMM//+Jyn2KV5rBvCDShrZfVkS0ZS2Wfv/PEfeAuHvOWVFSeLdQjxakrAOWt0d6fhqW7d+35pZwLqO0M5Fm5SgjKVTdcT8WMokbsEC8i30tcWxio5MCB8ljQV5GHstfRCW4HPABH2oF1x9kGdjsNXdSOguUVcQrSREMKrXT1ZeQrK5Y4YAtLmhlgjimvOY55IoiCdPhPxxhkhHD8NSLYHOcRjry3DnYkaZALKzo2NprqxySz1u2GZwHEDOLOcT0VqCv9RH6KgWvZhlQ==",
+        "updatedAt": 1700000000000
+      }
+    ]
+  }
+}
