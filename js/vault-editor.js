@@ -57,7 +57,8 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
   const session = createEditSession({
     capture, onDirty,
     save: async snapshot => {
-      if (isNew && !snapshot.title.trim() && !snapshot.blocks.some(block => block.value)) return true;
+      if (isNew && !snapshot.title.trim() &&
+          !snapshot.blocks.some(block => block.value || block.label?.trim())) return true;
       const saved = await onSave(snapshot);
       if (saved && !signal.aborted) {
         isNew = false;

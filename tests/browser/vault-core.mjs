@@ -801,4 +801,33 @@ export async function run({browser,check,assert}) {
     } finally {dispose();await p.close();}
   });
 
+  await check('D1.3 a label alone saves a new item, while empty or whitespace-only items are discarded',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      const records=()=>p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length");
+      const createWithLabel=async label=>{
+        await p.eval("document.querySelector('#vault-new-item').click()");
+        await p.until("!!document.querySelector('.vault-editor')");
+        if(label!==null) await fillVaultInput(p,'[data-vault-label]',label);
+        await p.eval("document.querySelector('#modal-close').click()");
+        await p.until("!document.querySelector('.vault-editor')");
+      };
+      await createWithLabel(null);
+      await createWithLabel('   ');
+      assert.equal(await records(),0);
+      await createWithLabel('Host');
+      assert.equal(await records(),1);
+      await p.reload();
+      await unlock(p);
+      const item=await p.eval("(await import('./js/app.js')).getNotes().find(item=>item.type==='vault')");
+      assert.equal(item.title,'');
+      assert.equal(item.blocks.length,1);
+      assert.equal(item.blocks[0].label,'Host');
+      assert.equal(item.blocks[0].value,'');
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
 }
