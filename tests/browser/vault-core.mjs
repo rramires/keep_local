@@ -1,3 +1,4 @@
+import {backupFixture,importExpression} from './backup-fixture.mjs';
 import {create,add,unlock,note,PASSWORD} from './harness.mjs';
 
 export function vaultFixture(patch={}) {
@@ -463,6 +464,192 @@ export async function run({browser,check,assert}) {
       assert.equal(await p.eval("document.querySelector('.vault-card-title').textContent"),vaultWork.title);
       await p.eval("const label=document.querySelector('.vault-card [data-vault-label=Work]');label.closest('details').open=true;label.click()");
       await p.until("!(await import('./js/app.js')).getNotes().some(n=>n.type==='vault'&&n.labels.includes('Work'))");
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.12 distinct random sentinel strings stay out of all closed and masked surfaces',async()=>{
+    const p=await browser.page();
+    const alerts=[];
+    const listener=message=>{
+      if(['Runtime.consoleAPICalled','Runtime.exceptionThrown','Log.entryAdded'].includes(message.method)) {
+        alerts.push(JSON.stringify(message.params));
+      }
+    };
+    browser.cdp.listeners.push(listener);
+    try {
+      // Capture message arguments at every level, including structured console values.
+      await p.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
+        const entries=[];
+        Object.defineProperty(window,'vaultConsoleEntries',{value:entries});
+        for(const key of ['log','info','debug','warn','error','trace','dir','table','assert','group','groupCollapsed']) {
+          const original=console[key].bind(console);
+          console[key]=(...args)=>{
+            for(const value of args) {
+              try {entries.push(value instanceof Error?value.stack:JSON.stringify(value));}
+              catch {entries.push(String(value));}
+            }
+            original(...args);
+          };
+        }
+      })()`});
+      await p.reload();
+      const sentinel=()=> 'SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
+      const single=sentinel(), multi=sentinel();
+      const markers=[single,multi,single.slice(13,21),multi.slice(13,21)].map(text=>text.toLowerCase());
+      const item=vaultFixture({title:'Fictitious credentials for scan',labels:['Vault audit'],
+        blocks:[
+          {id:crypto.randomUUID(),kind:'field',label:'Password',value:single,secret:true},
+          {id:crypto.randomUUID(),kind:'field',label:'Private key',value:'FICTIONAL DATA\n'+multi+'\nEND FICTIONAL DATA',secret:true,multiline:true},
+          {id:crypto.randomUUID(),kind:'field',label:'Host',value:'example.invalid',secret:false},
+        ],
+      });
+      const scan=async(label,allowed=null)=>{
+        const readout=await p.eval(`(async()=>{
+          const markers=${JSON.stringify(markers)};
+          const allowed=${JSON.stringify(allowed)};
+          const element=allowed && document.querySelector(allowed.selector);
+          const clone=document.documentElement.cloneNode(true);
+          let innerText=document.documentElement.innerText;
+          if(element&&allowed.property==='textContent'){
+            clone.querySelector(allowed.selector).textContent='';
+            innerText=innerText.replace(element.textContent,'');
+          }
+          const inputs=[...document.querySelectorAll('input,textarea')].filter(input =>
+            !(element===input && allowed?.property==='value' && document.activeElement===input)
+          );
+          const attributes=[...document.querySelectorAll('*')].flatMap(node=>
+            [...node.attributes].filter(attr=>/^(title|aria-|data-|placeholder)/.test(attr.name)).map(attr=>attr.value)
+          );
+          const db=await import('./js/db.js');
+          const channels={
+            html:clone.outerHTML,
+            innerText,
+            inputs:inputs.map(input=>input.value),
+            attributes,
+            title:document.title,
+            toasts:[...document.querySelectorAll('.toast')].map(node=>node.textContent),
+            local:Object.entries(localStorage),
+            session:Object.entries(sessionStorage),
+            meta:await db.getAllMetaRecords(),
+            console:window.vaultConsoleEntries,
+          };
+          return Object.entries(channels).filter(([,value])=>{
+            const serialized=String(JSON.stringify(value)).toLowerCase();
+            return markers.some(marker=>serialized.includes(marker));
+          }).map(([name])=>name);
+        })()`);
+        const browserMessages=JSON.stringify([...alerts,...p.errors]).toLowerCase();
+        if(markers.some(marker=>browserMessages.includes(marker))) readout.push('CDP console');
+        assert.deepEqual(readout,[],label);
+      };
+      await create(p);
+      await save(p,item);
+      await p.eval("document.querySelector('[data-view=notes]').click()");
+      await scan('Notes');
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await scan('Vault grid');
+      await p.eval("document.querySelector('[data-vault-layout=list]').click()");
+      await p.until("document.querySelector('.vault-cards').dataset.layout==='list'");
+      await scan('Vault list');
+      await p.eval(`(()=>{
+        const search=document.querySelector('#search-input');
+        search.value=${JSON.stringify(single.slice(13,21))};
+        search.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      await p.until("document.querySelector('#search-input').value===''&&document.querySelector('.vault-section').dataset.vaultSearchActive==='true'&&!document.querySelector('.vault-card')");
+      await scan('Search with a secret substring');
+      await p.eval("document.querySelector('#search-clear').click();document.querySelector('[data-vault-filter]').click()");
+      await scan('Vault labels');
+
+      await mockVaultTimers(p);
+      await p.eval("document.querySelector('[data-vault-open]').click()");
+      await p.until("!!document.querySelector('.vault-detail')&&getComputedStyle(document.querySelector('.vault-detail')).visibility==='visible'");
+      await scan('Masked reading detail');
+      await p.eval("document.querySelector('[data-vault-reveal]').click()");
+      assert.equal(await p.eval(`document.querySelector('.vault-secret-value').textContent===${JSON.stringify(single)}`),true);
+      await scan('Intentional reveal', {selector:'.vault-secret-value',property:'textContent'});
+      await p.eval("vaultTimers.fire(15000)");
+      await scan('Detail after auto-hide');
+      await p.eval("document.querySelector('[data-vault-edit]').click()");
+      await p.until("!!document.querySelector('.vault-editor')&&getComputedStyle(document.querySelector('.vault-editor')).visibility==='visible'");
+      await p.until("document.activeElement.hasAttribute('data-vault-title')");
+      await scan('Editor with secrets outside focus');
+      await p.eval("document.querySelector('[data-vault-value]').focus()");
+      assert.equal(await p.eval(`document.activeElement.value===${JSON.stringify(single)}`),true);
+      await scan('Intentional editing', {selector:'[data-vault-value]',property:'value'});
+      await p.eval("window.dispatchEvent(new Event('blur'))");
+      await scan('Editor after window focus loss');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      await p.eval("document.querySelector('[data-vault-action=trash]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('.vault-card')");
+      await scan('Trash');
+      await p.eval("document.querySelector('#edit-labels-btn').click()");
+      await scan('Note labels manager');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('#labels-manager')");
+
+      const invalid=vaultFixture({blocks:item.blocks});
+      await seedUnreadableVault(p,invalid);
+      await p.reload();
+      await unlock(p);
+      await selectRecovery(p);
+      await p.until("!!document.querySelector('#recovery-show-sensitive:not([hidden])')");
+      await scan('Recovery before explicit click');
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await p.until("!!document.querySelector('.auth-view')");
+      await scan('Login after lock');
+      assert.deepEqual(p.errors,[]);
+    } finally {
+      browser.cdp.listeners.splice(browser.cdp.listeners.indexOf(listener),1);
+      await p.close();
+    }
+  });
+
+  await check('T4.12 Trash keeps a vault card together across desktop columns',async()=>{
+    const p=await browser.page();
+    try {
+      await p.send('Emulation.setDeviceMetricsOverride',{width:1100,height:900,deviceScaleFactor:1,mobile:false});
+      await create(p);
+      await save(p,vaultFixture({deletedAt:Date.now(),labels:['Fixture']}));
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('.notes-grid .vault-card')");
+      const {columns,fragments}=await p.eval(`(()=>{
+        const card=document.querySelector('.notes-grid .vault-card');
+        return {columns:Number(getComputedStyle(card.parentElement).columnCount),fragments:card.getClientRects().length};
+      })()`);
+      assert.ok(columns>1);
+      assert.equal(fragments,1,'The title and Trash actions must stay on the same card');
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.12 existing v2 note-only backup opens and vault preferences stay out of the envelope',async()=>{
+    const p=await browser.page();
+    try {
+      const existing=note({title:'Fictional note from a pre-vault backup'});
+      const fixture=await backupFixture([existing]);
+      await p.eval(importExpression(fixture.base64));
+      await p.reload();
+      await unlock(p);
+      const notes=await p.eval("(await import('./js/app.js')).getNotes()");
+      assert.deepEqual(notes,[existing]);
+      await p.eval("const db=await import('./js/db.js');await db.saveMeta('vaultLayout','list');await db.saveMeta('vaultClipboardWarningDismissed',true)");
+      const inspected=await p.eval(`(async()=>{
+        let blob;
+        URL.createObjectURL=value=>{blob=value;return 'blob:fixture';};
+        URL.revokeObjectURL=()=>{};
+        HTMLAnchorElement.prototype.click=()=>{};
+        const result=await(await import('./js/backup.js')).exportBackup();
+        const decoded=await(await import('./js/backup-v2.js')).decodeV2(new Uint8Array(await blob.arrayBuffer()),${JSON.stringify(PASSWORD)});
+        return {unreadable:result.unreadableCount,profile:decoded.payload.profile,preferences:Object.keys(decoded.payload.preferences)};
+      })()`);
+      assert.equal(inspected.unreadable,0);
+      assert.equal(inspected.profile,2);
+      assert.ok(inspected.preferences.every(key=>['theme','lang'].includes(key)));
       assert.deepEqual(p.errors,[]);
     } finally {await p.close();}
   });

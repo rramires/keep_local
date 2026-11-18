@@ -248,19 +248,18 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
   syncPin();
   drawBlocks();
 
+  function mask() {
+    if (panel.contains(document.activeElement)) document.activeElement.blur();
+    scrubSecrets();
+  }
+
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      if (panel.contains(document.activeElement)) document.activeElement.blur();
-      scrubSecrets();
-    }
+    if (document.visibilityState === 'hidden') mask();
   }, {signal});
+  window.addEventListener('blur', mask, {signal});
 
   return {
-    ...session, id:item.id,
-    mask() {
-      if (panel.contains(document.activeElement)) document.activeElement.blur();
-      scrubSecrets();
-    },
+    ...session, id:item.id, mask,
     applyFields(fields) { Object.assign(draft, fields); syncPin(); },
     cleanup() {
       scrubSecrets();
