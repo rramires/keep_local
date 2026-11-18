@@ -438,33 +438,51 @@ export async function run({browser,check,assert}) {
     } finally {await p.close();}
   });
 
-  await check('T4.4 vault block edit refuses a newer write from another tab',async()=>{
-    const p=await browser.page();
-    let q;
-    try {
-      await create(p);
-      const item=vaultFixture();
-      await save(p,item);
-      await enterVaultEditor(p,assert);
-      q=await browser.page(p.contextId);
-      await unlock(q);
-      await q.eval(`(async()=>{
-        const app=await import('./js/app.js');
-        const edited=structuredClone(app.getNotes().find(note=>note.type==='vault'));
-        edited.blocks[0].value='remote.example.invalid';
-        await app.saveNote(edited);
-      })()`);
-      await p.send('Page.bringToFront');
-      await p.until("document.visibilityState==='visible'");
-      await fillVaultInput(p,'[data-vault-value]','local.example.invalid');
-      await p.eval("document.querySelector('#modal-close').click()");
-      await p.until("!!document.querySelector('.vault-editor')&&!!document.querySelector('.toast-action')");
-      await q.reload();
-      await unlock(q);
-      assert.equal(await q.eval("(await import('./js/app.js')).getNotes().find(note=>note.type==='vault').blocks[0].value"),'remote.example.invalid');
-      assert.deepEqual([...p.errors,...q.errors],[]);
-    } finally {if(q) await q.close();await p.close();}
-  });
+  for(const [language,actionLabel] of [['en','Save as new item'],['pt-BR','Salvar como novo item']]) {
+    await check('D1.5 vault conflict offers a new item and keeps both versions in '+language,async()=>{
+      const p=await browser.page();
+      let q;
+      try {
+        await p.eval(`await(await import('./js/db.js')).saveMeta('lang',${JSON.stringify(language)})`);
+        await p.reload();
+        await create(p);
+        const sentinel=testSentinel();
+        const item=vaultFixture();
+        item.blocks[1].value=sentinel;
+        await save(p,item);
+        await enterVaultEditor(p,assert);
+        q=await browser.page(p.contextId);
+        await unlock(q);
+        await q.eval(`(async()=>{
+          const app=await import('./js/app.js');
+          const edited=structuredClone(app.getNotes().find(note=>note.type==='vault'));
+          edited.blocks[0].value='remote.example.invalid';
+          await app.saveNote(edited);
+        })()`);
+        await p.send('Page.bringToFront');
+        await p.until("document.visibilityState==='visible'");
+        await fillVaultInput(p,'[data-vault-value]','local.example.invalid');
+        await p.eval("document.querySelector('#modal-close').click()");
+        await p.until("!!document.querySelector('.vault-editor')&&!!document.querySelector('.toast-action')");
+        const action=await p.eval("document.querySelector('.toast-action').textContent.trim()");
+        const toasts=await p.eval("[...document.querySelectorAll('.toast')].map(toast=>toast.textContent)");
+        assert.equal(toasts.some(toast=>toast.includes(sentinel)||toast.includes(sentinel.slice(13,21))),false);
+        assert.equal(action,actionLabel);
+        await p.eval("document.querySelector('.toast-action').click()");
+        await p.until("!document.querySelector('.vault-editor')");
+        await q.reload();
+        await unlock(q);
+        const copies=await q.eval(`(await import('./js/app.js')).getNotes().filter(note=>note.type==='vault').map(note=>({
+          original:note.id===${JSON.stringify(item.id)},host:note.blocks[0].value,secret:note.blocks[1].value,
+        }))`);
+        assert.deepEqual(copies.sort((a,b)=>Number(b.original)-Number(a.original)),[
+          {original:true,host:'remote.example.invalid',secret:sentinel},
+          {original:false,host:'local.example.invalid',secret:sentinel},
+        ]);
+        assert.deepEqual([...p.errors,...q.errors],[]);
+      } finally {if(q) await q.close();await p.close();}
+    });
+  }
 
   await check('T4.6 vault search only returns safe matches and Trash only matches vault titles',async()=>{
     const p=await browser.page();

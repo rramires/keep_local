@@ -426,7 +426,7 @@ async function saveFromUI(note,{mergeDraft=true,context='editor',change=null}={}
   catch(error){
     if(generation!==sessionGeneration)return false;
     if(error.code==='note.conflict'&&context==='action'&&error.origin==='local'){showToast(t('note.actionLocalConflict'));return false;}
-    if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t('note.saveAsNew'),async()=>{
+    if(error.code==='note.conflict')showToast(t(context==='action'?'note.actionConflict':'note.conflict'),t(note.type==='vault'?'vault.saveAsNew':'note.saveAsNew'),async()=>{
       if(generation!==sessionGeneration)return;
       const edit=activeEdit?.id===note.id?activeEdit:null;
       const source=edit?(edit.captureDraft?.()||edit.capture()):structuredClone(note),captured=JSON.stringify(source);
