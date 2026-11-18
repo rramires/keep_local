@@ -101,4 +101,38 @@ export async function run({browser,check,assert}) {
     } finally {await p.close();}
   });
 
+  await check('T4.3 vault detail opens in reading mode with a fixed mask and returns focus',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      const item=vaultFixture();
+      item.blocks.push(
+        {id:crypto.randomUUID(),kind:'divider'},
+        {id:crypto.randomUUID(),kind:'text',value:'<strong>Literal text</strong>'},
+        {id:crypto.randomUUID(),kind:'field',label:'Public key example',value:'example line 1\nexample line 2',multiline:true,secret:false},
+      );
+      await save(p,item);
+      await p.eval("document.querySelector('[data-view=vault]').click(); const opener=document.querySelector('[data-vault-open]'); opener.focus(); opener.click()");
+      await p.until("!!document.querySelector('.vault-detail')");
+      const read=await p.eval(`(()=>{
+        const panel=document.querySelector('.vault-detail');
+        const multi=panel.querySelector('.vault-multiline');
+        return {
+          inputs:panel.querySelectorAll('input,textarea').length,
+          mask:panel.querySelector('.vault-secret-value').textContent,
+          hasSecret:panel.outerHTML.includes('fictional-secret'),
+          literal:panel.querySelector('.vault-text').textContent,
+          strong:!!panel.querySelector('strong'),
+          multi:multi.textContent,whiteSpace:getComputedStyle(multi).whiteSpace,
+          edit:!!panel.querySelector('[data-vault-edit]'),
+        };
+      })()`);
+      assert.deepEqual(read,{inputs:0,mask:'••••••••',hasSecret:false,literal:'<strong>Literal text</strong>',strong:false,multi:'example line 1\nexample line 2',whiteSpace:'pre-wrap',edit:true});
+      await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
+      await p.until("!document.querySelector('#modal-overlay').classList.contains('open')");
+      assert.equal(await p.eval("document.activeElement.dataset.vaultOpen"),item.id);
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
 }

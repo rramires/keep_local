@@ -1,6 +1,6 @@
 import {t, tp} from './i18n.js';
 import {COLORS} from './note-model.js';
-import {vaultSubtitle} from './vault-model.js';
+import {isSecretField, vaultSubtitle} from './vault-model.js';
 
 export function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -126,4 +126,49 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, ...car
     section.append(element('p', 'vault-empty', t('vault.empty')));
   }
   root.replaceChildren(section);
+}
+
+export const SECRET_MASK = '••••••••';
+
+function readingBlock(block, {controls, signal}) {
+  if (block.kind === 'divider') return element('hr', 'vault-divider');
+  if (block.kind === 'text') return element('p', 'vault-text', block.value);
+  const secret = isSecretField(block);
+  const row = element('div', 'vault-read-field');
+  row.append(element('span', 'vault-field-label', block.label || t('vault.field')));
+  const style = block.multiline ? ' vault-multiline' : '';
+  const value = element('span', 'vault-read-value' + style + (secret ? ' vault-secret-value' : ''), secret ? SECRET_MASK : block.value);
+  row.append(value);
+  const actions = element('div', 'vault-card-actions');
+  if (secret) {
+    const reveal = vaultButton(t('vault.reveal'), controls && (() => controls.toggle(value, reveal, block.value, signal)));
+    reveal.dataset.vaultReveal = '';
+    reveal.setAttribute('aria-pressed', 'false');
+    actions.append(reveal);
+  }
+  const copy = vaultButton(t('vault.copy'), controls && (() => controls.copy(block.value, signal)));
+  copy.dataset.vaultCopy = '';
+  actions.append(copy);
+  row.append(actions);
+  return row;
+}
+
+export function renderVaultDetail(modal, item, {onClose, onEdit, controls, signal}) {
+  const section = element('section', 'panel-form vault-detail');
+  section.setAttribute('translate', 'no');
+  const header = element('header', 'panel-header');
+  const title = element('h2', 'vault-detail-title', item.title.trim() || t('vault.untitled'));
+  title.id = 'vault-detail-title';
+  const close = vaultButton(t('modal.close'), onClose);
+  close.id = 'modal-close';
+  header.append(title, close);
+  const body = element('div', 'panel-body form-stack');
+  for (const block of item.blocks) body.append(readingBlock(block, {controls, signal}));
+  if (!item.deletedAt) {
+    const edit = vaultButton(t('vault.edit'), onEdit, 'btn-primary');
+    edit.dataset.vaultEdit = '';
+    body.append(edit);
+  }
+  section.append(header, body);
+  modal.replaceChildren(section);
 }

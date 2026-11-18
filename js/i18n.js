@@ -5,6 +5,10 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'vault.field': 'Field',
+  'vault.copy': 'Copy',
+  'vault.reveal': 'Reveal',
+  'vault.edit': 'Edit',
   'vault.section': "Passwords & Keys",
   'vault.new': "New item",
   'vault.list': "List",
@@ -248,6 +252,10 @@ const en = {
 };
 
 const ptBR = {
+  'vault.field': 'Campo',
+  'vault.copy': 'Copiar',
+  'vault.reveal': 'Revelar',
+  'vault.edit': 'Editar',
   'vault.section': "Senhas e Chaves",
   'vault.new': "Novo item",
   'vault.list': "Lista",

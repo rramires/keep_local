@@ -1,4 +1,5 @@
-import {renderVaultCard, renderVaultSection} from './vault-view.js';
+import {focusPanel} from './form-ui.js';
+import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
 import {confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
@@ -911,15 +912,27 @@ async function createNewNote(type, title = '', content = '', render=true) {
 // --- Note Modal ---
 
 async function openNoteModal(note) {
-  if (note.type === 'vault') return;
-  if (activeEdit && !await closeModal()) return;
+  if ((activeEdit || modalController) && !await closeModal()) return;
   note=structuredClone(note);
-  if (note.type === 'text') {
+  if (note.type === 'vault') {
+    openVaultDetail(note);
+  } else if (note.type === 'text') {
     openTextModal(note);
   } else {
     openTodoModal(note);
   }
   return note;
+}
+
+function openVaultDetail(item) {
+  const modal = document.getElementById('modal-card');
+  const controller = new AbortController();
+  modalController = controller;
+  const signal = controller.signal;
+  const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`);
+  renderVaultDetail(modal, item, {onClose: closeModal, signal});
+  focusPanel(modal, {signal, trigger, titleId: 'vault-detail-title', initial: '#modal-close'});
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 function openTextModal(note) {

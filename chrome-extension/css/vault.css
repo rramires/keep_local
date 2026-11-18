@@ -32,3 +32,11 @@
 :is(.vault-card, .vault-swatch)[data-color="blossom"] { --vault-color: var(--note-blossom); }
 :is(.vault-card, .vault-swatch)[data-color="clay"] { --vault-color: var(--note-clay); }
 :is(.vault-card, .vault-swatch)[data-color="chalk"] { --vault-color: var(--note-chalk); }
+
+.vault-detail-title { min-width: 0; overflow-wrap: anywhere; }
+.vault-detail .panel-body { min-width: 0; overflow-x: hidden; }
+.vault-read-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.vault-field-label { color: var(--text-secondary); font-size: .875rem; overflow-wrap: anywhere; }
+.vault-read-value, .vault-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vault-multiline { font-family: monospace; }
+.vault-divider { width: 100%; border: 0; border-top: 1px solid var(--card-border); }
