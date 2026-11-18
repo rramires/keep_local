@@ -1,0 +1,18 @@
+import {create,add,unlock} from './harness.mjs';
+async function setup(browser){
+ const p=await browser.page();await create(p);await add(p,'One','Fictitious A');await add(p,'Two','Fictitious B');
+ await p.eval("const a=await import('./js/app.js');for(const n of [...a.getNotes()])await a.saveNote({...n,labels:['Shared']});document.querySelector('#search-clear').click();window.pinId=document.querySelector('.note-card').dataset.id;window.otherId=a.getNotes().find(n=>n.id!==pinId).id;document.querySelector('#edit-labels-btn').click()");await p.until("!!document.querySelector('.label-delete-btn')");return p;
+}
+async function hold(p,batch=false){await p.eval(`window.originalEncrypt=crypto.subtle.encrypt.bind(crypto.subtle);let calls=0;crypto.subtle.encrypt=async(...args)=>{calls++;if(calls===1)await new Promise(r=>window.resumePin=r);if(${batch}&&calls===2)await new Promise(r=>window.resumeBatch=r);return originalEncrypt(...args)};document.querySelector('[data-id="'+pinId+'"] [data-action=pin]').click()`);await p.until("typeof resumePin==='function'");await p.eval("document.querySelector('.label-delete-btn').click()");}
+async function state(p){return p.eval("const a=await import('./js/app.js'),d=await import('./js/db.js'),c=await import('./js/crypto.js');const db=[];for(const r of await d.getAllNoteRecords())db.push(JSON.parse(await c.decrypt(a.getCryptoKey(),c.base64ToArray(r.iv),c.base64ToArray(r.ciphertext))));({memory:a.getNotes().toSorted((a,b)=>a.id.localeCompare(b.id)),db:db.toSorted((a,b)=>a.id.localeCompare(b.id)),pinId:window.pinId,otherId:window.otherId,toasts:[...document.querySelectorAll('.toast')].map(t=>t.textContent).join(' ')})");}
+export async function run({browser,check,assert}) {
+ await check('T2.26 pending local pin and collective label deletion both commit without a false remote conflict',async()=>{
+  const p=await setup(browser);try{await hold(p);await p.eval('crypto.subtle.encrypt=originalEncrypt;resumePin()');await p.until("(await import('./js/app.js')).getNotes().every(n=>n.labels.length===0)||[...document.querySelectorAll('.toast')].some(t=>/Another|Could not/.test(t.textContent))");const s=await state(p);assert.deepEqual(s.memory,s.db);assert.equal(s.db.find(n=>n.id===s.pinId).pinned,true);assert.ok(s.db.every(n=>n.labels.length===0));assert.doesNotMatch(s.toasts,/Another|Could not/);assert.deepEqual(p.errors,[]);}finally{await p.close();}
+ });
+ await check('T2.26 real remote changes reject the whole batch while waiting for locks and during encryption',async()=>{
+  for(const moment of ['waiting','encrypting']){const p=await setup(browser),q=await browser.page(p.contextId);try{await unlock(q);await hold(p,moment==='encrypting');if(moment==='encrypting'){await p.eval('resumePin()');await p.until("typeof resumeBatch==='function'");}
+   const other=await p.eval('otherId');await q.eval(`const a=await import('./js/app.js'),n=a.getNotes().find(n=>n.id===${JSON.stringify(other)});await a.saveNote({...n,title:'Remote latest'})`);await p.eval(`crypto.subtle.encrypt=originalEncrypt;${moment==='encrypting'?'resumeBatch()':'resumePin()'}`);await p.until("[...document.querySelectorAll('.toast')].some(t=>t.textContent.includes('Another tab'))");
+   const s=await state(p);assert.ok(s.memory.every(n=>n.labels.includes('Shared')));assert.ok(s.db.every(n=>n.labels.includes('Shared')),'atomic rejection: no label removed');assert.equal(s.db.find(n=>n.id===s.pinId).pinned,true);assert.equal(s.db.find(n=>n.id===s.otherId).title,'Remote latest');await p.reload();await unlock(p);const refreshed=await state(p);assert.deepEqual(refreshed.memory,refreshed.db);assert.deepEqual(p.errors,[]);assert.deepEqual(q.errors,[]);
+  }finally{await q.close();await p.close();}}
+ });
+}

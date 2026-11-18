@@ -47,13 +47,6 @@ export async function decrypt(key, iv, ciphertext, additionalData) {
   return dec.decode(plaintext);
 }
 
-export async function hashPassword(password, salt) {
-  const enc = new TextEncoder();
-  const data = enc.encode(password + arrayToBase64(salt));
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return arrayToBase64(new Uint8Array(hashBuffer));
-}
-
 export function arrayToBase64(arr) {
   let binary = '';
   for (let i=0;i<arr.length;i+=8192) binary+=String.fromCharCode(...arr.subarray(i,i+8192));

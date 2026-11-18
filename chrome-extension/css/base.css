@@ -128,7 +128,7 @@ textarea {
   gap: 8px;
   padding: 10px 24px;
   background-color: var(--accent-color);
-  color: #202124;
+  color: var(--on-accent);
   font-weight: 500;
   border-radius: var(--border-radius);
   transition: background-color var(--transition-fast);
@@ -143,7 +143,7 @@ textarea {
   }
 }
 
-/* Secondary/text button */
+/* Secondary button */
 .btn-secondary {
   display: inline-flex;
   align-items: center;
@@ -151,6 +151,8 @@ textarea {
   gap: 8px;
   padding: 10px 24px;
   color: var(--accent-color);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   font-weight: 500;
   border-radius: var(--border-radius);
   transition: background-color var(--transition-fast);
@@ -164,3 +166,53 @@ textarea {
 .hidden {
   display: none !important;
 }
+
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+.button-full { width: 100%; }
+.form-stack { display: flex; flex-direction: column; gap: 16px; }
+.form-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.form-field label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.form-field input, .form-field textarea { width: 100%; min-width: 0; }
+.form-error { font-size: 13px; color: var(--error-color); overflow-wrap: anywhere; }
+.panel-form .form-error:empty { display: none; }
+.help-text, .password-strength { font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.password-strength[data-strength="weak"] { color: var(--error-color); }
+.password-strength[data-strength="adequate"] { color: var(--warning-color); }
+.password-strength[data-strength="long"] { color: var(--success-color); }
+.password-rules { font-size: 13px; padding: 12px; background: var(--bg-secondary); border-radius: var(--border-radius); color: var(--text-secondary); }
+.password-rules ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.password-rules li::before { content: '○'; margin-right: 6px; }
+.password-rules li.valid::before { content: '●'; color: var(--success-color); }
+.notice { padding: 14px 16px; border: 1px solid var(--border-color); border-radius: var(--border-radius); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.notice-warning { border-color: var(--warning-color); background: color-mix(in srgb, var(--warning-color) 8%, var(--bg-elevated)); }
+.panel-form { display: flex; flex-direction: column; min-height: 0; max-height: inherit; }
+.panel-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px; border-bottom: 1px solid var(--border-color-light); flex-shrink: 0; }
+.panel-header h2 { font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
+.panel-header button { flex-shrink: 0; padding: 8px 12px; }
+.panel-body { min-height: 0; overflow-y: auto; padding: 24px; }
+@media (max-width: 600px) { .panel-form { height: 100%; } .panel-header { padding: 16px; } .panel-body { padding: 20px 16px; } }
+
+.btn-danger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 24px; border: 1px solid var(--error-color); border-radius: var(--border-radius); background: color-mix(in srgb, var(--error-color) 12%, var(--bg-elevated)); color: var(--error-color); font-weight: 600; }
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--error-color) 22%, var(--bg-elevated)); }
+.check-field { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; }
+.check-field input { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent-color); }
+.recovery-step { padding: 16px; border: 1px solid var(--border-color); border-radius: var(--border-radius); }
+.recovery-step h3 { font-size: 15px; font-weight: 600; }
+.recovery-records { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; }
+.recovery-records button[aria-pressed="true"] { border-color: var(--accent-color); background: var(--bg-active); }
+#recovery-status { font-size: 13px; overflow-wrap: anywhere; }
+#recovery-status:empty { display: none; }
+#recovery-content { width: 100%; min-height: 150px; font-size: 13px; }
+
+.unreadable-warning { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: start; gap: 12px; margin-bottom: 24px; }
+.notice-icon { color: var(--warning-color); font-size: 22px; line-height: 1.2; }
+.unreadable-warning .btn-secondary { align-self: center; }
+@media (max-width: 600px) { .unreadable-warning { grid-template-columns: auto minmax(0,1fr); } .unreadable-warning button { grid-column: 2; justify-self: start; } }
+
+.app-dialog.confirm-dialog { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg-overlay); }
+.dialog-card { width: 100%; max-width: 440px; max-height: calc(100dvh - 40px); overflow-y: auto; padding: 24px; border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); background: var(--bg-elevated); box-shadow: var(--card-shadow); }
+.dialog-card h2 { font-size: 20px; font-weight: 500; }
+.dialog-message { font-size: 14px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+@media (max-width: 600px) { .dialog-card { padding: 20px; } .dialog-actions button { flex: 1; } }

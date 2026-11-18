@@ -385,3 +385,15 @@
     }
   }
 }
+
+/* Let search shrink before clipping the controls that open/close account dialogs. */
+.header .header-search { min-width: 0; }
+.header .search-container input { min-width: 0; width: 100%; }
+@media (max-width: 768px) {
+  .header { padding: 0 8px; gap: 8px; }
+  .header .header-left, .header .header-right { flex-shrink: 0; }
+  .header .header-right { gap: 0; }
+  .header .menu-btn { width: 40px; height: 40px; }
+  .header .search-container { padding: 0 8px; }
+  .header .search-container input { padding: 12px 8px; }
+}

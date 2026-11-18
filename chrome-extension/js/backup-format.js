@@ -10,22 +10,6 @@ export function base64Bytes(value, min, max = min) {
   if (bytes.length < min || bytes.length > max) invalid();
   return bytes;
 }
-export function validateV1(backup) {
-  if (!backup || backup.app !== 'KeepLocal' || backup.version !== 1 || !Array.isArray(backup.meta) || !Array.isArray(backup.notes) || backup.notes.length > MAX_BACKUP_NOTES || backup.meta.length > 5) invalid();
-  const meta = {};
-  for (const m of backup.meta) {
-    if (!m || !['salt','passwordVerifier','keyCheck','theme','lang'].includes(m.key) || Object.hasOwn(meta,m.key)) invalid();
-    meta[m.key] = m.value;
-  }
-  base64Bytes(meta.salt,16);
-  if (meta.passwordVerifier !== undefined) base64Bytes(meta.passwordVerifier,32);
-  if (meta.keyCheck) { base64Bytes(meta.keyCheck.iv,12);base64Bytes(meta.keyCheck.ct,16,256); }
-  if (!meta.keyCheck && !meta.passwordVerifier) invalid();
-  if (meta.theme !== undefined && !['light','dark'].includes(meta.theme)) invalid();
-  if (meta.lang !== undefined && !['en','pt-BR'].includes(meta.lang)) invalid();
-  validateRecords(backup.notes);
-  return meta;
-}
 export function validateRecords(records) {
   if (!Array.isArray(records) || records.length > MAX_BACKUP_NOTES) invalid();
   const ids = new Set();

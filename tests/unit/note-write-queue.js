@@ -37,3 +37,10 @@ test('T2.23 collective publication rejects missing targets without an array -1 p
  const before=[{id:'first',labels:['Work']}],plans=[{next:{id:'missing',labels:[]}}];assert.throws(()=>replaceExistingNotes(before,plans),{code:'note.conflict'});assert.deepEqual(before,[{id:'first',labels:['Work']}]);assert.equal(Object.hasOwn(before,'-1'),false);
  const updated=replaceExistingNotes(before,[{next:{id:'first',labels:[]}}]);assert.deepEqual(updated,[{id:'first',labels:[]}]);assert.deepEqual(before,[{id:'first',labels:['Work']}]);
 });
+test('T2.26 batch capture follows local ancestry but rejects stale local, remote and expired provenance',async()=>{
+ const h=harness('text'),source=structuredClone(h.memory),capture=h.write.capture(source),pending=h.write(source,{change:actions[0]});await h.release();await pending;
+ const current=capture();assert.equal(current.pinned,true);assert.notEqual(current,h.memory);assert.deepEqual(h.memory,h.db);
+ assert.throws(h.write.capture(source),{code:'note.conflict',origin:'local'});
+ const remote=h.write.capture(h.memory);h.remote();assert.throws(remote,{code:'note.conflict',origin:'remote'});
+ const ended=h.write.capture(h.memory);h.end();assert.throws(ended,{code:'session.ended'});assert.deepEqual(h.memory,h.db);
+});

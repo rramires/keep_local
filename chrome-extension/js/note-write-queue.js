@@ -43,6 +43,17 @@ export function createNoteWriteQueue({enqueue, read, version, session, persist, 
       return next;
     });
   };
+  // Capture provenance at submission; resolve the value only while all batch locks are held.
+  write.capture = source => {
+    const token=ensureSession(),id=source.id,submitted=version(id),baseVersion=source.updatedAt;
+    const stale = submitted !== undefined && baseVersion !== submitted;
+    return () => {
+      if(token!==session())throw Object.assign(Error('session.ended'),{code:'session.ended'});
+      const known=version(id),current=read(id);
+      if(stale||!current||!descends(id,known,submitted))throw Object.assign(Error('note.conflict'),{code:'note.conflict',origin:descends(id,known,baseVersion)?'local':'remote'});
+      return structuredClone(current);
+    };
+  };
   write.recordCommit = recordCommit;
   return write;
 }

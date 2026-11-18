@@ -22,11 +22,11 @@ draft buttons were removed.
 |---|---|
 | Key | PBKDF2-HMAC-SHA-256, 600000 iterations, random 16-byte salt |
 | Cipher | AES-256-GCM, random 12-byte IV and 16-byte authentication tag |
-| Password check | Encrypted known block (`keyCheck`); no fast verifier in new/migrated vaults |
+| Password check | Encrypted known block (`keyCheck`); no fast password verifier |
 | Session | Nonextractable key only in memory; reload requires password; lock after 5 idle minutes |
 | New password | At least 14 characters, no composition rules; embedded common-password list and sequence/pattern checks; prefer 5+ randomly chosen words |
 | Disk | Encrypted notes in IndexedDB; local preferences and metadata (salt, outer IDs, timestamps, backup state) are not secret |
-| Backup | Authenticated binary v2 envelope; legacy JSON v1 only through validated atomic import |
+| Backup | Authenticated binary v2 envelope; unsupported formats leave the vault unchanged |
 | Markdown | Raw HTML becomes text, images are removed, restrictive DOMPurify and CSP; missing libraries fall back to plain text |
 | Tabs | Vault identity and record version checked atomically; conflicts offer saving as a new note |
 | Recovery | Unreadable records can be copied when decryptable or discarded after typed confirmation and a required export; no password recovery |
@@ -51,27 +51,25 @@ The server requires Python 3; Web Crypto requires a secure context (localhost or
 HTTPS). This execution validated Chromium; other browsers were not validated.
 The extension requires Chrome 120+.
 
-## Backup and migration
+## Backup and reset
 
-1. Before upgrading, export using the old version and keep a copy outside the app
-   and synchronized folder. Never overwrite your only recovery copy.
-2. Log into the new version: it atomically migrates the legacy verifier. Existing
-   account passwords still work; the new policy applies to creation and rotation.
-3. Use **Change master password**, entering the current password and a new long
-   random passphrase.
-4. Click **Backup** to start a `.keeplocal` download. Verify the saved file:
-   the app cannot confirm the browser wrote it. `lastBackupAt` means a download
-   attempt, and the pending warning tracks changes since that attempt.
-5. Store the export in a separate data folder synchronized by your chosen service.
-   **KeepLocal does not write automatically to Mega or synchronize files** in this
-   phase. Merge and automatic file writing belong to blocked Phase 3.
-6. Remove old backups including cloud version history: they still use the old
-   password, and v1 may include the fast verifier. Verify the new backup before
-   deleting copies needed for recovery.
+1. Create a vault with a long random passphrase. Keep it safe: encrypted notes
+   cannot be recovered without it.
+2. **Change master passphrase** requires the current passphrase and rotates all
+   readable records atomically. Previous backups still use the previous passphrase.
+3. **Backup** starts a `.keeplocal` download. Verify the saved file: the app cannot
+   confirm disk writes. `lastBackupAt` records a download attempt; the pending
+   warning tracks changes since that attempt.
+4. Store exports separately from app code. KeepLocal does not automatically write
+   to Mega or synchronize files. Merge and folder writing belong to blocked Phase 3.
 
-Import accepts binary v2 or JSON v1, asks for the file password, validates every
-record, confirms the replacement counts and commits in one transaction. Cancel,
-wrong password, invalid data and write failure preserve the previous vault.
+Import accepts **binary v2 only**, asks for its passphrase, validates every record,
+confirms replacement counts and commits in one transaction. Cancellation, wrong
+passphrase, unsupported format, invalid data and write failure preserve the vault.
+Old vaults without an encrypted key check are unsupported and remain unchanged;
+**Erase everything and start again** requires the exact typed word and erases only
+by explicit choice. No automatic migration or erasure occurs.
+
 Unreadable local records stay stored, produce a warning and remain in exports;
 recover them before expecting a complete reimport of that backup.
 
@@ -104,7 +102,7 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `lib/`: local libraries, hashes and provenance.
 - `chrome-extension/`: manifest, worker, privacy, icons, locales and tracked copies
   of `js/`, `css/`, `lib/`, `index.html` synchronized by the build.
-- `tests/unit/`, `tests/browser/`, `tests/fixtures/`: gate without npm dependencies.
+- `tests/unit/`, `tests/browser/`: gate without npm dependencies.
 
 ## Binary backup format and recovery
 
@@ -147,9 +145,11 @@ notes and 2 MiB per serialized UTF-8 note for editing/import. Profiles must enfo
 iterations **before** deriving; file bytes never select an arbitrary KDF cost.
 Future profiles must preserve profile 2 and append a documented recovery path.
 
-Legacy v1 JSON is still imported after complete validation and atomic replacement.
-V1 cannot detect removal of a whole record. V2 authenticates the complete payload
-and checks its manifest. Replacing an export with an older *valid* export remains
+Only binary v2 is supported. V2 authenticates the complete payload and checks its
+manifest. Recognizable JSON documents are rejected without interpreting an older
+schema. Without plaintext magic, an unauthenticated binary file cannot be reliably
+distinguished from a wrong passphrase or damaged v2 file; the error names these
+possibilities and preserves the vault. Replacing an export with an older *valid* export remains
 possible (rollback); revision/merge handling belongs to the blocked Phase 3.
 
 `rev` is a safe integer persisted as `meta.exportRev` and incremented on every

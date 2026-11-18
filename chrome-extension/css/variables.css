@@ -33,6 +33,7 @@
   --icon-hover: #e8eaed;
 
   --accent-color: #8ab4f8;
+  --on-accent: #202124;
   --accent-hover: #aecbfa;
   --error-color: #f28b82;
   --success-color: #81c995;
@@ -86,10 +87,11 @@
   --icon-hover: #202124;
 
   --accent-color: #1a73e8;
+  --on-accent: #ffffff;
   --accent-hover: #1967d2;
   --error-color: #d93025;
   --success-color: #188038;
-  --warning-color: #f9ab00;
+  --warning-color: #8a5000;
 
   --card-bg: #ffffff;
   --card-border: #e0e0e0;

@@ -1,7 +1,8 @@
+import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
-import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck, ensureVaultId } from './db.js';
+import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
+import { saveMeta, getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 
 import { storeSessionKey } from './session.js';
@@ -38,16 +39,11 @@ export async function login(password) {
   const saltB64 = await getMeta('salt');
   if (!saltB64) throw new Error(t('login.noAccount'));
 
+  const check = await getMeta('keyCheck');
+  if(!check)throw new Error(t('login.unsupportedVault'));
   const salt = base64ToArray(saltB64);
   const key = await deriveKey(password, salt, false);
-  const check = await getMeta('keyCheck');
-  if (check) {
-    if (!await verifyKeyCheck(key, check)) throw new Error(t('login.wrongPassword'));
-  } else {
-    const storedHash = await getMeta('passwordVerifier');
-    if (!storedHash || await hashPassword(password, salt) !== storedHash) throw new Error(t('login.wrongPassword'));
-    await migrateKeyCheck(saltB64, await createKeyCheck(key));
-  }
+  if(!await verifyKeyCheck(key,check))throw new Error(t('login.wrongPassword'));
 
   const vaultId=await ensureVaultId(saltB64);
   await storeSessionKey(key,vaultId);
@@ -89,9 +85,9 @@ export function renderAuthView(container, { onAuthenticated }) {
                 <li id="rule-common">${t('validation.common')}</li>
               </ul>
             </div>
-            <p id="password-strength" role="status"></p>
-            <p>${t('auth.passphraseHint')}</p>
-            <div class="form-error" id="create-error"></div>
+            <p class="password-strength" id="password-strength" role="status"></p>
+            <p class="help-text">${t('auth.passphraseHint')}</p>
+            <div class="form-error" id="create-error" role="alert"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary" id="create-btn" disabled>${t('auth.createAccount')}</button>
             </div>
@@ -106,11 +102,11 @@ export function renderAuthView(container, { onAuthenticated }) {
               <label for="login-password">${t('auth.password')}</label>
               <input type="password" id="login-password" placeholder="${t('auth.passwordPlaceholder')}" autocomplete="current-password">
             </div>
-            <div class="form-error" id="login-error"></div>
+            <div class="form-error" id="login-error" role="alert"></div>
             <div class="form-actions">
               <button type="submit" class="btn-primary">${t('auth.login')}</button>
             </div>
-            <button type="button" class="btn-secondary" id="reset-vault">${t('account.reset')}</button>
+            <footer class="auth-reset"><p class="help-text">${t('account.resetHint')}</p><button type="button" class="reset-link" id="reset-vault">${t('account.reset')}</button></footer>
           </form>
 
           <!-- Import Tab -->
@@ -119,13 +115,13 @@ export function renderAuthView(container, { onAuthenticated }) {
               <div class="import-icon">📁</div>
               <div class="import-text">${t('import.dropzoneText')}</div>
               <div class="import-filename hidden" id="import-filename"></div>
-              <input type="file" id="import-file" accept=".keeplocal,.json,.keeplocal.json" style="display:none">
+              <input type="file" id="import-file" accept=".keeplocal" style="display:none">
             </div>
             <div class="form-group">
               <label for="import-password">${t('import.backupPassword')}</label>
               <input type="password" id="import-password" placeholder="${t('import.backupPlaceholder')}">
             </div>
-            <div class="form-error" id="import-error"></div>
+            <div class="form-error" id="import-error" role="alert"></div>
             <div class="form-actions">
               <button type="button" class="btn-primary" id="import-btn" disabled>${t('import.importButton')}</button>
             </div>
@@ -183,6 +179,7 @@ function initAuthListeners(container, onAuthenticated) {
     container.querySelector('#rule-common').classList.toggle('valid',checks.notCommon);
     container.querySelector('#rule-common').textContent=t('validation.'+(reason||'common'));
     container.querySelector('#password-strength').textContent=t('password.strength.'+strength);
+    container.querySelector('#password-strength').dataset.strength=strength;
 
     const allValid = valid;
     const matches = pw === createConfirm.value && createConfirm.value.length > 0;
@@ -229,7 +226,7 @@ function initAuthListeners(container, onAuthenticated) {
 
   container.querySelector('#reset-vault').addEventListener('click',async()=>{
     const {resetVault}=await import('./account.js');
-    const confirmation=window.prompt(t('account.resetPrompt'));
+    const confirmation=await wordDialog(t('account.resetPrompt'),{title:t('account.reset'),word:t('account.resetWord'),danger:true});
     try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
   });
 

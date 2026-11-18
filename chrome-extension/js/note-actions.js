@@ -6,12 +6,12 @@ export function planNoteChange(note,change,captured) {
   const fields=Object.fromEntries(Object.keys(next).filter(k=>JSON.stringify(next[k])!==JSON.stringify(before[k])).map(k=>[k,structuredClone(next[k])]));
   return {source:note,next,fields};
 }
-export async function persistNoteBatch(plans,{enqueue,getVersion,key,vaultId,signal,onCommitted=()=>{},assertCurrent=()=>{}}) {
+export async function persistNoteBatch(plans,{enqueue,getVersion,key,vaultId,signal,onCommitted=()=>{},assertCurrent=()=>{},replan=()=>{}}) {
   const ids=[...new Set(plans.map(p=>p.next.id))].sort();
   const lock=index=>index<ids.length?enqueue(ids[index],()=>lock(index+1)):write();
   const write=async()=>{
     if(signal?.aborted)throw Error('session.ended');
-    assertCurrent();
+    assertCurrent();replan();assertCurrent();
     const records=[];
     for(const {next} of plans){
       const known=getVersion(next.id);
