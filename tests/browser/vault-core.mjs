@@ -48,7 +48,10 @@ async function openVaultFirst(p) {
 }
 
 async function seedUnreadableVault(p,item) {
-  const source=JSON.stringify({...item,blocks:[{...item.blocks[1],extra:true}]});
+  await seedUnreadable(p,item,JSON.stringify({...item,blocks:[{...item.blocks[1],extra:true}]}));
+}
+
+async function seedUnreadable(p,item,source) {
   await p.eval(`(async()=>{
     const c=await import('./js/crypto.js'),d=await import('./js/db.js'),a=await import('./js/app.js');
     const record=${JSON.stringify(item)};
@@ -760,6 +763,42 @@ export async function run({browser,check,assert}) {
       assert.equal(await p.eval("document.querySelector('#main-inner').innerText.includes('public-fictitious')"),true);
       assert.deepEqual(p.errors,[]);
     } finally {await p.close();}
+  });
+
+  await check('D1.2 recovery masks all four unreadable shapes until explicit reveal',async()=>{
+    const p=await browser.page();
+    const sentinels=Array.from({length:4},testSentinel);
+    const {scan,dispose}=await makeVaultScanner(browser,p,assert,sentinels);
+    try {
+      await create(p);
+      for(const [index,marker] of sentinels.entries()) {
+        const item=vaultFixture({blocks:[{id:crypto.randomUUID(),kind:'field',label:'Password',value:marker,secret:true}]});
+        const types=['vault','Vault',' vault ','text'];
+        const json=JSON.stringify({...item,type:types[index]});
+        await seedUnreadable(p,item,index===0?json.slice(0,-2):json);
+      }
+      await p.reload();
+      await unlock(p);
+      await mockVaultTimers(p);
+      await p.eval("document.querySelector('#recover-notes-btn').click()");
+      await p.until("document.querySelectorAll('.recovery-record').length===4");
+      const revealed=new Set();
+      for(let index=0;index<sentinels.length;index++) {
+        await p.eval(`document.querySelectorAll('.recovery-record')[${index}].click()`);
+        await p.until("!document.querySelector('#recovery-show-sensitive').hidden||document.querySelector('#recovery-content').value!==''");
+        await scan('Recovery record '+index+' before explicit reveal');
+        assert.equal(await p.eval("document.querySelector('#recovery-copy').disabled"),true);
+        await p.eval("document.querySelector('#recovery-show-sensitive').click()");
+        const content=await p.eval("document.querySelector('#recovery-content').value");
+        const marker=sentinels.find(marker=>content.includes(marker));
+        assert.ok(marker);
+        revealed.add(marker);
+        await p.eval("vaultTimers.fire(15000)");
+        await scan('Recovery record '+index+' after auto-hide');
+      }
+      assert.equal(revealed.size,sentinels.length);
+      assert.deepEqual(p.errors,[]);
+    } finally {dispose();await p.close();}
   });
 
 }

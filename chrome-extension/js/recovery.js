@@ -2,6 +2,16 @@ import { decrypt,base64ToArray } from './crypto.js';
 import { recoveredNote,discardRecord,exportForDiscard,validateDiscardReceipt,forgetDiscardReceipt } from './recovery-actions.js';
 import { t,tp } from './i18n.js';
 import { focusPanel } from './form-ui.js';
+function needsExplicitReveal(text) {
+  try {
+    const record = JSON.parse(text);
+    return record !== null && typeof record === 'object' &&
+      (Object.hasOwn(record, 'blocks') || String(record.type).trim().toLowerCase() === 'vault');
+  } catch {
+    return true;
+  }
+}
+
 export function renderRecovery(container,issues,key,{signal,secretUI,onClose,onCreate,onDiscard}) {
   container.replaceChildren();
   const sensitiveLabel=t('vault.recoveryReveal');
@@ -79,9 +89,7 @@ export function renderRecovery(container,issues,key,{signal,secretUI,onClose,onC
       try{
         const text=await decrypt(key,base64ToArray(issue.record.iv),base64ToArray(issue.record.ciphertext));
         if(!signal.aborted&&request===selected&&container.isConnected){
-          let isVault=false;
-          try {isVault=JSON.parse(text)?.type==='vault';} catch {}
-          if(isVault){
+          if(needsExplicitReveal(text)){
             sensitiveText=text;
             reveal.hidden=false;
           } else {
