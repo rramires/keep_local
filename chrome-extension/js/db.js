@@ -21,10 +21,10 @@ export function assertWritable() {
   if (isReadOnly()) throw Object.assign(new Error('vault.readOnly'), {code:'vault.readOnly'});
 }
 
-async function writeTransaction(stores) {
-  assertWritable();
+async function writeTransaction(stores,explicitTransition=false) {
+  if(!explicitTransition) assertWritable();
   const db = await openDB();
-  assertWritable();
+  if(!explicitTransition) assertWritable();
   return db.transaction(stores, 'readwrite');
 }
 
@@ -171,8 +171,12 @@ export async function isFirstUse() {
   return salt === null;
 }
 
-export async function vaultTransaction(action) {
-  const tx = await writeTransaction(['notes', 'meta']);
+export function vaultTransaction(action) {
+  return transactVault(action);
+}
+
+async function transactVault(action,explicitTransition=false) {
+  const tx = await writeTransaction(['notes', 'meta'],explicitTransition);
   return new Promise((resolve, reject) => {
     let result, failure;
     const fail = (error) => { failure ||= error; try { tx.abort(); } catch {} };
@@ -201,16 +205,53 @@ export function createVault(values) {
 }
 
 export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
-  return vaultTransaction(({tx,notes,meta},done,fail)=>{
+  return replaceLocalVault(records,values,expected,signal);
+}
+
+export function resetFolderLockedVault(expected,vaultId) {
+  return replaceLocalVault([],{vaultId},expected,undefined,true);
+}
+
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false) {
+  return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.revision||0)!==(expected.revision||0)||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('vault.changed');
+      assertVaultSnapshot(current,expected);
       replace();
     }catch(error){fail(error);}};
-  });
+  },explicitTransition);
+}
+
+export function storeFolderConnection(handle,expected,vaultId,{signal,transition=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try {
+        const actual=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        assertVaultSnapshot(actual,expected);
+        if(!actual.vaultId&&vaultId)meta.put({key:'vaultId',value:vaultId});
+        if(handle){
+          meta.put({key:'syncFolder',value:handle});
+          meta.put({key:'folderConnectionId',value:crypto.randomUUID()});
+        }else{
+          meta.delete('syncFolder');
+          meta.delete('folderConnectionId');
+        }
+        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        done();
+      }catch(error){fail(error);}
+    };
+  },transition);
+}
+
+function assertVaultSnapshot(current,expected) {
+  const keys=['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
+    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'];
+  if(keys.some(key=>current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
 }
 
 export async function readVault() {

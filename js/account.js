@@ -1,5 +1,5 @@
 import {noticeDialog} from './dialogs.js';
-import { readVault, replaceVault, assertWritable } from './db.js';
+import { readVault, replaceVault, resetFolderLockedVault, assertWritable } from './db.js';
 import { generateSalt, deriveKey, verifyKeyCheck, createKeyCheck, encrypt, arrayToBase64, arrayBufferToBase64, base64ToArray } from './crypto.js';
 import { decryptRecords } from './backup-format.js';
 import { validatePassword } from './password-policy.js';
@@ -32,6 +32,15 @@ export async function resetVault(confirmation) {
   await replaceVault({notes:[],meta:{vaultId}},previous.meta);
   clearSession();publishVaultEvent('vault-replaced',{vaultId});
 }
+export async function resetFromLogin(confirmation,expected) {
+  if(confirmation!==t('account.resetWord'))throw new Error(t('account.resetCancelled'));
+  if(await getSessionKey())throw new Error(t('vault.changed'));
+  const vaultId=crypto.randomUUID();
+  await resetFolderLockedVault(expected,vaultId);
+  clearSession();
+  publishVaultEvent('vault-replaced',{vaultId});
+}
+
 export function renderPasswordChange(container,onChanged,{signal,onRecovery,onClose}={}) {
   const trigger=document.activeElement;
   container.innerHTML=`<form id="change-password-form" class="panel-form">

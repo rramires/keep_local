@@ -477,4 +477,46 @@ export async function run({check,assert}) {
       assert.deepEqual(p.errors,[]);
     } finally { await browser.close(); }
   });
+
+  await check('G0 locked import explains the configured folder and typed reset preserves the directory',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      await harness.add(p,'Local reset fixture','Fictitious');
+      await p.eval(`(async()=>{
+        const folder=await import('./js/folder-store.js'),app=await import('./js/app.js');
+        const {handle}=await folder.chooseSyncFolder({key:app.getCryptoKey()});
+        const marker=await handle.getFileHandle('owner-fixture.txt',{create:true});
+        const stream=await marker.createWritable();await stream.write('keep this');await stream.close();
+      })()`);
+      await p.reload();
+      await p.until("!!document.querySelector('#login-form:not(.hidden)')");
+      await p.eval(`(()=>{
+        document.querySelector('[data-tab=import]').click();
+        const data=new DataTransfer();data.items.add(new File(['fixture'],'test.keeplocal'));
+        const input=document.querySelector('#import-file');input.files=data.files;input.dispatchEvent(new Event('change'));
+        const password=document.querySelector('#import-password');password.value='fictional';password.dispatchEvent(new Event('input'));
+        document.querySelector('#import-btn').click();
+      })()`);
+      await p.until("!!document.querySelector('#import-error').textContent");
+      assert.match(await p.eval("document.querySelector('#import-error').textContent"),/disconnect the folder after signing in or reset/i);
+      await p.eval("document.querySelector('[data-tab=login]').click();document.querySelector('#reset-vault').click()");
+      await p.until("!!document.querySelector('.app-dialog input')");
+      assert.match(await p.eval("document.querySelector('.app-dialog').innerText"),/copy in the folder will remain/i);
+      await p.eval(`(async()=>{
+        const {t}=await import('./js/i18n.js'),input=document.querySelector('.app-dialog input');
+        input.value=t('account.resetWord');input.dispatchEvent(new Event('input'));
+      })()`);
+      await p.waitForNavigation(()=>p.eval("document.querySelector('[data-dialog-action=confirm]').click()"));
+      await p.until("!!document.querySelector('#create-form:not(.hidden)')");
+      assert.equal(await p.eval(`(async()=>{
+        const {notes,meta}=await (await import('./js/db.js')).readVault();
+        return !notes.length&&!meta.salt&&!meta.syncFolder;
+      })()`),true);
+      assert.deepEqual(await p.eval('folderTest.entries()'),['owner-fixture.txt']);
+      assert.equal(await p.eval("(await (await (await folderTest.directory()).getFileHandle('owner-fixture.txt')).getFile()).text()"),'keep this');
+    } finally {await browser.close();}
+  });
 }

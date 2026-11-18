@@ -2,7 +2,7 @@ import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
+import { getMeta, getAllMetaRecords, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 import {requestFolderAccess} from './folder-store.js';
 
@@ -233,9 +233,15 @@ function initAuthListeners(container,onAuthenticated,folder) {
   });
 
   container.querySelector('#reset-vault').addEventListener('click',async()=>{
-    const {resetVault}=await import('./account.js');
-    const confirmation=await wordDialog(t('account.resetPrompt'),{title:t('account.reset'),word:t('account.resetWord'),danger:true});
-    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.code==='vault.readOnly'?t(error.code):error.message;}
+    const {resetVault,resetFromLogin}=await import('./account.js');
+    const expected=folder?Object.fromEntries((await getAllMetaRecords()).map(row=>[row.key,row.value])):null;
+    const prompt=t('account.resetPrompt')+(folder?' '+t('folder.resetPreservesCopy'):'');
+    const confirmation=await wordDialog(prompt,{title:t('account.reset'),word:t('account.resetWord'),danger:true});
+    try{
+      if(expected)await resetFromLogin(confirmation,expected);
+      else await resetVault(confirmation);
+      location.reload();
+    }catch(error){container.querySelector('#login-error').textContent=error.code==='vault.readOnly'?t(error.code):error.message;}
   });
 
   // --- Import ---
@@ -287,7 +293,7 @@ function initAuthListeners(container,onAuthenticated,folder) {
     importBtn.disabled = true;
 
     try {
-      // Import logic will be implemented in backup.js
+      if(folder)throw new Error(t('folder.importLocked'));
       const { importBackup } = await import('./backup.js');
       const key = await importBackup(selectedFile, importPw.value);
       onAuthenticated(key);

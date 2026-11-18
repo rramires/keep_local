@@ -1,4 +1,4 @@
-import {ensureVaultId,getAllMetaRecords,getMeta,isReadOnly,readVault,setWriteMode,vaultIdentity,vaultTransaction} from './db.js';
+import {ensureVaultId,getAllMetaRecords,getMeta,readVault,setWriteMode,storeFolderConnection,vaultIdentity} from './db.js';
 import {unreadableRecords} from './record-health.js';
 import {getSessionKey,getSessionVaultId,setSessionVaultId} from './session.js';
 
@@ -53,29 +53,6 @@ async function requireSession(key,signal) {
   if(signal?.aborted || !key || key!==await getSessionKey() || signal?.aborted) throw failure('session.ended');
 }
 
-function writeSyncFolder(handle,expected,signal,vaultId) {
-  return vaultTransaction(({tx,meta},done,fail)=>{
-    if(signal?.aborted){fail(failure('session.ended'));return;}
-    const abort=()=>fail(failure('session.ended'));
-    signal?.addEventListener('abort',abort,{once:true});
-    for(const event of ['complete','abort']) {
-      tx.addEventListener(event,()=>signal?.removeEventListener('abort',abort),{once:true});
-    }
-    const query=meta.getAll();
-    query.onsuccess=()=>{
-      try {
-        const actual=Object.fromEntries(query.result.map(({key,value})=>[key,value]));
-        if(actual.salt!==expected.salt || actual.vaultId!==expected.vaultId ||
-           (actual.revision||0)!==(expected.revision||0)) throw failure('vault.changed');
-        if(!actual.vaultId && vaultId) meta.put({key:'vaultId',value:vaultId});
-        if(handle) meta.put({key:'syncFolder',value:handle});
-        else meta.delete('syncFolder');
-        done();
-      } catch(error) {fail(error);}
-    };
-  });
-}
-
 export async function chooseSyncFolder({key,signal,hasUnreadable=false}={}) {
   if(!folderSupported()) throw failure('folder.unsupported');
   if(hasUnreadable) throw failure('folder.unreadable');
@@ -87,14 +64,7 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false}={}) {
   if(vaultIdentity(snapshot.meta)!==getSessionVaultId()) throw failure('vault.changed');
   if((await unreadableRecords(snapshot.notes,key)).length) throw failure('folder.unreadable');
   await requireSession(key,signal);
-  const readOnly=isReadOnly(),vaultId=getSessionVaultId();
-  if(readOnly) setWriteMode('readWrite');
-  try {
-    await writeSyncFolder(handle,snapshot.meta,signal,vaultId);
-  } catch(error) {
-    if(readOnly&&!signal?.aborted) setWriteMode('readOnly');
-    throw error;
-  }
+  await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta}});
   return {handle,status};
 }
 
@@ -104,10 +74,17 @@ export async function disconnectSyncFolder({key,signal}={}) {
   const snapshot=Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
   if(vaultIdentity(snapshot)!==getSessionVaultId()) throw failure('vault.changed');
   await requireSession(key,signal);
-  await writeSyncFolder(null,snapshot,signal);
+  await storeFolderConnection(null,snapshot,null,{signal});
 }
 
-export async function enableFolderWrites({key,signal}={}) {
+export async function enableFolderWrites({key,signal,selection}={}) {
+  if(selection){
+    await requireSession(key,signal);
+    await storeFolderConnection(selection.handle,selection.snapshot,getSessionVaultId(),{signal,transition:true});
+    await requireSession(key,signal);
+    setWriteMode('readWrite');
+    return;
+  }
   await requireSession(key,signal);
   const values=Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
   if(vaultIdentity(values)!==getSessionVaultId()) throw failure('vault.changed');
