@@ -426,4 +426,45 @@ export async function run({browser,check,assert}) {
     } finally {await p.close();}
   });
 
+  await check('T4.10 note and vault labels stay isolated in selectors, managers and filters',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      const regular=note({title:'Regular item',labels:['Work','Notes Only']});
+      const vaultWork=vaultFixture({title:'Fictional work credential',labels:['Work','Vault Only']});
+      const vaultOther=vaultFixture({title:'Other fictional credential',labels:['Personal Vault']});
+      await save(p,regular);
+      await save(p,vaultWork);
+      await save(p,vaultOther);
+      await p.eval("document.querySelector('[data-view=notes]').click()");
+      assert.equal(await p.eval("document.querySelector('#sidebar-labels').textContent.includes('Vault Only')"),false);
+      assert.equal(await p.eval("document.querySelector('#sidebar-labels').textContent.includes('Notes Only')"),true);
+
+      await p.eval("document.querySelector('.note-card').click()");
+      await p.until("!!document.querySelector('#modal-labels-btn')");
+      await p.eval("document.querySelector('#modal-labels-btn').click()");
+      await p.until("!!document.querySelector('.labels-picker-popup')");
+      assert.equal(await p.eval("document.querySelector('.labels-picker-popup').textContent.includes('Vault Only')"),false);
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('#modal-overlay').classList.contains('open')");
+
+      await p.eval("document.querySelector('#edit-labels-btn').click()");
+      await p.until("!!document.querySelector('#labels-manager')");
+      assert.equal(await p.eval("[...document.querySelectorAll('#labels-manager [data-label]')].some(el=>el.dataset.label==='Vault Only')"),false);
+      await p.eval("document.querySelector('.label-delete-btn[data-label=Work]').click()");
+      await p.until("(await import('./js/app.js')).getNotes().some(n=>n.type==='text'&&!n.labels.includes('Work'))");
+      assert.equal(await p.eval("(await import('./js/app.js')).getNotes().some(n=>n.type==='vault'&&n.labels.includes('Work'))"),true);
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('#modal-overlay').classList.contains('open')");
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      assert.equal(await p.eval("document.querySelector('.vault-label-filters').textContent.includes('Notes Only')"),false);
+      await p.eval("document.querySelector('[data-vault-filter=Work]').click()");
+      assert.equal(await p.eval("document.querySelectorAll('.vault-card').length"),1);
+      assert.equal(await p.eval("document.querySelector('.vault-card-title').textContent"),vaultWork.title);
+      await p.eval("const label=document.querySelector('.vault-card [data-vault-label=Work]');label.closest('details').open=true;label.click()");
+      await p.until("!(await import('./js/app.js')).getNotes().some(n=>n.type==='vault'&&n.labels.includes('Work'))");
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
 }

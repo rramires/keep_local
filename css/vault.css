@@ -54,3 +54,6 @@
 .vault-editor [hidden], #recovery-show-sensitive[hidden] { display: none; }
 .vault-edit-secret { -webkit-text-security: disc; }
 .vault-editor-status:empty { display: none; }
+
+.vault-label-filters { margin-block: 0 14px; }
+.vault-label-filters button, .vault-card-options button { max-width: 100%; overflow-wrap: anywhere; }

@@ -1,7 +1,7 @@
 import {SECRET_MASK} from './secret-ui.js';
 import {t, tp} from './i18n.js';
 import {COLORS} from './note-model.js';
-import {isSecretField, vaultSubtitle} from './vault-model.js';
+import {isSecretField, vaultMatches, vaultSubtitle} from './vault-model.js';
 
 export function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -33,9 +33,20 @@ function cardColor(item, change) {
   return picker;
 }
 
-function cardLabels(item, change) {
+function cardLabels(item, change, labels) {
   const panel = element('details', 'vault-card-options');
   panel.append(element('summary', '', t('modal.labels')));
+  const choices = element('div', 'vault-card-actions');
+  for (const label of labels) {
+    const button = vaultButton(label, () => change(item, next => {
+      if (next.labels.includes(label)) next.labels = next.labels.filter(value => value !== label);
+      else next.labels.push(label);
+    }));
+    button.dataset.vaultLabel = label;
+    button.setAttribute('aria-pressed', String(item.labels.includes(label)));
+    choices.append(button);
+  }
+  panel.append(choices);
   const form = element('form', 'vault-label-form');
   const input = element('input');
   input.placeholder = t('labels.newLabel');
@@ -57,7 +68,7 @@ function cardLabels(item, change) {
   return panel;
 }
 
-export function renderVaultCard(item, {open, change, remove, trash = false}) {
+export function renderVaultCard(item, {open, change, remove, labelOptions = [], trash = false}) {
   const card = element('article', 'vault-card');
   card.dataset.color = item.color;
   card.setAttribute('translate', 'no');
@@ -94,13 +105,17 @@ export function renderVaultCard(item, {open, change, remove, trash = false}) {
     pin.setAttribute('aria-pressed', String(item.pinned));
     const trash = vaultButton(t('card.delete'), () => change(item, next => { next.deletedAt = Date.now(); }));
     trash.dataset.vaultAction = 'trash';
-    actions.append(pin, cardColor(item, change), cardLabels(item, change), trash);
+    actions.append(pin, cardColor(item, change), cardLabels(item, change, labelOptions), trash);
   }
   card.append(actions);
   return card;
 }
 
-export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, searchActive, ...cardActions}) {
+export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, query, selectedLabel, onLabel, ...cardActions}) {
+  const labels = [...new Set(items.flatMap(item => item.labels).filter(Boolean))].sort();
+  const activeLabel = labels.includes(selectedLabel) ? selectedLabel : null;
+  const searchActive = !!query;
+  const matching = items.filter(item => (!activeLabel || item.labels.includes(activeLabel)) && vaultMatches(item, query));
   const section = element('section', 'vault-section');
   section.setAttribute('translate', 'no');
   section.dataset.vaultSearchActive = String(!!searchActive);
@@ -123,14 +138,26 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, onDism
     tip.append(element('span', '', t('vault.clipboardWarning')), vaultButton(t('vault.dismissWarning'), onDismissWarning));
     section.append(tip);
   }
-  if (items.length) {
+  if (labels.length) {
+    const filters = element('div', 'vault-label-filters vault-card-actions');
+    filters.setAttribute('aria-label', t('modal.labels'));
+    filters.setAttribute('role', 'group');
+    for (const label of [null, ...labels]) {
+      const button = vaultButton(label ?? t('vault.allLabels'), () => onLabel(label));
+      button.dataset.vaultFilter = label ?? '';
+      button.setAttribute('aria-pressed', String(activeLabel === label));
+      filters.append(button);
+    }
+    section.append(filters);
+  }
+  if (matching.length) {
     const cards = element('div', 'vault-cards');
     cards.dataset.layout = layout;
-    const sorted = items.toSorted((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order);
-    for (const item of sorted) cards.append(renderVaultCard(item, cardActions));
+    const sorted = matching.toSorted((a, b) => Number(b.pinned) - Number(a.pinned) || a.order - b.order);
+    for (const item of sorted) cards.append(renderVaultCard(item, {...cardActions, labelOptions:labels}));
     section.append(cards);
   } else {
-    section.append(element('p', 'vault-empty', t(searchActive ? 'vault.noResults' : 'vault.empty')));
+    section.append(element('p', 'vault-empty', t(searchActive || activeLabel ? 'vault.noResults' : 'vault.empty')));
   }
   root.replaceChildren(section);
 }

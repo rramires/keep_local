@@ -1,4 +1,3 @@
-import {vaultMatches} from './vault-model.js';
 import {newVaultItem, renderVaultEditor} from './vault-editor.js';
 import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
@@ -47,6 +46,7 @@ let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let vaultLayout = 'grid';
+let vaultLabel = null;
 let vaultClipboardWarningDismissed = false;
 let sidebarCollapsed = false;
 let unreadableCount = 0;
@@ -88,7 +88,7 @@ function teardownSession() {
   const modal=document.querySelector('.modal-card');
   if(modal?._keyHandler)document.removeEventListener('keydown',modal._keyHandler);
   document.querySelectorAll('.color-picker-popup,.labels-picker-popup,.card-menu-popup,.confirm-dialog').forEach(p=>p.remove());
-  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';
+  newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';vaultLabel=null;
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
 function showAuth(message='') {
@@ -512,8 +512,9 @@ function renderCurrentView() {
       break;
     case 'vault':
       renderVaultSection(document.getElementById('main-inner'), {
-        items: notes.filter(note => note.type === 'vault' && !note.deletedAt && vaultMatches(note,vaultSearch)),
-        searchActive: !!vaultSearch,
+        items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
+        query: vaultSearch,
+        selectedLabel: vaultLabel, onLabel: label => { vaultLabel=label; renderCurrentView(); },
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
         onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
@@ -1713,6 +1714,7 @@ function openLabelsPickerModal(note) {
 function getAllLabels() {
   const labelSet = new Set();
   notes.forEach(n => {
+    if (n.type === 'vault') return;
     (n.labels || []).forEach(l => labelSet.add(l));
   });
   return Array.from(labelSet).sort();
@@ -1785,7 +1787,7 @@ function openLabelsManager() {
       const oldName = input.dataset.old;
       const newName = input.value.trim();
       if (newName && newName !== oldName) {
-        if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(oldName)),next=>{next.labels=[...new Set(next.labels.map(l=>l===oldName?newName:l))];})){input.value=oldName;return false;}
+        if(!await changeManyFromUI(notes.filter(n=>n.type!=='vault'&&n.labels?.includes(oldName)),next=>{next.labels=[...new Set(next.labels.map(l=>l===oldName?newName:l))];})){input.value=oldName;return false;}
         row.querySelector('.label-delete-btn').dataset.label=newName;
         if(currentLabel===oldName)currentLabel=newName;
         input.dataset.old = newName;
@@ -1800,7 +1802,7 @@ function openLabelsManager() {
     btn.addEventListener('click', async () => {
       if(await btn.closest('.label-row')._renaming===false)return;
       const label = btn.dataset.label;
-      if(!await changeManyFromUI(notes.filter(n=>n.labels?.includes(label)),next=>{next.labels=next.labels.filter(l=>l!==label);} ))return false;
+      if(!await changeManyFromUI(notes.filter(n=>n.type!=='vault'&&n.labels?.includes(label)),next=>{next.labels=next.labels.filter(l=>l!==label);} ))return false;
       btn.closest('.label-row').remove();
       updateSidebarLabels();
     });

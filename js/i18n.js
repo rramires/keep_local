@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'vault.allLabels': 'All labels',
   'vault.noResults': 'No matching items.',
   'vault.title': 'Title',
   'vault.fieldLabel': 'Label',
@@ -273,6 +274,7 @@ const en = {
 };
 
 const ptBR = {
+  'vault.allLabels': 'Todas as etiquetas',
   'vault.noResults': 'Nenhum item encontrado.',
   'vault.title': 'Título',
   'vault.fieldLabel': 'Rótulo',
