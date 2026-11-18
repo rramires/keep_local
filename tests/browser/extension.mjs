@@ -519,4 +519,52 @@ export async function run({check,assert}) {
       assert.equal(await p.eval("(await (await (await folderTest.directory()).getFileHandle('owner-fixture.txt')).getFile()).text()"),'keep this');
     } finally {await browser.close();}
   });
+
+  await check('G1 folder candidates are bounded, authenticated and ordered by encrypted revision',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture}=await import('./backup-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      await harness.add(p,'Encrypted candidate fixture','Fictitious');
+      const read=()=>p.eval(`(async()=>{
+        const f=await import('./js/folder-vault.js'),db=await import('./js/db.js'),app=await import('./js/app.js');
+        const {head,candidates,divergent,unreadable,otherSalt,tooLarge,limitExceeded}=await f.readFolderState(await folderTest.directory(true),app.getCryptoKey(),await db.getMeta('salt'));
+        return {top:head?.rev??null,candidates:candidates.map(row=>row.name).sort(),divergent,unreadable,otherSalt,tooLarge,limitExceeded};
+      })()`);
+      assert.deepEqual(await read(),{top:null,candidates:[],divergent:false,unreadable:[],otherSalt:[],tooLarge:[],limitExceeded:false});
+      const bytes=await p.eval(`(async()=>{
+        const {notes,meta}=await(await import('./js/db.js')).readVault();
+        const {encodeV2,makePayload}=await import('./js/backup-v2.js');
+        const key=(await import('./js/app.js')).getCryptoKey(),salt=Uint8Array.fromBase64(meta.salt);
+        const encode=async(rev,preferences={})=>(await encodeV2(key,salt,makePayload(notes,preferences,rev))).toBase64();
+        return {main:await encode(1),copy:await encode(2),tie:await encode(2,{lang:'pt-BR'})};
+      })()`);
+      const main='keeplocal-vault.keeplocal';
+      await writeFolderFixture(p,main,bytes.main);
+      assert.equal((await read()).top,1);
+      await writeFolderFixture(p,'keeplocal-vault (1).keeplocal',bytes.copy);
+      assert.equal((await read()).top,2);
+      await writeFolderFixture(p,'tie.keeplocal',bytes.tie);
+      const tampered=Buffer.from(bytes.main,'base64');tampered[tampered.length-1]^=1;
+      await writeFolderFixture(p,'tampered.keeplocal',tampered.toString('base64'));
+      await writeFolderFixture(p,'other.keeplocal',(await backupFixture()).base64);
+      await writeFolderFixture(p,'desktop.ini',bytes.copy);
+      await writeFolderFixture(p,'temporary.keeplocal.crswap',bytes.copy);
+      await p.eval(`(async()=>{
+        const dir=await folderTest.directory(),file=await dir.getFileHandle('oversized.keeplocal',{create:true});
+        const writer=await file.createWritable();await writer.truncate(64*1024*1024+1);await writer.close();
+      })()`);
+      const state=await read();
+      assert.equal(state.top,2);
+      assert.equal(state.divergent,true);
+      assert.deepEqual(state.unreadable,['tampered.keeplocal']);
+      assert.deepEqual(state.otherSalt,['other.keeplocal']);
+      assert.deepEqual(state.tooLarge,['oversized.keeplocal']);
+      assert.equal(state.candidates.length,6);
+      assert.equal(await p.eval("folderTest.events.filter(event=>event.kind==='deriveKey').length"),1);
+    } finally {await browser.close();}
+  });
 }
