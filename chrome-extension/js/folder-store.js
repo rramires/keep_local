@@ -29,7 +29,8 @@ export async function requestFolderAccess(handle) {
     const result=permission==='prompt'?await handle.requestPermission(access):permission;
     return result==='granted'?null:'denied';
   } catch(error) {
-    return folderError(error);
+    const status=folderError(error);
+    return status==='notFound'?'error:NotFoundError':status;
   }
 }
 
@@ -43,7 +44,9 @@ export async function probeFolder(handle) {
 }
 
 export async function checkFolder(handle,permissionFailure) {
-  return permissionFailure ?? await probeFolder(handle);
+  if(permissionFailure==='denied') return permissionFailure;
+  const actual=await probeFolder(handle);
+  return actual==='ok'?(permissionFailure??actual):actual;
 }
 
 async function requireSession(key,signal) {

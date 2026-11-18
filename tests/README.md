@@ -26,9 +26,20 @@ ZIP while library SHA-256 verification still runs against tracked source files.
 The independent reviewer probes and real unpacked-extension/UI compatibility
 scripts are preserved under the owner's ignored `_temp/` folder.
 
-The File System Access spike is a separate disposable package outside Git. It
-adds no synchronization behavior to this app. Automatic folder writing and the
-password/key section remain blocked pending explicit owner authorization.
+## Extension folder verification
+
+The browser runner also loads the real unpacked MV3 extension in a fresh
+Chromium profile using the ID documented in the README. Synchronize the tracked
+extension copies with `bash build-extension.sh` before running new browser tests
+against a runtime change. The final gate repeats the complete HTTP and extension
+runner three consecutive times.
+
+The extension fixtures install the picker substitute and permission, PBKDF2 and
+IndexedDB spies via CDP. They use the origin-private file system with fictitious
+directories. The app lists the chosen directory and stores its handle locally.
+The tests check that it creates zero files, and that read-only mode starts zero
+IndexedDB readwrite transactions. The Windows Chrome chooser and persistent grant
+are covered by the owner's manual procedure.
 
 ## Phase 2c verification
 

@@ -449,4 +449,32 @@ export async function run({check,assert}) {
       assert.deepEqual(p.errors,[]);
     } finally { await browser.close(); }
   });
+
+  await check('F6 only a directory listing can classify a folder as unavailable by name',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      const result=await p.eval(`(async()=>{
+        const f=await import('./js/folder-store.js');
+        const handle=await folderTest.directory(true);
+        const untouched=await folderTest.entries();
+        folderTest.clear();
+        FileSystemHandle.prototype.queryPermission=async()=>{
+          throw new DOMException('Fictitious permission inspection error','NotFoundError');
+        };
+        const failure=await f.requestFolderAccess(handle);
+        const existing=await f.checkFolder(handle,failure);
+        await folderTest.remove();
+        const missing=await f.checkFolder(handle,failure);
+        return {existing,missing,untouched,events:folderTest.events.map(event=>event.kind),writes:folderTest.writes};
+      })()`);
+      assert.deepEqual(result,{
+        existing:'error:NotFoundError',missing:'notFound',untouched:[],
+        events:['list','list'],writes:{},
+      });
+      assert.deepEqual(p.errors,[]);
+    } finally { await browser.close(); }
+  });
 }
