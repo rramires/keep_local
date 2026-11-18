@@ -1,3 +1,4 @@
+import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
 import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
 import {confirmDialog,closeDialogs} from './dialogs.js';
@@ -43,6 +44,7 @@ let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let vaultLayout = 'grid';
+let vaultClipboardWarningDismissed = false;
 let sidebarCollapsed = false;
 let unreadableCount = 0;
 let unreadableRecords=[];
@@ -50,6 +52,7 @@ let notes = []; // Decrypted notes in memory
 
 // DOM references
 const appContainer = document.getElementById('app-container');
+const secretUI = createSecretUI({notify: showToast});
 
 // --- Bootstrap ---
 
@@ -74,6 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
+  secretUI.dispose();
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
@@ -118,9 +122,10 @@ async function showApp({reload=true}={}) {
   await purgeExpiredTrash();
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
-  const layout = await getMeta('vaultLayout');
+  const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
   if(generation!==sessionGeneration)return;
   vaultLayout = layout === 'list' ? 'list' : 'grid';
+  vaultClipboardWarningDismissed = warningDismissed === true;
   renderCurrentView();
   await requestPersistence();
 }
@@ -486,6 +491,7 @@ function renderCurrentView() {
       renderVaultSection(document.getElementById('main-inner'), {
         items: notes.filter(note => note.type === 'vault' && !note.deletedAt),
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
+        onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
       });
       break;
     case 'archive':
@@ -515,7 +521,7 @@ function renderCurrentView() {
       if(controller.signal.aborted||!cryptoKey)return;
       renderCurrentView();
       if(!unreadableRecords.length){await closeModal();return;}
-      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
+      renderRecovery(document.getElementById('modal-card'),unreadableRecords,cryptoKey,{signal:controller.signal,secretUI,onClose:closeModal,onCreate:note=>saveFromUI(note),onDiscard:async()=>{await closeModal();await loadNotes();renderCurrentView();}});
       document.getElementById('modal-overlay').classList.add('open');
     });
     warning.append(recover);document.getElementById('main-inner').prepend(warning);
@@ -535,6 +541,18 @@ const vaultCardActions = {
     }
   },
 };
+
+async function dismissVaultClipboardWarning() {
+  const signal = scope.signal;
+  try {
+    await saveMeta('vaultClipboardWarningDismissed', true);
+    if (signal.aborted) return;
+    vaultClipboardWarningDismissed = true;
+    if (currentView === 'vault') renderCurrentView();
+  } catch {
+    if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
+}
 
 async function setVaultLayout(layout) {
   const signal = scope.signal;
@@ -930,7 +948,7 @@ function openVaultDetail(item) {
   modalController = controller;
   const signal = controller.signal;
   const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`);
-  renderVaultDetail(modal, item, {onClose: closeModal, signal});
+  renderVaultDetail(modal, item, {onClose: closeModal, controls: secretUI, signal});
   focusPanel(modal, {signal, trigger, titleId: 'vault-detail-title', initial: '#modal-close'});
   document.getElementById('modal-overlay').classList.add('open');
 }

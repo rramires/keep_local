@@ -1,3 +1,4 @@
+import {SECRET_MASK} from './secret-ui.js';
 import {t, tp} from './i18n.js';
 import {COLORS} from './note-model.js';
 import {isSecretField, vaultSubtitle} from './vault-model.js';
@@ -99,7 +100,7 @@ export function renderVaultCard(item, {open, change, remove, trash = false}) {
   return card;
 }
 
-export function renderVaultSection(root, {items, layout, onLayout, onNew, ...cardActions}) {
+export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, ...cardActions}) {
   const section = element('section', 'vault-section');
   section.setAttribute('translate', 'no');
   const toolbar = element('header', 'vault-toolbar');
@@ -116,6 +117,11 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, ...car
   }
   toolbar.append(controls);
   section.append(toolbar);
+  if (onDismissWarning) {
+    const tip = element('div', 'vault-clipboard-tip notice notice-warning');
+    tip.append(element('span', '', t('vault.clipboardWarning')), vaultButton(t('vault.dismissWarning'), onDismissWarning));
+    section.append(tip);
+  }
   if (items.length) {
     const cards = element('div', 'vault-cards');
     cards.dataset.layout = layout;
@@ -128,7 +134,7 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, ...car
   root.replaceChildren(section);
 }
 
-export const SECRET_MASK = '••••••••';
+
 
 function readingBlock(block, {controls, signal}) {
   if (block.kind === 'divider') return element('hr', 'vault-divider');

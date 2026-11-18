@@ -5,6 +5,14 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'vault.hide': "Hide",
+  'vault.copied': "Copied. The clipboard will be cleared in 20 seconds.",
+  'vault.copyFailed': "Could not write to the clipboard.",
+  'vault.clipboardPending': "The clipboard could not be cleared automatically. Clear it if it still contains your copied value.",
+  'vault.clearClipboard': "Clear now",
+  'vault.clipboardWarning': "Windows clipboard history (Win+V) and cloud sync can retain copied values after KeepLocal clears the clipboard.",
+  'vault.dismissWarning': "Dismiss",
+  'vault.recoveryReveal': "Show content (may contain secrets)",
   'vault.field': 'Field',
   'vault.copy': 'Copy',
   'vault.reveal': 'Reveal',
@@ -252,6 +260,14 @@ const en = {
 };
 
 const ptBR = {
+  'vault.hide': "Ocultar",
+  'vault.copied': "Copiado. A área de transferência será limpa em 20 s.",
+  'vault.copyFailed': "Não foi possível escrever na área de transferência.",
+  'vault.clipboardPending': "A área de transferência não foi limpa automaticamente. Limpe se ela ainda contém o valor copiado.",
+  'vault.clearClipboard': "Limpar agora",
+  'vault.clipboardWarning': "O histórico da área de transferência do Windows (Win+V) e a sincronização na nuvem podem conservar valores copiados mesmo após a limpeza pelo KeepLocal.",
+  'vault.dismissWarning': "Dispensar",
+  'vault.recoveryReveal': "Mostrar conteúdo (pode conter segredos)",
   'vault.field': 'Campo',
   'vault.copy': 'Copiar',
   'vault.reveal': 'Revelar',

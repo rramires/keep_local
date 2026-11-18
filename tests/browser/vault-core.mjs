@@ -16,6 +16,52 @@ async function save(page,item) {
   await page.eval(`await(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
 }
 
+
+export async function mockVaultTimers(p) {
+  await p.eval(`(()=>{
+    const realSet=window.setTimeout.bind(window), realClear=window.clearTimeout.bind(window);
+    const timers=new Map();
+    let token=-1;
+    window.setTimeout=(fn,ms,...args)=>{
+      if(ms!==15000 && ms!==20000) return realSet(fn,ms,...args);
+      const id=token--;
+      timers.set(id,{ms,fn:()=>fn(...args)});
+      return id;
+    };
+    window.clearTimeout=id=>{if(id<0) timers.delete(id); else realClear(id);};
+    window.vaultTimers={
+      has:ms=>[...timers.values()].some(timer=>timer.ms===ms),
+      fire:ms=>{
+        const entry=[...timers.entries()].find(([,timer])=>timer.ms===ms);
+        if(!entry) throw Error('Expected vault timer');
+        timers.delete(entry[0]);
+        entry[1].fn();
+      },
+    };
+  })()`);
+}
+
+async function openVaultFirst(p) {
+  await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('[data-vault-open]').click()");
+  await p.until("!!document.querySelector('.vault-detail')");
+}
+
+async function seedUnreadableVault(p,item) {
+  const source=JSON.stringify({...item,blocks:[{...item.blocks[1],extra:true}]});
+  await p.eval(`(async()=>{
+    const c=await import('./js/crypto.js'),d=await import('./js/db.js'),a=await import('./js/app.js');
+    const record=${JSON.stringify(item)};
+    const {iv,ciphertext}=await c.encrypt(a.getCryptoKey(),${JSON.stringify(source)});
+    await d.saveNoteRecord({id:record.id,updatedAt:record.updatedAt,iv:c.arrayToBase64(iv),ciphertext:c.arrayBufferToBase64(ciphertext)});
+  })()`);
+}
+
+async function selectRecovery(p) {
+  await p.eval("document.querySelector('#recover-notes-btn').click()");
+  await p.until("!!document.querySelector('.recovery-record')");
+  await p.eval("document.querySelector('.recovery-record').click()");
+}
+
 export async function run({browser,check,assert}) {
   await check('T4.1 vault records stay out of notes and round-trip in the existing v2 envelope',async()=>{
     const p=await browser.page();
@@ -131,6 +177,83 @@ export async function run({browser,check,assert}) {
       await p.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});
       await p.until("!document.querySelector('#modal-overlay').classList.contains('open')");
       assert.equal(await p.eval("document.activeElement.dataset.vaultOpen"),item.id);
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.5 reveal expires, hides on visibility and is cleared on lock',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      await save(p,vaultFixture());
+      await mockVaultTimers(p);
+      await openVaultFirst(p);
+      await p.eval("document.querySelector('[data-vault-reveal]').click()");
+      assert.equal(await p.eval("document.querySelector('.vault-secret-value').textContent==='fictional-secret' && vaultTimers.has(15000)"),true);
+      await p.eval("vaultTimers.fire(15000)");
+      assert.equal(await p.eval("document.querySelector('.vault-secret-value').textContent"),'••••••••');
+      await p.eval("document.querySelector('[data-vault-reveal]').click();Object.defineProperty(document,'visibilityState',{value:'hidden',configurable:true});document.dispatchEvent(new Event('visibilitychange'))");
+      assert.equal(await p.eval("!document.documentElement.outerHTML.includes('fictional-secret')&&!vaultTimers.has(15000)"),true);
+      await p.eval("delete document.visibilityState;document.querySelector('[data-vault-reveal]').click();document.querySelector('#lock-btn').click()");
+      await p.until("!!document.querySelector('.auth-view')");
+      assert.equal(await p.eval("!document.documentElement.outerHTML.includes('fictional-secret')&&!vaultTimers.has(15000)"),true);
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.5 clipboard clears with focus and asks before clearing after lost focus',async()=>{
+    const p=await browser.page();
+    try {
+      await browser.cdp.send('Browser.grantPermissions',{browserContextId:p.contextId,origin:browser.origin,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
+      await create(p);
+      await save(p,vaultFixture());
+      await mockVaultTimers(p);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      assert.equal(await p.eval("!!document.querySelector('.vault-clipboard-tip')"),true);
+      await p.eval("document.querySelector('.vault-clipboard-tip button').click()");
+      await p.until("!document.querySelector('.vault-clipboard-tip')");
+      assert.equal(await p.eval("await(await import('./js/db.js')).getMeta('vaultClipboardWarningDismissed')"),true);
+      await openVaultFirst(p);
+      const copy="document.querySelector('.vault-secret-value').closest('.vault-read-field').querySelector('[data-vault-copy]').click()";
+      await p.eval(copy);
+      await p.until("vaultTimers.has(20000)");
+      assert.equal(await p.eval("navigator.clipboard.readText()"),'fictional-secret');
+      await p.eval("vaultTimers.fire(20000)");
+      await p.until("(await navigator.clipboard.readText())===''");
+      await p.eval(copy);
+      await p.until("vaultTimers.has(20000)");
+      await p.eval("window.vaultFocused=false;Object.defineProperty(document,'hasFocus',{value:()=>window.vaultFocused,configurable:true});vaultTimers.fire(20000)");
+      assert.equal(await p.eval("navigator.clipboard.readText()"),'fictional-secret');
+      assert.equal(await p.eval("!!document.querySelector('.vault-clipboard-pending')"),false);
+      await p.eval("window.vaultFocused=true;window.dispatchEvent(new Event('focus'))");
+      await p.until("!!document.querySelector('.vault-clipboard-pending')");
+      assert.equal(await p.eval("navigator.clipboard.readText()"),'fictional-secret');
+      await p.eval("document.querySelector('.vault-clipboard-pending button').click()");
+      await p.until("(await navigator.clipboard.readText())===''&&!document.querySelector('.vault-clipboard-pending')");
+      await p.eval(copy);
+      await p.until("vaultTimers.has(20000)");
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await p.until("!!document.querySelector('.auth-view')&&(await navigator.clipboard.readText())===''");
+      assert.equal(await p.eval("vaultTimers.has(20000)"),false);
+      assert.deepEqual(p.errors,[]);
+    } finally {await p.close();}
+  });
+
+  await check('T4.5 recovery of an unreadable vault is masked until an explicit reveal',async()=>{
+    const p=await browser.page();
+    try {
+      await create(p);
+      await seedUnreadableVault(p,vaultFixture());
+      await p.reload();
+      await unlock(p);
+      await selectRecovery(p);
+      await p.until("!!document.querySelector('#recovery-show-sensitive:not([hidden])')||document.querySelector('#recovery-content').value!==''");
+      assert.equal(await p.eval("document.querySelector('#recovery-content').value"),'');
+      assert.equal(await p.eval("document.querySelector('#recovery-copy').disabled"),true);
+      await p.eval("document.querySelector('#recovery-show-sensitive').click()");
+      assert.equal(await p.eval("document.querySelector('#recovery-content').value.includes('fictional-secret')"),true);
+      await p.eval("document.querySelector('#recovery-show-sensitive').click()");
+      assert.equal(await p.eval("document.querySelector('#recovery-content').value"),'');
       assert.deepEqual(p.errors,[]);
     } finally {await p.close();}
   });
