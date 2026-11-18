@@ -203,7 +203,7 @@ export function renderVaultDetail(modal, item, {onClose, onEdit, controls, signa
       for (const value of body.querySelectorAll('.vault-secret-value')) controls.hide(value);
     }, {signal});
   }
-  if (!item.deletedAt) {
+  if (!item.deletedAt && onEdit) {
     const edit = vaultButton(t('vault.edit'), onEdit, 'btn-primary');
     edit.dataset.vaultEdit = '';
     body.append(edit);

@@ -9,6 +9,7 @@ import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
 import {checkFolder,enableFolderWrites,folderSupported,readSyncFolder} from './folder-store.js';
+import {createFolderGate,quietReadOnlyCards,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
@@ -38,6 +39,7 @@ let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
 let loadedVaultId=null;
+let folderGate=null;
 let newDraft={title:'',content:'',expanded:false};
 let barSaving=null;
 const newTodoIds=new Set();
@@ -83,6 +85,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function teardownSession() {
   secretUI.dispose();
+  folderGate=null;
   setWriteMode('readWrite');
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
@@ -110,10 +113,14 @@ async function showAuth(message='') {
       sessionController ||= new AbortController();
       setSessionSignal(sessionController.signal);
       const signal=sessionController.signal;
+      startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
       const status=await checkFolder(attempt.handle,attempt.permissionFailure);
       if(signal.aborted)return;
       if(status!=='ok'){
-        showFolderBlock(status);
+        folderGate=createFolderGate(appContainer,{
+          handle:attempt.handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
+        });
+        folderGate.renderBlock();
         return;
       }
       try {await enableFolderWrites({key,signal});}
@@ -123,15 +130,6 @@ async function showAuth(message='') {
     await showApp();
   }});
   const error=document.getElementById('login-error');if(error)error.textContent=message;
-}
-
-function showFolderBlock(status) {
-  const blocked=document.createElement('main');
-  blocked.dataset.folderStatus=status;
-  blocked.setAttribute('role','alert');
-  blocked.textContent=t('folder.blocked');
-  appContainer.replaceChildren(blocked);
-  startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
 }
 
 // --- App View ---
@@ -258,6 +256,10 @@ function renderAppShell() {
   `;
 
   document.getElementById('search-input').value=currentView==='vault'?'':searchText;
+  if(isReadOnly()){
+    appContainer.querySelector('.app-view').setAttribute('data-vault-read-only','');
+    folderGate?.renderBanner(document.getElementById('main-content'));
+  }
   initAppListeners();
 }
 
@@ -567,6 +569,7 @@ function renderCurrentView() {
       break;
   }
 
+  if(isReadOnly()) quietReadOnlyCards(document.getElementById('main-inner'));
   if (unreadableCount) {
     const warning = document.createElement('div');
     warning.className = 'unreadable-warning notice notice-warning';
@@ -997,6 +1000,12 @@ async function openNoteModal(note) {
   note=structuredClone(note);
   if (note.type === 'vault') {
     showVaultModal(note);
+  } else if (isReadOnly()) {
+    modalController=new AbortController();
+    renderReadOnlyNote(document.getElementById('modal-card'),note,{
+      signal:modalController.signal,trigger:document.activeElement,onClose:closeModal,
+    });
+    document.getElementById('modal-overlay').classList.add('open');
   } else if (note.type === 'text') {
     openTextModal(note);
   } else {
@@ -1021,7 +1030,7 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
   } else {
     renderVaultDetail(modal, item, {
       onClose: closeModal, controls: secretUI, signal,
-      onEdit: () => openVaultEditor(item),
+      onEdit: isReadOnly()?null:()=>openVaultEditor(item),
     });
   }
   focusPanel(modal, {

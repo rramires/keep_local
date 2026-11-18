@@ -1,4 +1,4 @@
-import {ensureVaultId,getAllMetaRecords,getMeta,readVault,setWriteMode,vaultIdentity,vaultTransaction} from './db.js';
+import {ensureVaultId,getAllMetaRecords,getMeta,isReadOnly,readVault,setWriteMode,vaultIdentity,vaultTransaction} from './db.js';
 import {unreadableRecords} from './record-health.js';
 import {getSessionKey,getSessionVaultId,setSessionVaultId} from './session.js';
 
@@ -50,7 +50,7 @@ async function requireSession(key,signal) {
   if(signal?.aborted || !key || key!==await getSessionKey() || signal?.aborted) throw failure('session.ended');
 }
 
-function writeSyncFolder(handle,expected,signal) {
+function writeSyncFolder(handle,expected,signal,vaultId) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(signal?.aborted){fail(failure('session.ended'));return;}
     const abort=()=>fail(failure('session.ended'));
@@ -64,6 +64,7 @@ function writeSyncFolder(handle,expected,signal) {
         const actual=Object.fromEntries(query.result.map(({key,value})=>[key,value]));
         if(actual.salt!==expected.salt || actual.vaultId!==expected.vaultId ||
            (actual.revision||0)!==(expected.revision||0)) throw failure('vault.changed');
+        if(!actual.vaultId && vaultId) meta.put({key:'vaultId',value:vaultId});
         if(handle) meta.put({key:'syncFolder',value:handle});
         else meta.delete('syncFolder');
         done();
@@ -83,7 +84,14 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false}={}) {
   if(vaultIdentity(snapshot.meta)!==getSessionVaultId()) throw failure('vault.changed');
   if((await unreadableRecords(snapshot.notes,key)).length) throw failure('folder.unreadable');
   await requireSession(key,signal);
-  await writeSyncFolder(handle,snapshot.meta,signal);
+  const readOnly=isReadOnly(),vaultId=getSessionVaultId();
+  if(readOnly) setWriteMode('readWrite');
+  try {
+    await writeSyncFolder(handle,snapshot.meta,signal,vaultId);
+  } catch(error) {
+    if(readOnly&&!signal?.aborted) setWriteMode('readOnly');
+    throw error;
+  }
   return {handle,status};
 }
 

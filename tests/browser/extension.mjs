@@ -1,5 +1,11 @@
 import * as harness from './harness.mjs';
 
+async function pressEnter(page) {
+  const key={key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13};
+  await page.send('Input.dispatchKeyEvent',{...key,type:'keyDown',text:'\r',unmodifiedText:'\r'});
+  await page.send('Input.dispatchKeyEvent',{...key,type:'keyUp'});
+}
+
 export async function submitExtensionLogin(page,password=harness.PASSWORD) {
   await page.until("!!document.querySelector('#login-form:not(.hidden)')");
   const {x,y}=await page.eval(`(()=>{
@@ -275,5 +281,99 @@ export async function run({check,assert}) {
       assert.deepEqual(result,{rejected:'folder.unreadable',saved:null,files:[]});
       assert.deepEqual([...p.errors,...e.errors],[]);
     } finally { await extension.close();await web.close(); }
+  });
+
+  await check('F4 the folder blocker gates read-only, retry, replacement and sign out',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {vaultFixture}=await import('./vault-core.mjs');
+    const browser=await harness.launchExtension();
+    const english='Read only: folder unavailable';
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      await harness.add(p,'A fictitious note','Fictitious readable content');
+      const vault=vaultFixture();
+      const oldName=await p.eval(`(async()=>{
+        const app=await import('./js/app.js'),f=await import('./js/folder-store.js');
+        await app.saveNote(${JSON.stringify(vault)});
+        const {handle}=await f.chooseSyncFolder({key:app.getCryptoKey()});
+        return handle.name;
+      })()`);
+
+      await p.reload();
+      await p.eval("folderTest.permission='granted';await folderTest.remove()");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('[data-folder-status=notFound]')");
+      assert.equal(await p.eval("document.querySelector('.folder-name').textContent"),oldName);
+      assert.match(await p.eval("document.querySelector('.folder-reason').textContent"),/renamed, moved or disconnected/i);
+      assert.equal(await p.eval("document.querySelectorAll('[data-folder-action]').length"),4);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+      await p.send('Page.bringToFront');
+      await p.until("document.activeElement.dataset.folderAction==='retry'&&document.hasFocus()");
+      await p.eval("document.querySelector('[data-folder-action=openReadOnly]').focus()");
+      assert.equal(await p.eval("document.activeElement.dataset.folderAction"),'openReadOnly');
+      await pressEnter(p);
+      await p.until("!!document.querySelector('.folder-banner')&&!!document.querySelector('.note-card')");
+      assert.equal(await p.eval("document.querySelector('.folder-banner strong').textContent"),english);
+      assert.equal(await p.eval("getComputedStyle(document.querySelector('.new-note-bar')).display"),'none');
+      assert.equal(await p.eval("document.querySelector('.note-card').draggable"),false);
+      assert.equal(await p.eval("getComputedStyle(document.querySelector('#backup-btn')).display")!=='none',true);
+      await p.eval("document.querySelector('.note-card').click()");
+      await p.until("!!document.querySelector('.folder-note-text')");
+      assert.equal(await p.eval("document.querySelector('.folder-note-text').textContent"),'Fictitious readable content');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.folder-note-text')");
+      await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('[data-vault-open]').click()");
+      await p.until("!!document.querySelector('.vault-detail')");
+      assert.equal(await p.eval("!!document.querySelector('[data-vault-edit]')"),false);
+      await p.eval("document.querySelector('[data-vault-reveal]').click()");
+      assert.equal(await p.eval("document.querySelector('.vault-secret-value').textContent"),'fictional-secret');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-detail')");
+      await p.eval("document.querySelector('[data-folder-action=retry]').click()");
+      await p.until("[...document.querySelectorAll('.toast')].some(node=>node.textContent.includes('Folder not found'))");
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+      const emptyRoot=await p.eval(`(async()=>{
+        const entries=[];
+        for await(const name of (await navigator.storage.getDirectory()).keys()) entries.push(name);
+        return entries;
+      })()`);
+      assert.deepEqual(emptyRoot,[]);
+      await p.eval("await folderTest.directory(true);folderTest.permission='prompt';folderTest.clear();document.querySelector('[data-folder-action=retry]').click()");
+      await p.until("!!document.querySelector('.app-view')&&!document.querySelector('.folder-banner')");
+      assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),false);
+      assert.deepEqual(await p.eval("folderTest.events.map(event=>event.kind)"),['query','request','list']);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+
+      await p.reload();
+      await p.eval("folderTest.requested='denied'");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('[data-folder-status=denied]')");
+      assert.match(await p.eval("document.querySelector('.folder-reason').textContent"),/permission denied/i);
+      await p.eval("folderTest.name='KL-TEST-replacement';folderTest.clear();document.querySelector('[data-folder-action=chooseAnother]').click()");
+      await p.until("!!document.querySelector('.app-view')&&!document.querySelector('.folder-banner')");
+      assert.equal(await p.eval("(await(await import('./js/folder-store.js')).readSyncFolder()).name"),'KL-TEST-replacement');
+      assert.deepEqual(await p.eval("folderTest.events.map(event=>event.kind)"),['picker','list']);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+
+      await p.reload();
+      await p.eval("folderTest.permission='denied'");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('[data-folder-status=denied]')");
+      await p.eval("document.querySelector('[data-folder-action=exit]').click()");
+      await p.until("!!document.querySelector('#login-form:not(.hidden)')");
+      assert.equal(await p.eval("!!(await import('./js/app.js')).getCryptoKey()||!!(await(await import('./js/session.js')).getSessionKey())"),false);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+      const folders=await p.eval(`(async()=>{
+        const counts={};
+        for await(const [name,dir] of (await navigator.storage.getDirectory()).entries()){
+          counts[name]=0;
+          for await(const entry of dir.keys()) counts[name]++;
+        }
+        return counts;
+      })()`);
+      assert.deepEqual(folders,{[oldName]:0,'KL-TEST-replacement':0});
+      assert.deepEqual(p.errors,[]);
+    } finally { await browser.close(); }
   });
 }

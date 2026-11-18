@@ -1,0 +1,16 @@
+/* Folder availability and the read-only view. */
+.folder-card { padding: 24px; min-width: 0; }
+.folder-card h1 { margin: 0 0 14px; font-size: 1.3rem; }
+.folder-name { font-weight: 600; overflow-wrap: anywhere; }
+.folder-reason { color: var(--text-secondary); margin: 10px 0 18px; overflow-wrap: anywhere; }
+.folder-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.folder-banner { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 20px; }
+.folder-note-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+.folder-task-list { list-style: none; margin: 0; padding: 0; }
+.folder-task-list label { display: flex; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
+.folder-task-list .folder-task-list { margin-inline-start: 22px; }
+[data-vault-read-only] :is(
+  #change-password-btn, #edit-labels-btn, #empty-trash-btn, .new-note-bar,
+  .card-action, .vault-card > .vault-card-actions, #vault-new-item,
+  #recovery-copy, .recovery-step
+) { display: none; }
