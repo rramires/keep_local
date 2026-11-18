@@ -22,11 +22,11 @@ no card ou editor; os botões inativos do rascunho foram removidos.
 |---|---|
 | Chave | PBKDF2-HMAC-SHA-256, 600000 iterações, salt aleatório de 16 bytes |
 | Cifra | AES-256-GCM, IV aleatório de 12 bytes e tag de 16 bytes |
-| Verificação | Bloco conhecido cifrado (`keyCheck`); sem verificador rápido em cofres novos/migrados |
+| Verificação | Bloco conhecido cifrado (`keyCheck`); sem verificador rápido da frase-senha |
 | Sessão | Chave não exportável somente em memória; recarregar exige senha; bloqueio após 5 min de inatividade |
 | Senha nova | 14 caracteres no mínimo, sem composição obrigatória; lista embutida de senhas comuns e verificação de sequências/padrões; prefira 5+ palavras sorteadas |
 | Disco | Notas cifradas no IndexedDB; preferências e metadados locais (salt, IDs externos, timestamps, estado de backup) não são secretos |
-| Backup | Envelope binário v2 autenticado; JSON v1 somente na importação legada validada e atômica |
+| Backup | Envelope binário v2 autenticado; formatos não suportados preservam o cofre |
 | Markdown | HTML bruto exibido como texto, imagens removidas, DOMPurify restritivo e CSP; falta de biblioteca resulta em texto simples |
 | Abas | Identidade do cofre e versão da nota conferidas atomicamente; conflitos oferecem salvar como nova nota |
 | Recuperação | Registros ilegíveis podem ser copiados quando decifráveis ou descartados após confirmação digitada e export obrigatório; não existe recuperação da senha |
@@ -52,28 +52,27 @@ IndexedDB. O servidor requer Python 3; Web Crypto requer contexto seguro (localh
 ou HTTPS). Desenvolvimento validado em Chromium; outros navegadores não foram
 validados nesta execução. A extensão requer Chrome 120+.
 
-## Backup e migração
+## Backup e redefinição
 
-1. Antes da atualização, exporte com a versão antiga e guarde fora da pasta do
-   app e da pasta sincronizada. Nunca substitua sua única cópia de segurança.
-2. Entre na versão nova: o verificador legado é migrado atomicamente. Senhas de
-   contas antigas continuam aceitas; a política nova vale para criar/trocar senha.
-3. Use **Trocar senha mestra**, com senha atual e uma nova frase longa aleatória.
-4. Clique **Backup** para iniciar o download `.keeplocal`. Confira o arquivo:
-   o app não confirma que o navegador o gravou. `lastBackupAt` registra a tentativa
-   de download, e o aviso pendente acompanha alterações desde essa tentativa.
-5. Guarde o arquivo em uma pasta de dados separada, sincronizada pelo seu serviço
-   de preferência. **Não existe escrita automática no Mega ou sincronização pelo
-   app** nesta fase. Merge e escrita automática pertencem à Fase 3, bloqueada.
-6. Apague backups antigos, incluindo versões retidas na nuvem: continuam usando
-   a senha antiga e os v1 podem conter o verificador rápido. Verifique seu backup
-   novo antes de remover cópias necessárias para recuperação.
+1. Crie um cofre com uma frase-senha longa e aleatória. Guarde-a com segurança:
+   sem ela, as notas cifradas não podem ser recuperadas.
+2. **Trocar frase-senha mestra** exige a frase-senha atual e recifra atomicamente
+   todos os registros legíveis. Backups anteriores continuam usando a frase antiga.
+3. **Backup** inicia o download `.keeplocal`. Confira o arquivo: o app não confirma
+   a gravação. `lastBackupAt` registra a tentativa; o aviso pendente acompanha
+   alterações desde essa tentativa.
+4. Guarde as cópias separadas do código. Não há escrita automática no Mega nem
+   sincronização pelo app; merge e escrita em pasta pertencem à Fase 3, bloqueada.
 
-A aba Importar aceita v2 binário ou JSON v1, pede a senha do arquivo, valida tudo,
-confirma quantas notas serão substituídas e grava numa transação. Cancelamento,
-senha incorreta, modelo inválido e falha de gravação preservam o cofre anterior.
-Registros locais ilegíveis ficam no banco, geram aviso e são preservados no export;
-recupere-os antes de esperar uma importação integral desse backup.
+Importar aceita **apenas v2 binário**, pede a frase-senha, valida todos os registros,
+confirma as quantidades e grava numa transação. Cancelamento, frase-senha incorreta,
+formato não suportado, dados inválidos e falhas preservam o cofre anterior.
+Cofres antigos sem verificação cifrada não são suportados e permanecem intactos;
+**Apagar tudo e recomeçar** exige a palavra exata e só apaga por escolha explícita.
+Não há migração nem exclusão automática.
+
+Registros ilegíveis continuam no banco, geram aviso e ficam nas exportações;
+recupere-os antes de esperar uma importação integral da cópia.
 
 ## Extensão e testes
 
@@ -127,8 +126,11 @@ Perfis ficam no código em ordem conhecida, limitados a 600000–5000000 iteraç
 antes da derivação; nenhum byte do arquivo controla o custo do KDF. Limites:
 64 MiB por arquivo, 10000 notas, 2 MiB por nota serializada em UTF-8.
 
-JSON v1 continua importável, com aviso e substituição atômica. V1 não detecta
-remoção de registros inteiros. V2 autentica o conjunto e confere o manifesto.
+Apenas v2 binário é aceito. O conjunto e o manifesto são autenticados. Documentos
+JSON reconhecíveis são recusados sem interpretar esquemas antigos. Sem identificador
+em claro, um binário não autenticado não permite distinguir com certeza frase-senha
+incorreta, formato não suportado e arquivo danificado; o erro informa as possibilidades
+e preserva o cofre.
 Uma cópia antiga válida continua aceita (rollback); revisão/merge pertencem à
 Fase 3, bloqueada.
 

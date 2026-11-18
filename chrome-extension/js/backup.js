@@ -1,14 +1,14 @@
-import {confirmDialog,noticeDialog} from './dialogs.js';
+import {confirmDialog} from './dialogs.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload } from './db.js';
-import { deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
+import { createKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
 import { getSessionKey, getSessionVaultId, storeSessionKey, getSessionSignal } from './session.js';
 import { t,tp } from './i18n.js';
 import { unreadableRecords } from './record-health.js';
-import { MAX_BACKUP_BYTES, validateV1, decryptRecords, validateRecords } from './backup-format.js';
+import { MAX_BACKUP_BYTES, decryptRecords, validateRecords } from './backup-format.js';
 
 let unsavedChanges = false;
 const drafts=new Set();
@@ -68,36 +68,26 @@ export async function exportBackup({recovery=false}={}) {
 
 export async function importBackup(file, password) {
   if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
-  let backup,meta,key,legacy=false;
   const bytes=new Uint8Array(await file.arrayBuffer());
+  if(bytes.length<44)throw new Error(t('backup.unrecognizedFormat'));
+  // Reject recognizable JSON documents, without interpreting any historical schema.
+  // Random binary salt can start with '{' or '['; only a complete JSON parse rejects it.
   const prefix=new TextDecoder().decode(bytes.slice(0,256)).trimStart();
-  let parsed;
-  if(prefix.startsWith('{')){try{parsed=JSON.parse(new TextDecoder().decode(bytes));}catch{}}
-  if(parsed!==undefined){
-    legacy=true;
-    try {backup=parsed;meta=validateV1(backup);}
-    catch {throw new Error(t('backup.unrecognizedFormat'));}
-    const salt=base64ToArray(meta.salt);key=await deriveKey(password,salt,false);
-    if(meta.keyCheck&&!await verifyKeyCheck(key,meta.keyCheck))throw new Error(t('backup.wrongPassword'));
-    if(!meta.keyCheck&&!backup.notes.length&&await hashPassword(password,salt)!==meta.passwordVerifier)throw new Error(t('backup.wrongPassword'));
-    delete meta.passwordVerifier;
-  }else{
-    let decoded;
-    try {decoded=await decodeV2(bytes,password);}
-    catch(error){throw new Error(t(error.message));}
-    key=decoded.key;backup={notes:decoded.payload.notes};
-    meta={...decoded.payload.preferences,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
-  }
-  try {validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
-  catch(error){throw new Error(t(legacy&&!meta.keyCheck&&error.code!=='record.unreadable'?'backup.wrongPasswordOrCorrupted':'backup.unreadableRecords'));}
+  let jsonDocument=false;
+  if(/^[{[]/.test(prefix)){try{JSON.parse(new TextDecoder().decode(bytes));jsonDocument=true;}catch{}}
+  if(jsonDocument)throw new Error(t('backup.unrecognizedFormat'));
+  let decoded;
+  try{decoded=await decodeV2(bytes,password);}catch(error){throw new Error(t(error.message));}
+  const key=decoded.key,backup={notes:decoded.payload.notes};
+  const meta={...decoded.payload.preferences,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
+  try{validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
+  catch{throw new Error(t('backup.unreadableRecords'));}
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();
   const local=previous.notes;
   if ((local.length || await getMeta('salt')) && !await confirmDialog(t('backup.replaceConfirm',{local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length)}),{danger:true})) throw new Error(t('backup.cancelled'));
-  // V1 cannot authenticate removal of whole records; only v2 authenticates the set.
   meta.vaultId=crypto.randomUUID();meta.dirtySinceBackup=true;
   await replaceVault({notes:backup.notes,meta},previous.meta);
   storeSessionKey(key,meta.vaultId);publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
-  if(legacy)await noticeDialog(t('backup.legacyWarning'));
   return key;
 }

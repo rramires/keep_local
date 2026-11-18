@@ -179,21 +179,6 @@ export function createVault(values) {
   });
 }
 
-export function migrateKeyCheck(salt, keyCheck) {
-  return vaultTransaction(({ meta }, done, fail) => {
-    const request = meta.getAll();
-    request.onsuccess = () => {
-      try {
-        const values = Object.fromEntries(request.result.map(r => [r.key, r.value]));
-        if (values.salt !== salt) throw new Error('vault.changed');
-        if (!values.keyCheck) meta.put({ key: 'keyCheck', value: keyCheck });
-        meta.delete('passwordVerifier');
-        done();
-      } catch (error) { fail(error); }
-    };
-  });
-}
-
 export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
   return vaultTransaction(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;

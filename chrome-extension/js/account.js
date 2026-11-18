@@ -19,7 +19,6 @@ export async function changePassword(currentPassword,newPassword,{signal}={}) {
   for(const note of plain){const {iv,ciphertext}=await encrypt(key,JSON.stringify(note));records.push({id:note.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:note.updatedAt});}
   const vaultId=crypto.randomUUID();
   const next={...meta,salt:arrayToBase64(salt),keyCheck:await createKeyCheck(key),vaultId,dirtySinceBackup:true,revision:(meta.revision||0)+1};
-  delete next.passwordVerifier;
   if(signal?.aborted||!await getSessionKey()||getSessionVaultId()!==meta.vaultId)throw new Error(t('vault.changed'));
   await replaceVault({notes:records,meta:next},meta,{signal});
   if(!signal?.aborted&&await getSessionKey()&&getSessionVaultId()===meta.vaultId)storeSessionKey(key,vaultId);publishVaultEvent('vault-replaced',{vaultId});

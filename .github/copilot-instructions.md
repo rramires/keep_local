@@ -11,8 +11,8 @@ IndexedDB `KeepLocalDB` v1 has `notes` and `meta`. Note records are
 notes are UUID `text|todo`, validated by `note-model.js`. Local outer IDs/timestamps
 and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`,
 preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
-attempt), `exportRev` and `exportParent` (export lineage). `passwordVerifier` is
-legacy-only and is deleted atomically after successful migration.
+attempt), `exportRev` and `exportParent` (export lineage). An existing salt without an encrypted
+`keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
 Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
 5-minute deadline is checked on intervals, focus and visibility, with activity
@@ -26,8 +26,8 @@ Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD
 `parent` hashes the previous exact plaintext JSON bytes using SHA-256 hex.
 Export lineage is recorded atomically; no merge or cloud writing is implemented.
 README documents the recovery contract. Preserve profile 2 for future readers.
-Legacy JSON v1 goes through complete schema/crypto/model validation, then one
-`replaceVault` transaction. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
+Only binary v2 imports are supported, with complete schema/crypto/model validation
+before one `replaceVault` transaction. Unsupported formats preserve the vault. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
 
 ## Modules
 
@@ -54,6 +54,7 @@ Legacy JSON v1 goes through complete schema/crypto/model validation, then one
   target-presence checks and publication before releasing the note locks.
 - `record-health.js`: classify unreadable records before exports.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
+- `dialogs.js`, `form-ui.js`: themed promise dialogs, keyboard/focus and shared form presentation.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
 
 All new app user strings go through `t()/tp()` with EN and pt-BR keys. Editor
@@ -61,8 +62,6 @@ fields disable spellcheck, capitalization and autocomplete. Preserve CSP. Extens
 version stays 1.0.0 and `permissions: []`; extension copies are tracked.
 
 ## Git and gate
-
-Browser runs also require KL_BASE_ROOT from `git archive 571fcb7`, even with fixtures.
 
 Use a task branch, never commit master, merge, push or rewrite history without
 an explicit new instruction. Stage by explicit paths. `_temp` is owner-ignored.
@@ -80,9 +79,10 @@ diff index.html chrome-extension/index.html
 git diff --check
 ```
 
-For phase 2c closing, run the browser command three consecutive times with no
-individual failure retries. Controlled tests plus 5000 fixed-seed interleavings
-cover the write queue; stress evidence is outside Git.
+For phase closing, run the browser command three consecutive times with no
+individual failure retries. Controlled tests plus 5000 original and 40000 additional
+fixed-seed schedules cover local and remote writes. Browser navigation awaits a load
+event before querying the new execution context; stress evidence is outside Git.
 
 A browser SKIP is not acceptance. Build reads manifest version, synchronizes the
 tracked copies and writes the matching ZIP. Include copied sources in the same

@@ -1,5 +1,4 @@
 import {withDialogs} from './dialog-driver.mjs';
-import {ROOT} from './harness.mjs';
 import {create,add,unlock,PASSWORD} from './harness.mjs';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 export async function run({browser,check,assert}) {
@@ -28,10 +27,5 @@ export async function run({browser,check,assert}) {
   const p=await browser.page();await create(p);await p.eval("const d=await import('./js/db.js');window.bad={id:crypto.randomUUID(),iv:'AAAA',ciphertext:'AAAA',updatedAt:1};await d.saveNoteRecord(bad)");await p.reload();await unlock(p);await p.eval("document.querySelector('#recover-notes-btn').click()");await p.until("!!document.querySelector('.recovery-record')");await p.eval("document.querySelector('.recovery-record').click()");assert.equal(await p.eval("document.querySelector('#recovery-copy').disabled"),true);
   await p.eval("HTMLAnchorElement.prototype.click=()=>{throw Error('injected download failure')};document.querySelector('#recovery-export').click()");await p.until("!document.querySelector('#recovery-export').disabled");assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),1);assert.equal(await p.eval("document.querySelector('#recovery-discard').disabled"),true);
   await p.eval("HTMLAnchorElement.prototype.click=()=>{};window.bad=(await(await import('./js/db.js')).getAllNoteRecords())[0];window.originalEncrypt=crypto.subtle.encrypt.bind(crypto.subtle);crypto.subtle.encrypt=async(...args)=>{await new Promise(resolve=>window.resumeExport=resolve);return originalEncrypt(...args)};window.result=(await import('./js/recovery-actions.js')).exportForDiscard(bad,{key:(await import('./js/app.js')).getCryptoKey()}).then(()=>false,()=>true);void 0");await p.until("typeof window.resumeExport==='function'");await p.eval("await(await import('./js/db.js')).saveNoteRecord({...bad,ciphertext:'BBBB'});crypto.subtle.encrypt=originalEncrypt;resumeExport()");assert.equal(await p.eval('window.result'),true);assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords())[0].ciphertext"),'BBBB');assert.deepEqual(p.errors,[]);await p.close();
- });
- await check('T2.17 a legacy predictable password still unlocks its migrated vault',async()=>{
-  browser.setRoot(process.env.KL_BASE_ROOT);const p=await browser.page();const old='Password1234567!';
-  try{await create(p,old);await add(p,'Legacy predictable password','Keep data');await p.eval("(await import('./js/auth.js')).clearSession()");browser.setRoot(ROOT);await p.reload();await unlock(p,old);assert.equal(await p.eval("(await import('./js/app.js')).getNotes()[0].title"),'Legacy predictable password');assert.deepEqual(p.errors,[]);}
-  finally{browser.setRoot(ROOT);await p.close();}
  });
 }

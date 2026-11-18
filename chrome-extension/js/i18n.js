@@ -5,6 +5,7 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'login.unsupportedVault': 'This vault uses an unsupported old version. Use Erase everything and start again to reset it explicitly. Nothing was erased.',
   'backup.noteCount': '{count} note',
   'backup.noteCountPlural': '{count} notes',
   'confirm.title': 'Please confirm',
@@ -67,7 +68,6 @@ const en = {
   "account.resetPrompt": "Export and safely store a backup before erasing. This permanently removes all local notes. Type ERASE to start again.",
   "account.resetCancelled": "Reset cancelled; the vault was preserved.",
 
-  'backup.legacyWarning': 'Legacy backup imported. Export a new v2 backup now; v1 cannot detect missing records.',
   'markdown.unavailable': 'Safe Markdown preview is unavailable. Showing plain text.',
   "validation.common": "Avoid common passwords, sequences, keyboard runs and repeated patterns.",
   "auth.passphraseHint": "Use 5 or more randomly chosen words. Uppercase letters and symbols are optional.",
@@ -200,8 +200,6 @@ const en = {
   'auth.confirmPassword': 'Confirm passphrase',
   'auth.confirmPlaceholder': 'Confirm your passphrase',
   'auth.minLength': 'Minimum 14 characters',
-  'auth.hasUppercase': 'At least 1 uppercase letter',
-  'auth.hasSpecial': 'At least 1 special character',
   'auth.passwordsNoMatch': 'Passphrases do not match',
   'auth.memorizeWarning': 'Keep your passphrase safe. Without it, your encrypted notes cannot be recovered.',
   'auth.createAccount': 'Create vault',
@@ -217,15 +215,11 @@ const en = {
 
   // Backup errors
   'backup.invalidFile': 'Invalid backup file.',
-  'backup.unrecognizedFormat': 'Unrecognized backup format.',
-  'backup.corruptedSalt': 'Corrupted backup: salt not found.',
-  'backup.wrongPassword': 'Incorrect passphrase.',
-  'backup.wrongPasswordOrCorrupted': 'Incorrect passphrase or corrupted backup.',
+  'backup.unrecognizedFormat': 'Unsupported backup format. This version accepts binary v2 backups only.',
+  'backup.wrongPasswordOrCorrupted': 'Incorrect passphrase, unsupported backup format, or damaged backup.',
 
   // Validation errors (auth.js validatePassword)
   'validation.minLength': 'Minimum 14 characters',
-  'validation.hasUppercase': 'At least 1 uppercase letter',
-  'validation.hasSpecial': 'At least 1 special character',
 
   // Login errors
   'login.noAccount': 'No account found. Create a new password or import a backup.',
@@ -233,6 +227,7 @@ const en = {
 };
 
 const ptBR = {
+  'login.unsupportedVault': 'Este cofre usa uma versão antiga não suportada. Use Apagar tudo e recomeçar para redefini-lo explicitamente. Nada foi apagado.',
   'backup.noteCount': '{count} nota',
   'backup.noteCountPlural': '{count} notas',
   'confirm.title': 'Confirme para continuar',
@@ -295,7 +290,6 @@ const ptBR = {
   "account.resetPrompt": "Exporte e guarde um backup seguro antes de apagar. Todas as notas locais serão removidas definitivamente. Digite APAGAR para recomeçar.",
   "account.resetCancelled": "Redefinição cancelada; o cofre foi preservado.",
 
-  'backup.legacyWarning': 'Backup antigo importado. Exporte um novo backup v2 agora; o v1 não detecta registros removidos.',
   'markdown.unavailable': 'A prévia segura de Markdown está indisponível. Exibindo texto simples.',
   "validation.common": "Evite senhas comuns, sequências, corridas de teclado e padrões repetidos.",
   "auth.passphraseHint": "Use 5 ou mais palavras sorteadas. Maiúsculas e símbolos são opcionais.",
@@ -428,8 +422,6 @@ const ptBR = {
   'auth.confirmPassword': 'Confirmar frase-senha',
   'auth.confirmPlaceholder': 'Confirme sua frase-senha',
   'auth.minLength': 'Mínimo de 14 caracteres',
-  'auth.hasUppercase': 'Pelo menos 1 letra maiúscula',
-  'auth.hasSpecial': 'Pelo menos 1 caractere especial',
   'auth.passwordsNoMatch': 'As frases-senha não coincidem',
   'auth.memorizeWarning': 'Guarde sua frase-senha com segurança. Sem ela, suas notas cifradas não podem ser recuperadas.',
   'auth.createAccount': 'Criar cofre',
@@ -445,15 +437,11 @@ const ptBR = {
 
   // Backup errors
   'backup.invalidFile': 'Arquivo de backup inválido.',
-  'backup.unrecognizedFormat': 'Formato de backup não reconhecido.',
-  'backup.corruptedSalt': 'Backup corrompido: salt não encontrado.',
-  'backup.wrongPassword': 'Frase-senha incorreta.',
-  'backup.wrongPasswordOrCorrupted': 'Frase-senha incorreta ou backup corrompido.',
+  'backup.unrecognizedFormat': 'Formato de backup não suportado. Esta versão aceita apenas backups binários v2.',
+  'backup.wrongPasswordOrCorrupted': 'Frase-senha incorreta, formato de backup não suportado ou arquivo danificado.',
 
   // Validation errors
   'validation.minLength': 'Mínimo de 14 caracteres',
-  'validation.hasUppercase': 'Pelo menos 1 letra maiúscula',
-  'validation.hasSpecial': 'Pelo menos 1 caractere especial',
 
   // Login errors
   'login.noAccount': 'Nenhum cofre encontrado. Crie um cofre ou importe um backup.',

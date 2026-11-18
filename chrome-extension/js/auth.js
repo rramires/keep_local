@@ -1,8 +1,8 @@
 import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
-import { generateSalt, deriveKey, hashPassword, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault, migrateKeyCheck, ensureVaultId } from './db.js';
+import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
+import { saveMeta, getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 
 import { storeSessionKey } from './session.js';
@@ -39,16 +39,11 @@ export async function login(password) {
   const saltB64 = await getMeta('salt');
   if (!saltB64) throw new Error(t('login.noAccount'));
 
+  const check = await getMeta('keyCheck');
+  if(!check)throw new Error(t('login.unsupportedVault'));
   const salt = base64ToArray(saltB64);
   const key = await deriveKey(password, salt, false);
-  const check = await getMeta('keyCheck');
-  if (check) {
-    if (!await verifyKeyCheck(key, check)) throw new Error(t('login.wrongPassword'));
-  } else {
-    const storedHash = await getMeta('passwordVerifier');
-    if (!storedHash || await hashPassword(password, salt) !== storedHash) throw new Error(t('login.wrongPassword'));
-    await migrateKeyCheck(saltB64, await createKeyCheck(key));
-  }
+  if(!await verifyKeyCheck(key,check))throw new Error(t('login.wrongPassword'));
 
   const vaultId=await ensureVaultId(saltB64);
   await storeSessionKey(key,vaultId);
@@ -120,7 +115,7 @@ export function renderAuthView(container, { onAuthenticated }) {
               <div class="import-icon">📁</div>
               <div class="import-text">${t('import.dropzoneText')}</div>
               <div class="import-filename hidden" id="import-filename"></div>
-              <input type="file" id="import-file" accept=".keeplocal,.json,.keeplocal.json" style="display:none">
+              <input type="file" id="import-file" accept=".keeplocal" style="display:none">
             </div>
             <div class="form-group">
               <label for="import-password">${t('import.backupPassword')}</label>
