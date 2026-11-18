@@ -1,5 +1,17 @@
 import * as harness from './harness.mjs';
 
+export async function submitExtensionLogin(page,password=harness.PASSWORD) {
+  await page.until("!!document.querySelector('#login-form:not(.hidden)')");
+  const {x,y}=await page.eval(`(()=>{
+    document.querySelector('#login-password').value=${JSON.stringify(password)};
+    const button=document.querySelector('#login-form [type=submit]');
+    const rect=button.getBoundingClientRect();
+    return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};
+  })()`);
+  await page.send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,x,y});
+  await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,x,y});
+}
+
 export async function run({check,assert}) {
   await check('F1 MV3 origin, OPFS selection and deterministic browser spies',async()=>{
     assert.equal(typeof harness.launchExtension,'function','Expected a real unpacked MV3 harness');
@@ -174,5 +186,94 @@ export async function run({check,assert}) {
       assert.match(outcome.stored,/^[0-9a-f-]{36}$/);
       assert.deepEqual(p.errors,[]);
     } finally { await browser.close(); }
+  });
+
+  await check('F3 extension login asks before PBKDF2 and checks the real directory after login',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      const selected=await p.eval(`(async()=>{
+        const folders=await import('./js/folder-store.js'), app=await import('./js/app.js');
+        const result=await folders.chooseSyncFolder({key:app.getCryptoKey()});
+        const saved=await folders.readSyncFolder();
+        return {supported:folders.folderSupported(),name:saved.name,status:result.status,
+          picker:folderTest.events.find(event=>event.kind==='picker'),files:await folderTest.entries()};
+      })()`);
+      assert.equal(selected.supported,true);
+      assert.match(selected.name,/^KL-TEST-/);
+      assert.equal(selected.status,'ok');
+      assert.deepEqual(selected.picker.options,{mode:'readwrite',id:'keeplocal-vault'});
+      assert.deepEqual(selected.files,[]);
+
+      await p.reload();
+      await p.until("!document.querySelector('#login-form').classList.contains('hidden')");
+      await submitExtensionLogin(p,'Fictitious wrong passphrase 713');
+      await p.until("document.querySelector('#login-error').textContent.length>0");
+      const failed=await p.eval("folderTest.events.map(event=>event.kind)");
+      assert.deepEqual(failed,['query','request','deriveKey']);
+
+      await p.reload();
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('.app-view')&&!!document.querySelector('#main-inner')?.firstElementChild");
+      const granted=await p.eval('folderTest.events');
+      assert.deepEqual(granted.map(event=>event.kind),['query','request','deriveKey','list']);
+      assert.equal(granted[1].active,true);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+
+      for(const [requested,status] of [['denied','denied'],['error','denied'],['granted','notFound']]) {
+        await p.reload();
+        if(status==='notFound') await p.eval("folderTest.permission='granted';await folderTest.remove()");
+        else await p.eval(`folderTest.requested=${JSON.stringify(requested)}`);
+        await submitExtensionLogin(p);
+        await p.until(`!!document.querySelector('[data-folder-status=${status}]')`);
+        assert.equal(await p.eval("!!document.querySelector('.app-view')"),false);
+        assert.equal(await p.eval('!!(await import("./js/app.js")).getCryptoKey()'),true);
+        assert.deepEqual(await p.eval('folderTest.writes'),{});
+        if(status==='notFound') {
+          assert.deepEqual(await p.eval("folderTest.events.map(event=>event.kind)"),['query','deriveKey','list']);
+          assert.deepEqual(await p.eval(`(async()=>{
+            const entries=[];
+            for await(const name of (await navigator.storage.getDirectory()).keys()) entries.push(name);
+            return entries;
+          })()`),[]);
+        } else {
+          assert.deepEqual(await p.eval("folderTest.events.map(event=>event.kind)"),['query','request','deriveKey']);
+          assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+        }
+      }
+      assert.deepEqual(p.errors,[]);
+    } finally { await browser.close(); }
+  });
+
+  await check('F3 the folder feature is absent on HTTP and rejects unreadable records on MV3',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const web=await harness.launch();
+    const extension=await harness.launchExtension();
+    try {
+      const p=await web.page(undefined,folderFixtureSource());
+      await harness.create(p);
+      assert.deepEqual(await p.eval(`(async()=>{
+        const f=await import('./js/folder-store.js');
+        let rejected;
+        try{await f.chooseSyncFolder();}catch(error){rejected=error.code;}
+        return {supported:f.folderSupported(),handle:await f.readSyncFolder(),rejected,
+          controls:document.querySelectorAll('[data-folder-action], [data-folder-status], #folder-settings-btn').length,
+          picker:folderTest.events.some(event=>event.kind==='picker')};
+      })()`),{supported:false,handle:null,rejected:'folder.unsupported',controls:0,picker:false});
+
+      const e=await extension.page(undefined,folderFixtureSource());
+      await harness.create(e);
+      const result=await e.eval(`(async()=>{
+        const app=await import('./js/app.js'), db=await import('./js/db.js'), f=await import('./js/folder-store.js');
+        await db.saveNoteRecord({id:crypto.randomUUID(),updatedAt:1,iv:'AAAA',ciphertext:'AAAA'});
+        let rejected;
+        try{await f.chooseSyncFolder({key:app.getCryptoKey()});}catch(error){rejected=error.code;}
+        return {rejected,saved:await f.readSyncFolder(),files:await folderTest.entries()};
+      })()`);
+      assert.deepEqual(result,{rejected:'folder.unreadable',saved:null,files:[]});
+      assert.deepEqual([...p.errors,...e.errors],[]);
+    } finally { await extension.close();await web.close(); }
   });
 }

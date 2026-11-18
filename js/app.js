@@ -8,6 +8,7 @@ import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-act
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
+import {checkFolder,enableFolderWrites,folderSupported,readSyncFolder} from './folder-store.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
@@ -62,6 +63,7 @@ const secretUI = createSecretUI({notify: showToast});
 document.addEventListener('DOMContentLoaded', async () => {
   try { sessionStorage.removeItem('keeplocal_session_key');sessionStorage.removeItem('keeplocal_session_ts'); } catch {}
   await openDB();
+  if(folderSupported() && await readSyncFolder()) setWriteMode('readOnly');
   await initI18n();
   await initTheme();
   await initBeforeUnload();
@@ -92,13 +94,44 @@ function teardownSession() {
   newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';vaultLabel=null;
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
-function showAuth(message='') {
+async function showAuth(message='') {
   teardownSession();
-  appContainer.innerHTML='';
-  renderAuthView(appContainer,{onAuthenticated:async key=>{
-    cryptoKey=key;storeSessionKey(key);await showApp();
+  appContainer.replaceChildren();
+  const generation=sessionGeneration;
+  const supported=folderSupported();
+  if(supported) setWriteMode('readOnly');
+  const folder=supported?await readSyncFolder():null;
+  if(generation!==sessionGeneration)return;
+  setWriteMode(folder?'readOnly':'readWrite');
+  renderAuthView(appContainer,{folder,onAuthenticated:async(key,attempt)=>{
+    if(generation!==sessionGeneration)return;
+    cryptoKey=key;storeSessionKey(key);
+    if(attempt){
+      sessionController ||= new AbortController();
+      setSessionSignal(sessionController.signal);
+      const signal=sessionController.signal;
+      const status=await checkFolder(attempt.handle,attempt.permissionFailure);
+      if(signal.aborted)return;
+      if(status!=='ok'){
+        showFolderBlock(status);
+        return;
+      }
+      try {await enableFolderWrites({key,signal});}
+      catch {if(!signal.aborted)void showAuth(t('vault.changed'));return;}
+      if(signal.aborted)return;
+    }
+    await showApp();
   }});
   const error=document.getElementById('login-error');if(error)error.textContent=message;
+}
+
+function showFolderBlock(status) {
+  const blocked=document.createElement('main');
+  blocked.dataset.folderStatus=status;
+  blocked.setAttribute('role','alert');
+  blocked.textContent=t('folder.blocked');
+  appContainer.replaceChildren(blocked);
+  startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
 }
 
 // --- App View ---

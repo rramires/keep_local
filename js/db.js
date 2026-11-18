@@ -233,7 +233,7 @@ export function recordExport(expected,rev,hash,{signal}={}) {
   });
 }
 
-export async function ensureVaultId(expectedSalt) {
+export async function ensureVaultId(expectedSalt,{signal}={}) {
   if (isReadOnly()) {
     const values = Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
     if (expectedSalt && values.salt !== expectedSalt) throw new Error('vault.changed');
@@ -243,7 +243,8 @@ export async function ensureVaultId(expectedSalt) {
     }
     return transientVault.id;
   }
-  return vaultTransaction(({meta},done,fail)=>{
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       if(expectedSalt&&values.salt!==expectedSalt)throw new Error('vault.changed');

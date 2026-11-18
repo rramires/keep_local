@@ -34,6 +34,11 @@ function installFolderFixture(name) {
     if(fixture.requested==='error') throw new DOMException('Fictional denial','NotAllowedError');
     return fixture.permission=fixture.requested;
   };
+  const keys = FileSystemDirectoryHandle.prototype.keys;
+  FileSystemDirectoryHandle.prototype.keys = function(...args) {
+    record('list');
+    return keys.apply(this,args);
+  };
   for (const kind of ['deriveBits','deriveKey']) {
     const derive=SubtleCrypto.prototype[kind];
     SubtleCrypto.prototype[kind]=function(...args) {
