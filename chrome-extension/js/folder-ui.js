@@ -24,7 +24,7 @@ function folderReason(status) {
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
-export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume}) {
+export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset}) {
   let busy=false, reading=false, issue=status;
 
   async function run(event,work) {
@@ -59,9 +59,13 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
   }
 
   async function choose() {
-    const result=await chooseSyncFolder({key,signal});
+    const result=await chooseSyncFolder({key,signal,hold:!!onResume});
     if(signal.aborted) return;
-    if(result.status!=='ok'){ notify(folderReason(result.status));return; }
+    if(result.status!=='ok'){
+      if(reading)notify(folderReason(result.status));
+      else root.querySelector('[data-folder-message]').textContent=folderReason(result.status);
+      return;
+    }
     if(onResume&&!await onResume(result.handle))return;
     await openVault();
   }
@@ -89,11 +93,14 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     title.id='folder-block-title';
     const reason=element('p','folder-reason',folderReason(issue));
     reason.setAttribute('role','status');
+    reason.dataset.folderMessage='';
     const controls=element('div','folder-actions');
     controls.append(...recoveryButtons(),action('openReadOnly',event=>void run(event,async()=>{
       reading=true;
       await openVault();
-    })),action('exit',onExit));
+    })));
+    if(onReset)controls.append(action('startOver',event=>void run(event,onReset)));
+    controls.append(action('exit',onExit));
     panel.append(title,element('p','folder-name',handle.name),reason,controls);
     container.append(panel);
     wrapper.append(container);
@@ -171,7 +178,7 @@ export function addFolderSettingsTrigger(anchor,onOpen) {
   anchor.before(trigger);
 }
 
-export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange}) {
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder}) {
   const panel=element('section','panel-form folder-settings');
   const header=element('header','panel-header');
   const title=element('h2','',t('folder.settings'));
@@ -201,18 +208,23 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     groups.push(createFolderIndicator());
     const controls=element('div','folder-actions');
     const choose=action(handle?'change':'choose',()=>void run(async()=>{
-      const chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable()});
-      if(signal.aborted) return;
+      pauseFolder();
+      let chosen;
+      try {chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});}
+      finally{
+        await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+      }
+      if(signal.aborted)return;
       if(chosen.status!=='ok'){notify(folderReason(chosen.status));return;}
-      await onFolderChange();
       await refresh(true);
     }),true);
     controls.append(choose);
     if(handle){
       controls.append(action('disconnect',()=>void run(async()=>{
         if(!await confirmDialog(t('folder.disconnectConfirm',{name:handle.name}),{signal}))return;
-        await disconnectSyncFolder({key,signal});
-        await onFolderChange();
+        pauseFolder();
+        try {await disconnectSyncFolder({key,signal});}
+        finally {await onFolderChange();}
         await refresh(true);
       })));
     }

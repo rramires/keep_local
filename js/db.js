@@ -208,8 +208,8 @@ export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
   return replaceLocalVault(records,values,expected,signal);
 }
 
-export function resetFolderLockedVault(expected,vaultId) {
-  return replaceLocalVault([],{vaultId},expected,undefined,true);
+export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
+  return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
 export function replaceVaultFromFolder({notes,meta},expected,{signal}={}) {

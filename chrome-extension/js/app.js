@@ -10,7 +10,7 @@ import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './ba
 import { purgeTrash } from './trash.js';
 import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
-import {renderFolderReview} from './folder-review.js';
+import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
@@ -181,6 +181,7 @@ function folderGateFor(handle,status,key,signal) {
   return createFolderGate(appContainer,{
     handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
     onResume:selected=>configureFolderSync({admit:true,selected}),
+    onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
   });
 }
 
@@ -215,6 +216,7 @@ async function configureFolderSync({admit=false,selected}={}) {
       folderGate=folderGateFor(handle,review.status,key,signal);
       renderFolderReview(appContainer,review,{
         handle,signal,notify:showToast,onExit:logout,onOpenReadOnly:showApp,
+        onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
         onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
         resolve:async(choice,name)=>{await sync.resolve(review,choice,name);await showApp();},
       });
@@ -332,11 +334,13 @@ function renderAppShell() {
 async function openFolderSettings(trigger) {
   if(!await closeModal()||!cryptoKey||!trigger.isConnected) return;
   closeMobileSidebar();
+  const key=cryptoKey;
   modalController=new AbortController();
   renderFolderSettings(document.getElementById('modal-card'),{
     key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
     trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
-    hasUnreadable:()=>unreadableCount>0,onFolderChange:configureFolderSync,
+    hasUnreadable:()=>unreadableCount>0,pauseFolder:()=>folderSync?.dispose(),
+    onFolderChange:selected=>key===cryptoKey?configureFolderSync({admit:!!selected,selected}):undefined,
   });
   document.getElementById('modal-overlay').classList.add('open');
 }

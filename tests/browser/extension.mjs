@@ -306,7 +306,7 @@ export async function run({check,assert}) {
       await p.until("!!document.querySelector('[data-folder-status=notFound]')");
       assert.equal(await p.eval("document.querySelector('.folder-name').textContent"),oldName);
       assert.match(await p.eval("document.querySelector('.folder-reason').textContent"),/renamed, moved or disconnected/i);
-      assert.equal(await p.eval("document.querySelectorAll('[data-folder-action]').length"),4);
+      assert.equal(await p.eval("document.querySelectorAll('[data-folder-action]').length"),5);
       assert.deepEqual(await p.eval('folderTest.writes'),{});
       await p.send('Page.bringToFront');
       await p.until("document.activeElement.dataset.folderAction==='retry'&&document.hasFocus()");
@@ -766,6 +766,75 @@ export async function run({check,assert}) {
       await p.until("!!document.querySelector('.folder-banner')&&!!document.querySelector('.sidebar [data-folder-state=readOnly]')");
       assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Somente leitura/);
       assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),true);
+    }finally{await browser.close();}
+  });
+
+  await check('G5 the unavailable screen rejects other vaults, reconciles a new path and resets only local data',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture}=await import('./backup-fixture.mjs');
+    const browser=await harness.launchExtension();
+    const file='keeplocal-vault.keeplocal';
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-OLD'));
+      const denied=async()=>{
+        await p.reload();await p.eval("folderTest.permission='denied'");await submitExtensionLogin(p);
+        await p.until("!!document.querySelector('[data-folder-status=denied]')");
+      };
+      const choose=async name=>{
+        await p.eval(`folderTest.name=${JSON.stringify(name)};document.querySelector('[data-folder-action=chooseAnother]').click()`);
+      };
+      const currentFolder=()=>p.eval("(await(await import('./js/folder-store.js')).readSyncFolder())?.name??null");
+      await harness.create(p);
+      await harness.add(p,'Preserve the old directory','Fictitious');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)");
+      const old=await readFolderFixture(p,file);
+      await denied();
+      const foreign=(await backupFixture()).base64;
+      await p.eval("folderTest.name='KL-TEST-FOREIGN'");
+      await writeFolderFixture(p,file,foreign);
+      await choose('KL-TEST-FOREIGN');
+      await p.until("document.querySelector('.folder-block')?.innerText.includes('Copy from another passphrase or vault')");
+      assert.equal(await currentFolder(),'KL-TEST-OLD');
+      assert.equal(await readFolderFixture(p,file),foreign);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+
+      await p.eval("folderTest.name='KL-TEST-COPY'");
+      await writeFolderFixture(p,file,old);
+      await choose('KL-TEST-COPY');
+      await p.until("!!document.querySelector('[data-folder-status=conflict]')");
+      assert.equal(await currentFolder(),'KL-TEST-COPY');
+      await p.eval("document.querySelector('[data-folder-action=useFolder]').click()");
+      await p.until("!!document.querySelector('.app-dialog input')");
+      await p.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
+      await p.until("!!document.querySelector('.note-card')");
+      assert.equal(await readFolderFixture(p,file),old);
+
+      await denied();await choose('KL-TEST-NEW-EMPTY');
+      await p.until("!!document.querySelector('.note-card')");
+      await p.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)");
+      assert.equal(await currentFolder(),'KL-TEST-NEW-EMPTY');
+      const pushed=await readFolderFixture(p,file);
+      await denied();
+      await p.eval("document.querySelector('[data-folder-action=startOver]').click()");
+      await p.until("!!document.querySelector('.app-dialog input')");
+      const message=await p.eval("document.querySelector('.app-dialog').innerText");
+      assert.match(message,/This browser has revision \d+ dated/);
+      assert.match(message,/copy in the folder will remain/i);
+      await p.eval(`(async()=>{
+        const {t}=await import('./js/i18n.js'),input=document.querySelector('.app-dialog input');
+        input.value=t('account.resetWord');input.dispatchEvent(new Event('input'));
+        document.querySelector('[data-dialog-action=confirm]').click();
+      })()`);
+      await p.until("!!document.querySelector('#create-form:not(.hidden)')");
+      assert.equal(await currentFolder(),null);
+      assert.equal(await p.eval("(await(await import('./js/db.js')).readVault()).notes.length"),0);
+      for(const [name,expected] of [['KL-TEST-OLD',old],['KL-TEST-COPY',old],['KL-TEST-FOREIGN',foreign],['KL-TEST-NEW-EMPTY',pushed]]){
+        await p.eval(`folderTest.name=${JSON.stringify(name)}`);
+        assert.equal(await readFolderFixture(p,file),expected);
+      }
     }finally{await browser.close();}
   });
 }

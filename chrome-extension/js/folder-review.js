@@ -3,6 +3,7 @@ import {t,tp} from './i18n.js';
 import {wordDialog} from './dialogs.js';
 import {focusPanel} from './form-ui.js';
 import {exportBackup} from './backup.js';
+import {readVault} from './db.js';
 import {MAIN_FILE} from './folder-vault.js';
 import {folderLocalStamp} from './folder-reconcile.js';
 
@@ -13,7 +14,23 @@ function tag(name,text,className) {
   return node;
 }
 
-export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,notify,onRefresh}) {
+export async function confirmFolderReset({key,signal,onReset}) {
+  const snapshot=await readVault(),meta=snapshot.meta;
+  if(signal.aborted)return;
+  const stamp=Math.max(meta.folderWrittenAt||0,meta.lastBackupAt||0);
+  const date=stamp?new Intl.DateTimeFormat(document.documentElement.lang,{dateStyle:'short',timeStyle:'short'}).format(stamp):t('folder.noDate');
+  const summary=t('folder.resetRevision',{rev:meta.exportRev||0,date});
+  const word=t('account.resetWord');
+  const confirmation=await wordDialog([summary,t('account.resetPrompt'),t('folder.resetPreservesCopy')].join(' '),{
+    title:t('folder.startOver'),word,danger:true,signal,
+  });
+  if(confirmation!==word||signal.aborted)return;
+  const {resetFromFolder}=await import('./account.js');
+  await resetFromFolder(confirmation,meta,{key,signal});
+  await onReset();
+}
+
+export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,notify,onRefresh,onReset}) {
   const wrap=tag('main',undefined,'auth-view folder-block folder-review');
   wrap.dataset.folderStatus=review.status;
   const container=tag('div',undefined,'auth-container');
@@ -84,6 +101,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
     }
   }
   button('openReadOnly',onOpenReadOnly);
+  if(onReset)button('startOver',onReset);
   button('exit',onExit);
   container.append(panel);
   wrap.append(container);

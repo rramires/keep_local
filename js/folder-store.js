@@ -1,6 +1,9 @@
 import {ensureVaultId,getAllMetaRecords,getMeta,readVault,setWriteMode,storeFolderConnection,vaultIdentity} from './db.js';
 import {unreadableRecords} from './record-health.js';
 import {getSessionKey,getSessionVaultId,setSessionVaultId} from './session.js';
+import {decideFolderAction} from './folder-reconcile.js';
+import {readFolderState} from './folder-vault.js';
+import {withVaultLineage} from './folder-write.js';
 
 const access = {mode:'readwrite'};
 
@@ -53,19 +56,27 @@ async function requireSession(key,signal) {
   if(signal?.aborted || !key || key!==await getSessionKey() || signal?.aborted) throw failure('session.ended');
 }
 
-export async function chooseSyncFolder({key,signal,hasUnreadable=false}={}) {
+export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=false}={}) {
   if(!folderSupported()) throw failure('folder.unsupported');
   if(hasUnreadable) throw failure('folder.unreadable');
   const handle=await showDirectoryPicker({...access,id:'keeplocal-vault'});
-  const status=await probeFolder(handle);
-  if(status!=='ok') return {handle,status};
-  await requireSession(key,signal);
-  const snapshot=await readVault();
-  if(vaultIdentity(snapshot.meta)!==getSessionVaultId()) throw failure('vault.changed');
-  if((await unreadableRecords(snapshot.notes,key)).length) throw failure('folder.unreadable');
-  await requireSession(key,signal);
-  await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta}});
-  return {handle,status};
+  return withVaultLineage(async()=>{
+    const status=await probeFolder(handle);
+    if(status!=='ok')return {handle,status};
+    await requireSession(key,signal);
+    const snapshot=await readVault();
+    if(vaultIdentity(snapshot.meta)!==getSessionVaultId())throw failure('vault.changed');
+    if((await unreadableRecords(snapshot.notes,key)).length)throw failure('folder.unreadable');
+    const observed=await readFolderState(handle,key,snapshot.meta.salt);
+    const decision=decideFolderAction(snapshot,observed);
+    if(decision==='otherSalt'||decision==='unreadableCopy')return {handle,status:decision};
+    const alreadyAttached=snapshot.meta.syncFolder&&await handle.isSameEntry(snapshot.meta.syncFolder);
+    if(!alreadyAttached||!hold){
+      if(alreadyAttached)await enableFolderWrites({key,signal});
+      else await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta,hold}});
+    }
+    return {handle,status:'ok'};
+  });
 }
 
 export async function disconnectSyncFolder({key,signal}={}) {
@@ -74,7 +85,7 @@ export async function disconnectSyncFolder({key,signal}={}) {
   const snapshot=Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
   if(vaultIdentity(snapshot)!==getSessionVaultId()) throw failure('vault.changed');
   await requireSession(key,signal);
-  await storeFolderConnection(null,snapshot,null,{signal});
+  await withVaultLineage(()=>storeFolderConnection(null,snapshot,null,{signal}));
 }
 
 export async function enableFolderWrites({key,signal,selection}={}) {
@@ -82,7 +93,7 @@ export async function enableFolderWrites({key,signal,selection}={}) {
     await requireSession(key,signal);
     await storeFolderConnection(selection.handle,selection.snapshot,getSessionVaultId(),{signal,transition:true});
     await requireSession(key,signal);
-    setWriteMode('readWrite');
+    if(!selection.hold)setWriteMode('readWrite');
     return;
   }
   await requireSession(key,signal);
