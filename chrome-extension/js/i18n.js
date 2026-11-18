@@ -5,6 +5,8 @@ import { saveMeta, getMeta } from './db.js';
 let currentLang = 'en';
 
 const en = {
+  'recovery.exportStep': '1. Export a preserved copy',
+  'recovery.discardStep': '2. Discard this record',
   'validation.repeated': 'Avoid repeated characters or short repeated patterns.',
   'validation.sequence': 'Avoid alphabetical or numerical sequences.',
   'validation.keyboard': 'Avoid predictable keyboard runs.',
@@ -13,7 +15,7 @@ const en = {
   'recovery.exported': 'Download started with {count} unreadable records. No record was discarded. Verify that the file was saved before confirming below.',
   'recovery.confirmSavedRequired': 'Confirm that you verified the saved file before discarding.',
   'recovery.confirmSaved': 'I confirmed that the file was saved',
-  'recovery.exportNow': '1. Export now',
+  'recovery.exportNow': 'Export now',
   'recovery.exportWarning': 'This export preserves unreadable records and cannot be restored in full until they are repaired or discarded. Exporting alone never discards records.',
   'note.actionLocalConflict': 'Another action in this tab changed the note. Review its current state and try again; this action was not applied.',
   'note.actionFailed': 'Could not apply this action. The stored note and its displayed state were preserved; retry.',
@@ -223,6 +225,8 @@ const en = {
 };
 
 const ptBR = {
+  'recovery.exportStep': '1. Exportar uma cópia preservada',
+  'recovery.discardStep': '2. Descartar este registro',
   'validation.repeated': 'Evite caracteres repetidos ou padrões curtos repetidos.',
   'validation.sequence': 'Evite sequências alfabéticas ou numéricas.',
   'validation.keyboard': 'Evite corridas previsíveis de teclado.',
@@ -231,7 +235,7 @@ const ptBR = {
   'recovery.exported': 'Download iniciado com {count} registros ilegíveis. Nenhum registro foi descartado. Confira se o arquivo foi salvo antes de confirmar abaixo.',
   'recovery.confirmSavedRequired': 'Confirme que conferiu o arquivo salvo antes de descartar.',
   'recovery.confirmSaved': 'Confirmei que o arquivo foi salvo',
-  'recovery.exportNow': '1. Exportar agora',
+  'recovery.exportNow': 'Exportar agora',
   'recovery.exportWarning': 'Este export preserva registros ilegíveis e não pode ser restaurado integralmente até serem reparados ou descartados. Exportar sozinho nunca descarta registros.',
   'note.actionLocalConflict': 'Outra ação desta aba alterou a nota. Confira o estado atual e tente novamente; esta ação não foi aplicada.',
   'note.actionFailed': 'Não foi possível aplicar esta ação. A nota armazenada e seu estado exibido foram preservados; tente novamente.',

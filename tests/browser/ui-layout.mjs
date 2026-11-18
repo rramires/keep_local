@@ -1,4 +1,4 @@
-import {create,PASSWORD} from './harness.mjs';
+import {create,unlock as unlockRecovery,PASSWORD} from './harness.mjs';
 export async function run({browser,check,assert}) {
  await check('U1 password form has real stacked geometry, live policy feedback and accessible close in both themes at 390/1100px',async()=>{
   for(const theme of ['dark','light'])for(const width of [1100,390]){
@@ -19,4 +19,16 @@ export async function run({browser,check,assert}) {
    }finally{await p.close();}
   }
  });
+ await check('U2 recovery uses distinct steps, list semantics, full-width confirmation and visible disabled danger controls',async()=>{
+  for(const theme of ['dark','light'])for(const width of [1100,390]){
+   const p=await browser.page();try{await p.send('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:false});await create(p);
+    await p.eval(`const c=await import('./js/crypto.js'),d=await import('./js/db.js'),a=await import('./js/app.js');const e=await c.encrypt(a.getCryptoKey(),'fictitious invalid JSON');await d.saveNoteRecord({id:crypto.randomUUID(),iv:c.arrayToBase64(e.iv),ciphertext:c.arrayBufferToBase64(e.ciphertext),updatedAt:1})`);await p.reload();await unlockRecovery(p);
+    await p.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)};document.querySelector('#recover-notes-btn').click()`);await p.until("!!document.querySelector('#recovery-confirmation')");await p.until("document.activeElement.classList.contains('recovery-record')");
+    const v=await p.eval(`(()=>{const step=[...document.querySelectorAll('.recovery-step')],i=document.querySelector('#recovery-confirmation'),label=i.labels[0],d=document.querySelector('#recovery-discard'),c=document.querySelector('#recovery-saved'),rect=e=>{const r=e.getBoundingClientRect();return {x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width}};return {steps:step.map(rect),input:rect(i),label:rect(label),field:rect(i.parentElement),checkbox:rect(c),checkboxLabel:rect(c.parentElement),disabled:d.disabled,opacity:+getComputedStyle(d).opacity,border:getComputedStyle(d).borderColor,kind:d.className,list:document.querySelector('.recovery-record').parentElement.parentElement.tagName,overflow:document.documentElement.scrollWidth>innerWidth}})()`);
+    assert.equal(v.steps.length,2);assert.ok(v.steps[1].y>v.steps[0].bottom);assert.ok(v.input.y>=v.label.bottom);assert.ok(Math.abs(v.input.width-v.field.width)<2);assert.ok(v.input.right<=width);assert.ok(v.checkbox.width<=20);assert.ok(Math.abs(v.checkbox.y-v.checkboxLabel.y)<5);assert.equal(v.disabled,true);assert.ok(v.opacity<1);assert.match(v.kind,/btn-danger/);assert.equal(v.list,'UL');assert.equal(v.overflow,false);
+    await p.eval("document.querySelector('#modal-close').click()");await p.until("document.activeElement.id==='recover-notes-btn'");assert.deepEqual(p.errors,[]);
+   }finally{await p.close();}
+  }
+ });
+
 }

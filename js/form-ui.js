@@ -16,6 +16,6 @@ export function focusPanel(container,{signal,trigger,titleId,initial}) {
   requestAnimationFrame(focus);
   signal?.addEventListener('abort',()=>{
     container.removeAttribute('role');container.removeAttribute('aria-modal');container.removeAttribute('aria-labelledby');
-    queueMicrotask(()=>{if(trigger?.isConnected)trigger.focus();});
+    queueMicrotask(()=>{const target=typeof trigger==='function'?trigger():trigger;if(target?.isConnected)target.focus();});
   },{once:true});
 }
