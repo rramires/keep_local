@@ -22,4 +22,7 @@
 .folder-indicator[hidden] { display: none; }
 .sidebar .folder-indicator { padding: 8px 16px; }
 .folder-review .folder-actions { margin-top: 12px; }
-.folder-review select { max-width: 100%; }
+.folder-review-warnings { display: grid; gap: 8px; margin-top: 12px; }
+.folder-review-warnings p { margin: 0; }
+.folder-review select { min-width: 0; max-width: 100%; color-scheme: dark; }
+[data-theme="light"] .folder-review select { color-scheme: light; }

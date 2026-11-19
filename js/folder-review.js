@@ -76,9 +76,14 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
   const canOverwrite=canChoose&&['valid','emptyMain'].includes(main?.status);
   const useLocalWarning=t(main?.status==='emptyMain'?'folder.replaceEmptyMain':'folder.preserveFolder');
-  const useFolderWarning=t('folder.preserveLocal')+(state.divergent?' '+t('folder.preserveTiedMain'):'');
-  if(canChoose)panel.append(tag('p',useFolderWarning));
-  if(canOverwrite)panel.append(tag('p',useLocalWarning));
+  const folderWarnings=[t('folder.preserveLocal')];
+  if(state.divergent)folderWarnings.push(t('folder.preserveTiedMain'));
+  if(canChoose){
+    const warnings=tag('div',undefined,'folder-review-warnings');
+    for(const message of folderWarnings)warnings.append(tag('p',message));
+    if(canOverwrite)warnings.append(tag('p',useLocalWarning));
+    panel.append(warnings);
+  }
   panel.append(report,controls);
 
   const run=async work=>{
@@ -109,7 +114,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
     title:t('folder.replaceTitle'),word:t('folder.replaceWord'),danger:true,signal,
   })===t('folder.replaceWord');
   if(canChoose)button('useFolder',async()=>{
-    if(await confirm(useFolderWarning))await resolve('remote',selection?.value??head.name);
+    if(await confirm(folderWarnings.join(' ')))await resolve('remote',selection?.value??head.name);
   });
   if(canOverwrite)button('useLocal',async()=>{
     if(await confirm(useLocalWarning))await resolve('local',selection?.value??head.name);

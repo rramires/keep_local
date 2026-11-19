@@ -1113,6 +1113,70 @@ export async function run({check,assert}) {
     }finally{await browser.close();}
   });
 
+  await check('G2.4 tied review spaces the warnings and themes its select at desktop and mobile widths',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture}=await import('./backup-fixture.mjs');
+    const browser=await harness.launchExtension();
+    try {
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-CONFLICT-STYLE'));
+      await p.eval("await(await import('./js/db.js')).saveMeta('lang','pt-BR')");
+      await p.reload();await harness.create(p);
+      await harness.add(p,'Nota local fictícia','Conteúdo fictício');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
+      const rev=await p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+      for (const [file,title] of [['keeplocal-vault.keeplocal','Principal fictício'],['keeplocal-vault (1).keeplocal','Cópia fictícia']]){
+        const fixture=await backupFixture([harness.note({title})],harness.PASSWORD,salt);
+        await writeFolderFixture(p,file,await fixture.seal({...fixture.payload,rev:rev+1}));
+      }
+      await p.eval("window.dispatchEvent(new Event('focus'))");
+      await p.until("!!document.querySelector('[data-folder-status=conflict] select')");
+      for (const theme of ['dark','light']){
+        for (const width of [1100,390]){
+          await p.send('Emulation.setDeviceMetricsOverride',{width,height:920,deviceScaleFactor:1,mobile:width===390});
+          const view=await p.eval(`(async()=>{
+            document.documentElement.dataset.theme=${JSON.stringify(theme)};
+            const {t}=await import('./js/i18n.js');
+            const panel=document.querySelector('.folder-review .folder-card');
+            const picker=panel.querySelector('select'),input=document.createElement('input');
+            input.style.position='fixed';panel.append(input);
+            picker.style.transition=input.style.transition='none';
+            const style=node=>{
+              const css=getComputedStyle(node);
+              return [css.backgroundColor,css.color,css.borderTopColor];
+            };
+            input.blur();picker.blur();
+            const field=style(input),select=style(picker),scheme=getComputedStyle(picker).colorScheme;
+            picker.focus();const selectFocus=style(picker)[2];
+            input.focus();const inputFocus=style(input)[2];input.remove();
+            picker.style.removeProperty('transition');
+            const paragraphs=[...panel.querySelectorAll('.folder-review-warnings p')];
+            const rects=paragraphs.map(node=>node.getBoundingClientRect());
+            return {
+              paragraphs:paragraphs.map(node=>node.textContent),expected:['preserveLocal','preserveTiedMain','preserveFolder'].map(key=>t('folder.'+key)),
+              spacing:rects.slice(1).map((rect,index)=>rect.top-rects[index].bottom),
+              field,select,scheme,selectFocus,inputFocus,
+              lang:document.documentElement.lang,width:innerWidth,scroll:document.documentElement.scrollWidth,
+            };
+          })()`);
+          assert.deepEqual(view.paragraphs,view.expected,`distinct warnings at ${width}px in ${theme}`);
+          assert.equal(view.spacing.length,2);
+          assert.ok(view.spacing.every(gap=>gap>=8));
+          assert.deepEqual(view.select,view.field);
+          assert.equal(view.scheme,theme);
+          assert.equal(view.selectFocus,view.inputFocus);
+          assert.notEqual(view.selectFocus,view.select[2]);
+          assert.equal(view.lang,'pt-BR');
+          assert.equal(view.width,width);
+          assert.ok(view.scroll<=width);
+        }
+      }
+    }finally{await browser.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');
