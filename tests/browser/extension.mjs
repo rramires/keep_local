@@ -1295,6 +1295,77 @@ export async function run({check,assert}) {
     });
   }
 
+  await check('G3.3 picking the same folder replaces a stalled identity through login',async()=>{
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const browser=await harness.launchExtension();
+    const directory='KL-TEST-STALLED-IDENTITY',primary='keeplocal-vault.keeplocal';
+    try{
+      const p=await startFolderTimeoutFixture(browser,directory);
+      const connection=()=>p.eval("(await import('./js/db.js')).getMeta('folderConnectionId')");
+      const old=await connection();
+      await p.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const bytes=await readFolderFixture(p,primary);
+      await p.reload();
+      await p.eval("folderTest.permission='granted';folderTest.recoverOnPicker=true;folderTest.stalls.add('isSameEntry')");
+      await waitForUnresponsive(p,'metadata');
+      assert.deepEqual(await p.eval('folderTest.pending.map(read=>read.kind)'),['isSameEntry']);
+      await p.eval("document.querySelector('[data-folder-action=chooseAnother]').click()");
+      await p.until("!!document.querySelector('.note-card')&&!document.querySelector('.folder-banner')",folderTestTimeouts.metadata+2000);
+      const newId=await connection();
+      assert.ok(newId&&newId!==old);
+      assert.equal(await p.eval("(await(await import('./js/folder-store.js')).readSyncFolder()).name"),directory);
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      assert.equal(await readFolderFixture(p,primary),bytes);
+      assert.deepEqual(await p.eval('folderTest.release()'),['isSameEntry','isSameEntry']);
+      await p.until("folderTest.events.filter(event=>event.kind==='settled:isSameEntry').length===2");
+      assert.equal(await connection(),newId);
+
+      await p.reload();await p.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('.note-card')&&!document.querySelector('.folder-banner')",folderTestTimeouts.metadata+2000);
+      assert.equal(await connection(),newId);
+    }finally{await browser.close();}
+  });
+
+  await check('G3.3 settings replaces a stalled identity and disconnect makes no handle reads',async()=>{
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    try{
+      const p=await startFolderTimeoutFixture(browser,'KL-TEST-SETTINGS-IDENTITY');
+      const connection=()=>p.eval("(await import('./js/db.js')).getMeta('folderConnectionId')");
+      const newId=await connection();
+      await p.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const bytes=await readFolderFixture(p,primary);
+      await p.eval('folderTest.writeAttempts=0');
+      const open=async()=>{
+        await p.eval("document.querySelector('#folder-settings-btn').click()");
+        await p.until("document.activeElement.id==='modal-close'&&!!document.querySelector('[data-folder-action=change]')");
+      };
+      await open();
+      await p.eval("folderTest.recoverOnPicker=true;folderTest.stalls.add('isSameEntry');document.querySelector('[data-folder-action=change]').click()");
+      await p.until(`(await import('./js/db.js')).getMeta('folderConnectionId').then(id=>id!==${JSON.stringify(newId)})`,folderTestTimeouts.metadata+2000);
+      await p.until("document.querySelector('.folder-settings [data-folder-action=change]')?.disabled===false");
+      assert.equal(await readFolderFixture(p,primary),bytes);
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      assert.deepEqual(await p.eval('folderTest.release()'),['isSameEntry']);
+      await p.until("folderTest.events.some(event=>event.kind==='settled:isSameEntry')");
+
+      await p.eval("folderTest.stalls.add('isSameEntry');document.querySelector('[data-folder-action=disconnect]').click()");
+      await p.until("!!document.querySelector('[data-dialog-action=confirm]')");
+      await p.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+      await p.until("!!document.querySelector('.folder-settings [data-folder-action=choose]')");
+      assert.equal(await connection(),null);
+      assert.deepEqual(await p.eval('folderTest.pending'),[]);
+      assert.equal(await readFolderFixture(p,primary),bytes);
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+    }finally{await browser.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');

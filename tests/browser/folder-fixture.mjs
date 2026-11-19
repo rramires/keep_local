@@ -38,10 +38,17 @@ function installFolderFixture(name,timeouts) {
     if(this===window&&type==='pagehide'&&options?.signal)fixture.folderSignals.push(options.signal);
     return addEventListener.call(this,type,listener,options);
   };
+  let compareWithRetiredHandle=false;
   window.showDirectoryPicker = async options => {
     record('picker',options);
     if(fixture.cancel) throw new DOMException('Fictional picker cancellation','AbortError');
-    return fixture.directory(true);
+    const picked=await fixture.directory(true);
+    if(fixture.recoverOnPicker){
+      compareWithRetiredHandle=fixture.stalls.has('isSameEntry');
+      fixture.stalls.clear();
+      fixture.recoverOnPicker=false;
+    }
+    return picked;
   };
   FileSystemHandle.prototype.queryPermission = async function(options=mode) {
     record('query',options);
@@ -92,8 +99,12 @@ function installFolderFixture(name,timeouts) {
   const isSameEntry=FileSystemHandle.prototype.isSameEntry;
   FileSystemHandle.prototype.isSameEntry=async function(other){
     if(this.name.startsWith('preserved-')&&fixture.rejectPreservationIdentity)return false;
-    await stall('isSameEntry');
-    return isSameEntry.call(this,other);
+    const compareWithOld=compareWithRetiredHandle;
+    compareWithRetiredHandle=false;
+    const delayed=await stall('isSameEntry',compareWithOld);
+    const result=await isSameEntry.call(this,other);
+    if(delayed)record('settled:isSameEntry');
+    return result;
   };
   const createWritable=FileSystemFileHandle.prototype.createWritable;
   FileSystemFileHandle.prototype.createWritable=async function(...args){

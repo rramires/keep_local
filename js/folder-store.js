@@ -72,7 +72,12 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=fals
     const observed=await readFolderState(handle,key,snapshot.meta.salt);
     const decision=decideFolderAction(snapshot,observed);
     if(decision==='otherSalt'||decision==='unreadableCopy')return {handle,status:decision};
-    const alreadyAttached=snapshot.meta.syncFolder&&await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder));
+    const alreadyAttached=snapshot.meta.syncFolder&&await withFolderReadTimeout(
+      ()=>handle.isSameEntry(snapshot.meta.syncFolder),
+    ).catch(error=>{
+      if(error.name==='TimeoutError')return false;
+      throw error;
+    });
     if(!alreadyAttached||!hold){
       if(alreadyAttached)await enableFolderWrites({key,signal});
       else await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta,hold}});
