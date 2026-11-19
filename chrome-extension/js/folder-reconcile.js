@@ -80,14 +80,14 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
     const preserved=[await preserveLocalChoice(handle,snapshot,key,signal)];
     let target=head;
     if(state.divergent){
-      if(main)preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
+      if(main?.status==='valid')preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
       const selected=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
       await requireFolderSession(snapshot,key,signal);
       target=await writer.writeChosen(snapshot,state,selected);
     }else if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state)){
       throw folderFailure('folder.changed');
     }
-    return {...await pullFolderHead(handle,target,snapshot,key,signal),preserved};
+    return {...await pullFolderHead(handle,target,snapshot,key,signal),preserved,replacedEmptyMain:target.replacedEmptyMain};
   }
   if(main?.status!=='valid')throw folderFailure('folder.changed');
   const copies=main.name===head.name?[main]:[main,head];

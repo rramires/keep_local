@@ -4,7 +4,7 @@ import {enableFolderWrites} from './folder-store.js';
 import {createFolderWriter,folderFailure,folderStamp,withVaultLineage} from './folder-write.js';
 import {decideFolderAction,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
 
-export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onIgnored=()=>{}}) {
+export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
@@ -56,7 +56,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(admitting)await enableFolderWrites({key,signal:lifetime});
     if(admitting||decision==='saved')return {status:decision,writtenAt:snapshot.meta.folderWrittenAt};
     const result=await writer.write(snapshot,state);
-    return {status:'saved',writtenAt:result.writtenAt,hasNewChanges:result.hasNewChanges};
+    return {...result,status:'saved'};
   }
 
   async function interpret(outcome) {
@@ -69,7 +69,10 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(outcome.status==='pulled'){
       onStatus('saved',Date.parse(outcome.head.exportedAt));
       await onPulled(outcome.head);
-    }else if(outcome.status==='saved')onStatus('saved',outcome.writtenAt);
+    }else if(outcome.status==='saved'){
+      onStatus('saved',outcome.writtenAt);
+      if(outcome.replacedEmptyMain)onEmptyMainReplaced();
+    }
     else if(outcome.status==='push')schedule();
     return true;
   }

@@ -23,24 +23,12 @@ export function localFolderDirty(meta) {
 
 export function unsafeFolder(state) {
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
-  return !!(state.limitExceeded||(main&&main.status!=='valid')||
+  return !!(state.limitExceeded||(main&&!['valid','emptyMain'].includes(main.status))||
     (!state.head&&(state.otherSalt.length||state.unreadable.length||state.tooLarge.length)));
 }
 
 export function createFolderWriter(handle,key,signal) {
-  let placeholder=null;
-
-  async function scan(salt) {
-    const state=await readFolderState(handle,key,salt);
-    if(placeholder&&state.unreadable.includes(MAIN_FILE)){
-      const current=await handle.getFileHandle(MAIN_FILE);
-      if(await placeholder.isSameEntry(current)&&(await current.getFile()).size===0){
-        state.candidates=state.candidates.filter(row=>row.name!==MAIN_FILE);
-        state.unreadable=state.unreadable.filter(name=>name!==MAIN_FILE);
-      }
-    }
-    return state;
-  }
+  const scan=salt=>readFolderState(handle,key,salt);
 
   async function writeFile(snapshot,state,{replace,selected}={}) {
     const {meta}=snapshot;
@@ -61,43 +49,48 @@ export function createFolderWriter(handle,key,signal) {
     const hash=await payloadHash(JSON.stringify(payload));
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     const expected=folderStamp(state);
-    const verify=async()=>{
+    const verify=async(created)=>{
       assertCurrent();
-      if(folderStamp(await scan(meta.salt))!==expected)throw folderFailure('folder.changed');
+      const current=await scan(meta.salt);
+      if(created&&current.candidates.some(row=>row.status==='emptyMain')){
+        const entry=await handle.getFileHandle(MAIN_FILE);
+        if(await created.isSameEntry(entry))
+          current.candidates=current.candidates.filter(row=>row.status!=='emptyMain');
+      }
+      if(folderStamp(current)!==expected)throw folderFailure('folder.changed');
       await verifyFolderWrite(meta,{signal,replaceLocal:!!selected});
     };
     await verify();
-    let file;
+    let file,created;
     try {file=await handle.getFileHandle(MAIN_FILE);}
     catch(error){
       if(error.name!=='NotFoundError'||state.candidates.some(row=>row.name===MAIN_FILE))throw error;
       assertCurrent();
       file=await handle.getFileHandle(MAIN_FILE,{create:true});
       if((await file.getFile()).size!==0)throw folderFailure('folder.changed');
-      placeholder=file;
+      created=file;
     }
     assertCurrent();
     const writable=await file.createWritable({mode:'exclusive'});
     try {
       await writable.write(bytes);
-      await verify();
+      await verify(created);
       assertCurrent();
       await writable.close();
     } catch(error) {
       await writable.abort().catch(()=>{});
       throw error;
     }
-    placeholder=null;
     const checked=await readFolderCandidate(file,key,meta.salt);
     if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
-    return {name:MAIN_FILE,...checked};
+    return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
   }
 
   async function write(snapshot,state,options) {
-    const {rev,hash,exportedAt}=await writeFile(snapshot,state,options);
+    const {rev,hash,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
     const writtenAt=Date.parse(exportedAt);
     await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt},{signal});
-    return {rev,hash,writtenAt,hasNewChanges:localFolderDirty((await readVault()).meta)};
+    return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.

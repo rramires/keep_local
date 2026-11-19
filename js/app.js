@@ -205,6 +205,7 @@ async function configureFolderSync({admit=false,selected}={}) {
   };
   const sync=createFolderSync({
     handle,key,signal,onPulled:rerenderPulled,onIgnored:()=>showToast(t('folder.ignoredCopies')),
+    onEmptyMainReplaced:()=>showToast(t('folder.emptyMainReplaced')),
     onUnavailable:(folder,status)=>{
       folderGate=folderGateFor(folder,status,key,signal);
       if(document.querySelector('.app-view'))void showApp();
@@ -219,9 +220,12 @@ async function configureFolderSync({admit=false,selected}={}) {
         onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
         onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
         resolve:async(choice,name)=>{
-          const {preserved}=await sync.resolve(review,choice,name);
+          const {preserved,replacedEmptyMain}=await sync.resolve(review,choice,name);
           await showApp();
-          if(!signal.aborted)showToast(t('folder.preserved',{files:preserved.join(', ')}));
+          if(!signal.aborted){
+            showToast(t('folder.preserved',{files:preserved.join(', ')}));
+            if(replacedEmptyMain)showToast(t('folder.emptyMainReplaced'));
+          }
         },
       });
     },

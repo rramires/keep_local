@@ -28,8 +28,9 @@ export async function decodeV2WithKey(bytes,key,localSaltB64) {
   }catch{return {status:'unreadable'};}
 }
 
-export async function readFolderCandidate(entry,key,salt) {
+export async function readFolderCandidate(entry,key,salt,{allowEmpty=false}={}) {
   const file=await entry.getFile();
+  if(allowEmpty&&file.size===0)return {status:'emptyMain'};
   if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge'};
   return decodeV2WithKey(new Uint8Array(await file.arrayBuffer()),key,salt);
 }
@@ -38,11 +39,11 @@ export async function readFolderState(handle,key,salt) {
   const {entries,limitExceeded}=await listCandidates(handle);
   const state={head:null,candidates:[],divergent:false,unreadable:[],otherSalt:[],tooLarge:[],limitExceeded};
   for(const {name,entry} of entries){
-    const result=await readFolderCandidate(entry,key,salt);
+    const result=await readFolderCandidate(entry,key,salt,{allowEmpty:name===MAIN_FILE});
     const {payload,...summary}=result;
     state.candidates.push({name,...summary,...(payload?{noteCount:payload.notes.length}:{})});
     if(result.status!=='valid'){
-      state[result.status].push(name);
+      if(result.status!=='emptyMain')state[result.status].push(name);
       continue;
     }
     if(!state.head||result.rev>state.head.rev){

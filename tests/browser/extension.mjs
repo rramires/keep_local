@@ -894,6 +894,37 @@ export async function run({check,assert}) {
     }finally{await extra.close();}
   });
 
+  await check('G1.4 a zero-byte main can be replaced while a one-byte main is blocked',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {decodeV2}=await import('../../js/backup-v2.js');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-EMPTY-MAIN'));
+      const relogin=async()=>{
+        await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      };
+      await harness.create(p);
+      await harness.add(p,'Survives an empty folder file','Fictitious');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await writeFolderFixture(p,primary,'');
+      await relogin();
+      await p.until("!!document.querySelector('[data-folder-status=unreadableCopy], .sidebar [data-folder-state=saved]')");
+      assert.equal(await p.eval("!!document.querySelector('[data-folder-status=unreadableCopy]')"),false);
+      const main=await readFolderFixture(p,primary);
+      assert.equal((await decodeV2(Buffer.from(main,'base64'),harness.PASSWORD)).payload.rev,1);
+      assert.match(await p.eval("document.querySelector('#toast-container').innerText"),/empty main file was replaced/i);
+      const junk=Buffer.from([0xa5]).toString('base64');
+      await writeFolderFixture(p,primary,junk);
+      await relogin();
+      await p.until("!!document.querySelector('[data-folder-status=unreadableCopy]')");
+      assert.equal(await readFolderFixture(p,primary),junk);
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+    }finally{await browser.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');
