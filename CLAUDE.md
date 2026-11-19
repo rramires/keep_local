@@ -6,7 +6,7 @@ O arquivo importado acima é o **contrato técnico** (formato dos dados, módulo
 
 ## Contexto
 
-Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. Hoje o único caminho para a nuvem é o **backup manual** (`.keeplocal`); a seção "Senhas e Chaves" (Fase 4) tem o **núcleo mesclado** (Etapa D) e o restante (Etapa E) aguarda pedido do dono; a gravação automática em pasta sincronizada (Mega, Fase 3) **está bloqueada** (ver "Decisões aprovadas").
+Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. **Na extensão**, a pasta do cofre (Fase 3, Etapas F–G3, mesclada) grava uma cópia cifrada numa pasta sincronizada (Mega) e confere a pasta ao entrar; o SPA servido por HTTP tem só o **backup manual** (`.keeplocal`). A Etapa H da Fase 3 (merge por nota e o resto) **está bloqueada**. A seção "Senhas e Chaves" (Fase 4) tem o **núcleo mesclado** (Etapa D) e o restante (Etapa E) aguarda pedido do dono (ver "Decisões aprovadas").
 
 O dono escreve em **português (pt-BR)**. Respostas e relatórios em português; **código, commits e identificadores em inglês**; todo texto de interface com chaves **EN e pt-BR** (`t()`/`tp()`).
 
@@ -52,18 +52,21 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
    - **Onde nunca aparece:** DOM de card/lista/grade/busca/toast/console, armazenamento e meta. Aparece só no campo revelado (com auto-ocultar) e no `value` do campo em edição.
    - **Campo nasce secreto:** `isSecretField = secret ?? (secretLabel || !publicLabel)`. Só fica público, automaticamente, um rótulo claramente público (palavra inteira).
    - **Quem grava a flag:** só o cadeado grava `secret`, e a escolha manual vence o rótulo.
+10. **Resolver conflito da pasta nunca destrói a única cópia de uma versão:** o lado que perde vai antes para `keeplocal-preserved/` (relido e conferido); se a preservação falhar, nada é substituído. O app nunca limpa essa subpasta e a leitura olha só a raiz.
+11. **Pasta do cofre:** somente leitura = **0 escritas** (pasta e IndexedDB) fora de uma escolha explícita; toda leitura da pasta tem prazo (`folder-timeout.js`) e uma pasta que não responde leva à tela de bloqueio, nunca a um login travado; a decisão usa o `rev` cifrado, nunca a data do arquivo.
 
-## Decisões aprovadas (Fase 3 bloqueada; Fase 4 em andamento)
+## Decisões aprovadas (Fase 3: F–G3 mescladas, H bloqueada; Fase 4: D mesclada, E aguarda)
 
 Detalhe completo no plano (Fases 3 e 4). Resumo:
 
-**Fase 3 — gravação em pasta sincronizada (File System Access API)**
-- Começa por um **spike descartável** (`_temp/spike-fs-access/`, roteiro rev. 2); o dono preenche `RESULTADOS.md` no Windows/Chrome/Mega antes de qualquer T3.1.
-- Handle de **diretório**; só o nome da pasta é exibido; senha **a cada abertura** (chave em memória) e, depois de entrar, **conferir a pasta nos dois sentidos** (puxar, empurrar, mesclar, rollback).
-- Cabeça = cópia válida de maior **`rev` dentro do payload cifrado** (nunca a data do arquivo); lacunas de `rev` são normais; só a cabeça entra no merge.
-- **Pasta indisponível bloqueia** com: tentar de novo / escolher outra pasta / **abrir só leitura** / refazer a partir dos dados locais / começar do zero. Modo somente leitura é imposto na **camada de dados** (0 escritas).
-- Abrir de outra pasta (ex.: pen-drive criptografado) é **recuperação, somente leitura por padrão**; só vira pasta de sincronização por escolha explícita. Perfis antigos de formato abrem para sempre.
-- Sincronização só ativa com **0 registros ilegíveis**. Fotos com trailer (T3.8) são opcionais e só depois do spike; kit de emergência e ferramenta de recuperação independente (T3.9).
+**Fase 3 — pasta do cofre (File System Access API), só na extensão** (decisão do dono, 2026-11-18; ID fixo pela `key` do manifest)
+- Spike e roteiro manual final no Windows/Chrome/Mega concluídos (`_temp/parecer-roteiro-manual-final-claude.md`). Orientar **"Allow on every visit"**; persistência entre reinícios confirmada pelo dono.
+- Handle de **diretório**; só o nome da pasta é exibido; senha **a cada abertura** (chave em memória). No clique de "Entrar", `requestPermission` é a **primeira** chamada, antes do PBKDF2. Disponibilidade só por leitura real (listar), nunca por `queryPermission`.
+- Arquivo `keeplocal-vault.keeplocal` = backup v2 perfil 2 **sem mudança**, mesma linhagem `rev`/`parent` do export. Candidatos: `*.keeplocal` da raiz (até 32, 64 MiB). Identidade = salt; mesmo salt decifra com a chave da sessão.
+- Cabeça = cópia válida de maior **`rev` dentro do payload cifrado** (nunca a data do arquivo); lacunas de `rev` são normais. Decisão por cofre inteiro (push/pull/adopt; conflito, rollback, outra senha e cópia ilegível **param e perguntam**). Primeira conexão: 0 registros locais → pull; conjunto idêntico → adopt; o resto → conflito.
+- **Pasta indisponível bloqueia** com: tentar de novo / escolher outra pasta / **abrir só leitura** / começar do zero / sair. Pasta que não responde (R5) → tela `unresponsive` (prazos de 15 s metadados, 60 s por arquivo); gravações ainda sem prazo.
+- Sincronização só ativa com **0 registros ilegíveis**. Gravar na pasta não marca "backup feito".
+- **Etapa H (bloqueada):** merge por nota e *tombstones*, cópias rotativas, salt diferente (senha trocada em outro PC), abrir de outra pasta como **recuperação somente leitura**, fotos com trailer (T3.8, opcional) e kit/ferramenta de recuperação independente (T3.9).
 
 **Fase 4 — "Senhas e Chaves"** (núcleo = Etapa D, mesclado; Etapa E = T4.7 modelos, T4.8 cópia rápida/estrela, T4.9 gerador, T4.11 desfazer/timeout, aguarda pedido do dono)
 - Nota `type: 'vault'` com **blocos** livres (texto, campo, divisor); campo com flag `secret` e `multiline`. O campo **nasce secreto** (decisão do dono, 2026-11-18, opção A do D-B1). Fica público automaticamente só com rótulo claramente público (host, usuário, url, e-mail, porta, banco, bucket, região, ip, conta…). Termo sensível vence termo público. O cadeado manual vence o rótulo.
@@ -71,15 +74,16 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 - Segredo **nunca** no DOM de card/lista/busca/toast; revelar com auto-ocultar; copiar com limpeza do clipboard; busca só em título, tags, rótulos e campos **não secretos**; tags isoladas por seção.
 - Visões lista ⇄ grade guardada por seção; modo leitura por padrão; modelos (Servidor, Banco, API key, SSH, Login web, Cloudflare R2/S3); gerador de senha.
 
-## Estado (2026-11-18)
+## Estado (2026-11-19)
 
 - Fases 0–2c **mescladas na `master`** (merge `--no-ff`, `4c8391b`), revisadas de forma independente a cada etapa. Branch e worktree dessa etapa já foram removidos.
 - **Ainda não há dados reais.** A versão antiga só foi usada em testes (informado pelo dono em 2026-11-17); o dono **avisa quando for usar de verdade**. Até lá, **não** exigir migração com cópia, troca de senha por causa do verificador antigo nem limpeza de backups antigos do Mega.
-- **Pendente do dono (sem urgência de dados):** extensão instalada (clique no ícone foca a aba aberta) e spike no Windows/Mega, que destrava o desenho do T3.1. Antes do uso real: escolher a senha mestra (5–6 palavras sorteadas) e conferir as configurações do Chrome (nunca salvar senhas, sem autofill, ortografia básica).
+- **Antes do uso real (dono):** escolher a senha mestra (5–6 palavras sorteadas); conferir as configurações do Chrome (nunca salvar senhas, sem autofill, ortografia básica); **desativar o histórico do Win+V e a sincronização da área de transferência** (o roteiro manual mostrou que o Win+V retém a senha copiada mesmo após a limpeza); decidir o G3-L1.
 - **Etapa C (Fases 2d/2e + C1) mesclada na `master`** (merge `--no-ff` `de53ea6`), revisada de forma independente: formulários, alertas, plurais, textos e diálogos do app (Enter aciona o botão focado); lote com proveniência local e replanejamento dentro das filas; fuzz de 40000 execuções; texto do recibo simplificado.
 - **Compatibilidade removida por autorização do dono:** não há importação JSON v1 nem migração de login antigo. Cofre com salt e sem `keyCheck` é recusado com instrução de reset explícito, sem apagar dados automaticamente. O gate usa somente dados v2 fabricados, sem checkout-base. O perfil 2 binário continua imutável.
-- **Etapa D (Fase 4, núcleo) + D1 mesclada na `master`** (merge `--no-ff` `3ac58c8`), revisada de forma independente: modelo `vault`, seção lista/grade, detalhe em leitura, editor de blocos pela fila, revelar/copiar com limpeza do clipboard, busca só em campos públicos, labels isoladas e campo que nasce secreto. Pareceres: `_temp/parecer-revisao-etapa-d-claude.md` e `_temp/parecer-revisao-etapa-d1-claude.md`. **Pendente do dono:** teste manual do clipboard com a aba sem foco, Win+V, gerenciador de senhas/autofill do Chrome real e extensão instalada.
-- Fase 3 (T3.1–T3.9) continua bloqueada pelo spike. A Etapa E da Fase 4 só começa com pedido do dono.
+- **Etapa D (Fase 4, núcleo) + D1 mesclada na `master`** (merge `--no-ff` `3ac58c8`), revisada de forma independente: modelo `vault`, seção lista/grade, detalhe em leitura, editor de blocos pela fila, revelar/copiar com limpeza do clipboard, busca só em campos públicos, labels isoladas e campo que nasce secreto. Pareceres: `_temp/parecer-revisao-etapa-d-claude.md` e `_temp/parecer-revisao-etapa-d1-claude.md`. Teste manual na extensão instalada feito no roteiro final da Fase 3.
+- **Fase 3, Etapas F+G+G1+G2+G3 mescladas na `master`** (merge `--no-ff` `a6fe87b`), revisadas de forma independente a cada etapa (`_temp/parecer-revisao-etapa-{f,g,g1,g2,g3}-claude.md`) e no roteiro manual do Windows. Gate do merge: 37 unitários, 3×129 navegador. **Pendência baixa G3-L1:** escolher a mesma pasta só troca o handle guardado se o `isSameEntry` estourar o prazo; contorno: Configurações → Desconectar → Escolher pasta.
+- A Etapa H da Fase 3 e a Etapa E da Fase 4 só começam com pedido do dono.
 
 ## Armadilhas de ferramenta
 

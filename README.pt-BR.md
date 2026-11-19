@@ -61,8 +61,10 @@ validados nesta execução. A extensão requer Chrome 120+.
 3. **Backup** inicia o download `.keeplocal`. Confira o arquivo: o app não confirma
    a gravação. `lastBackupAt` registra a tentativa; o aviso pendente acompanha
    alterações desde essa tentativa.
-4. Guarde as cópias separadas do código. Não há escrita automática no Mega nem
-   sincronização pelo app; merge e escrita em pasta pertencem à Fase 3, bloqueada.
+4. Guarde as cópias separadas do código. A extensão também pode gravar uma cópia
+   cifrada numa pasta escolhida ([Pasta do cofre](#pasta-do-cofre-só-na-extensão));
+   o app servido por HTTP tem só o backup manual. O KeepLocal não enxerga o Mega
+   nem outro serviço de nuvem e nunca informa sincronização com a nuvem.
 
 Importar aceita **apenas v2 binário**, pede a frase-senha, valida todos os registros,
 confirma as quantidades e grava numa transação. Cancelamento, frase-senha incorreta,
@@ -106,6 +108,9 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,
   comunicação entre abas, retenção e persistência.
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: utilitários da UI.
+- `js/folder-*.js`, `css/folder.css`: pasta do cofre da extensão (handle e
+  permissão, prazos de leitura, candidatos, gravação/conferência, reconciliação,
+  preservação, estado e telas).
 - `lib/`: bibliotecas locais, hashes e procedência.
 - `chrome-extension/`: manifest, service worker, privacidade, ícones, locales e
   cópias de `js/`, `css/`, `lib/`, `index.html` sincronizadas pelo build.
@@ -137,8 +142,8 @@ JSON reconhecíveis são recusados sem interpretar esquemas antigos. Sem identif
 em claro, um binário não autenticado não permite distinguir com certeza frase-senha
 incorreta, formato não suportado e arquivo danificado; o erro informa as possibilidades
 e preserva o cofre.
-Uma cópia antiga válida continua aceita (rollback); revisão/merge pertencem à
-Fase 3, bloqueada.
+Importar manualmente uma cópia antiga válida continua possível (rollback); só a
+pasta do cofre da extensão compara revisões.
 
 `rev` é inteiro seguro persistido em `meta.exportRev`, incrementado a cada
 exportação (primeira: 1). `parent` começa `null`; depois é o SHA-256 hexadecimal
@@ -146,8 +151,56 @@ minúsculo dos **bytes UTF-8 exatos do JSON em claro** da exportação anterior,
 antes de cifrar (não do envelope). `meta.exportParent` guarda o hash do payload
 atual para a próxima. Contador e hash são gravados juntos, recusando pontas
 concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
-importado como próximo pai. São campos de linhagem reservados: não há merge,
-sincronização, escrita em nuvem nem proteção contra rollback nesta fase.
+importado como próximo pai. Exportações manuais e gravações na pasta do cofre
+compartilham essa linhagem, então lacunas de `rev` são normais. A importação
+manual não faz merge nem protege contra rollback.
+
+## Pasta do cofre (só na extensão)
+
+Só a extensão (`chrome-extension://`) oferece a pasta do cofre; o app servido por
+HTTP não mostra nenhuma opção de pasta. **Configurações → Pasta do cofre →
+Escolher pasta…** guarda um handle de diretório nos metadados locais; só o nome
+da pasta aparece. No Chrome, escolha **Permitir em todas as visitas** para manter
+o acesso entre sessões (Allow on every visit). A frase-senha continua
+obrigatória a cada abertura.
+
+- **Arquivo:** `keeplocal-vault.keeplocal` na raiz da pasta, exatamente no formato
+  binário v2 perfil 2 acima. Depois de uma alteração (cerca de 1,5 s depois, e
+  também ao focar, ao mudar a visibilidade e ao sair da página), o app grava uma
+  nova revisão, relê e confere. "Gravado na pasta às HH:MM" indica só a gravação
+  do arquivo local. Gravar na pasta não conta como backup manual.
+- **Entrar:** o pedido de permissão da pasta é a primeira ação do clique. A
+  disponibilidade é decidida listando a pasta. Todo `*.keeplocal` da raiz (no
+  máximo 32, 64 MiB cada; cópias de conflito do Mega incluídas) é autenticado com
+  a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
+  nunca a data do arquivo. Outros arquivos são ignorados.
+- **Decisão:** gravar as alterações locais, carregar uma cabeça mais nova da
+  pasta ou parar e perguntar quando os dois lados mudaram, quando a pasta está
+  mais antiga que uma revisão já vista, quando há cópia de outra frase-senha ou
+  cofre, ou cópia ilegível. Na primeira conexão, um cofre local vazio carrega a
+  pasta e um conjunto idêntico de registros é adotado sem gravar; qualquer outro
+  caso pergunta. Cópias alheias ou ilegíveis nunca são sobrescritas. A pasta
+  exige zero registros locais ilegíveis.
+- **Conflitos:** escolher um lado exige digitar SUBSTITUIR. Antes, o lado que
+  perde é copiado para a subpasta `keeplocal-preserved/`, relido e conferido; se
+  falhar, nada é substituído. Os arquivos preservados abrem pelo "Importar"
+  normal. O app nunca limpa essa subpasta e lê só a raiz, então as cópias
+  preservadas nunca viram candidatas.
+- **Pasta indisponível:** uma tela de bloqueio oferece Tentar de novo, Escolher
+  outra pasta, Abrir só leitura, Começar do zero… e Sair. O somente leitura é
+  imposto na camada de dados (nenhuma gravação). Leituras da pasta têm prazo
+  (15 s para metadados, 60 s por arquivo): uma pasta que não responde leva à tela
+  "A pasta não respondeu", sem travar o login. Se continuar, escolha a mesma pasta
+  de novo, ou use Configurações → Desconectar pasta → Escolher pasta. Gravações
+  não têm prazo.
+- **Desconectar e redefinir:** desconectar preserva o conteúdo da pasta. Redefinir
+  na tela de login ou Começar do zero… apaga o cofre local e o vínculo com a
+  pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
+  houver pasta conectada.
+
+Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha, abrir
+outra pasta para recuperação e ferramenta de recuperação independente não estão
+implementados.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).

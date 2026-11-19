@@ -12,7 +12,9 @@ notes are UUID `text|todo|vault`, validated by `note-model.js`
 (`vault` = `blocks` of text/field/divider, checked by `vault-model.js`). Local outer IDs/timestamps
 and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`,
 preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
-attempt), `exportRev` and `exportParent` (export lineage). An existing salt without an encrypted
+attempt), `exportRev` and `exportParent` (export lineage). The extension vault folder adds
+`syncFolder` (directory handle), `folderConnectionId`, `folderSyncedHash`,
+`folderSyncedRevision`, `folderSeenRev` and `folderWrittenAt`. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
 Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
@@ -25,7 +27,8 @@ Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD
 `[0x02] || salt || iv`. The encrypted UTF-8 JSON payload carries `v`, `profile`,
 `rev`, `parent`, `exportedAt`, preferences, records and ordered count/ID manifest.
 `parent` hashes the previous exact plaintext JSON bytes using SHA-256 hex.
-Export lineage is recorded atomically; no merge or cloud writing is implemented.
+Export lineage is recorded atomically and shared by manual exports and vault-folder
+writes; no per-note merge is implemented.
 README documents the recovery contract. Preserve profile 2 for future readers.
 Only binary v2 imports are supported, with complete schema/crypto/model validation
 before one `replaceVault` transaction. Unsupported formats preserve the vault. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
@@ -64,6 +67,27 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   never reach card/list/search/toast/console DOM, storage or meta. Vault items are
   excluded from note views, archive and the label manager; `meta.vaultLayout`
   stays local and is not exported.
+- Vault folder, **extension only** (`chrome-extension://`; the HTTP SPA keeps manual
+  backup and shows no folder UI; fixed ID via manifest `key`):
+  - `folder-store.js`: support, picker, handle in meta, permission (first call of
+    the sign-in click, before PBKDF2), availability by a real listing, error
+    classification (`notFound|denied|unresponsive|error:*`), CAS connection.
+  - `folder-timeout.js`: read deadlines (15 s metadata, 60 s per file); a
+    `TimeoutError` maps to `unresponsive`. Writes are not wrapped.
+  - `folder-vault.js`: root `*.keeplocal` candidates (max 32, 64 MiB each),
+    same-salt decode with the session key (`decodeV2WithKey`), head = highest
+    encrypted `rev`, divergence and unreadable/other-salt copies.
+  - `folder-write.js`: profile 2 snapshot of `keeplocal-vault.keeplocal`, readback
+    verification and the `keeplocal-vault-lineage` Web Lock.
+  - `folder-reconcile.js`, `folder-review.js`: whole-vault decision
+    (push/pull/adopt/conflict/rollback/otherSalt/unreadableCopy) and the typed
+    review. First connection: 0 local records pull, identical record set adopts.
+  - `folder-preserve.js`: before any replacement, the losing side goes to
+    `keeplocal-preserved/` (exact bytes or encrypted local snapshot), read back and
+    verified; failure replaces nothing. Never cleaned; reads stay root-only.
+  - `folder-sync.js`, `folder-status.js`, `folder-ui.js`, `css/folder.css`:
+    scheduling, status text (never "synced"/"cloud"), blocking screen, read-only
+    banner and settings. Read-only mode is enforced in `db.js` (0 writes).
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `dialogs.js`, `form-ui.js`: themed promise dialogs, keyboard/focus and shared form presentation.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
@@ -102,9 +126,12 @@ event before querying the new execution context; stress evidence is outside Git.
 A browser SKIP is not acceptance. Build reads manifest version, synchronizes the
 tracked copies and writes the matching ZIP. Include copied sources in the same
 commit. Verify vendor SHA256SUMS in unit tests. No real vault, browser profile,
-Mega account or synchronized data folder in tests.
+Mega account or synchronized data folder in tests. The runner also loads the real
+unpacked MV3 extension in a fresh profile; folder tests use OPFS directories and
+CDP-installed picker/permission substitutes.
 
-Phase 3 (automatic synchronized-folder writing/merge) remains blocked until explicit
-owner authorization. Phase 4 core (Etapa D) is merged; Etapa E (templates, quick
-copy/star, generator, section undo/timeout) waits for an owner request. Reserving
-encrypted export `rev`/`parent` fields does not authorize Phase 3.
+Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H (per-note merge
+and tombstones, rotating copies, other-salt folders, read-only recovery from
+another folder, photos, recovery tool/kit) waits for explicit owner authorization.
+Phase 4 core (Etapa D) is merged; Etapa E (templates, quick copy/star, generator,
+section undo/timeout) waits for an owner request.

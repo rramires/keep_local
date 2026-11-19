@@ -60,8 +60,10 @@ The extension requires Chrome 120+.
 3. **Backup** starts a `.keeplocal` download. Verify the saved file: the app cannot
    confirm disk writes. `lastBackupAt` records a download attempt; the pending
    warning tracks changes since that attempt.
-4. Store exports separately from app code. KeepLocal does not automatically write
-   to Mega or synchronize files. Merge and folder writing belong to blocked Phase 3.
+4. Store exports separately from app code. The extension can also write an
+   encrypted copy to a chosen folder ([Vault folder](#vault-folder-extension-only));
+   the HTTP app has manual backup only. KeepLocal cannot see Mega or any cloud
+   service and never reports a cloud sync.
 
 Import accepts **binary v2 only**, asks for its passphrase, validates every record,
 confirms replacement counts and commits in one transaction. Cancellation, wrong
@@ -105,6 +107,9 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: rotation/reset,
   cross-tab events, retention and persistence.
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI helpers.
+- `js/folder-*.js`, `css/folder.css`: extension vault folder (handle and
+  permission, read deadlines, candidates, write/verify, reconciliation,
+  preservation, status and screens).
 - `lib/`: local libraries, hashes and provenance.
 - `chrome-extension/`: manifest, worker, privacy, icons, locales and tracked copies
   of `js/`, `css/`, `lib/`, `index.html` synchronized by the build.
@@ -155,8 +160,8 @@ Only binary v2 is supported. V2 authenticates the complete payload and checks it
 manifest. Recognizable JSON documents are rejected without interpreting an older
 schema. Without plaintext magic, an unauthenticated binary file cannot be reliably
 distinguished from a wrong passphrase or damaged v2 file; the error names these
-possibilities and preserves the vault. Replacing an export with an older *valid* export remains
-possible (rollback); revision/merge handling belongs to the blocked Phase 3.
+possibilities and preserves the vault. Manually importing an older *valid* export remains
+possible (rollback); only the extension's vault folder compares revisions.
 
 `rev` is a safe integer persisted as `meta.exportRev` and incremented on every
 export (first export: 1). `parent` is `null` for the first export, otherwise the
@@ -165,8 +170,54 @@ previous export, before encryption (not the envelope, not the ciphertext).
 `meta.exportParent` stores the current export's plaintext hash for the next one.
 The counter and parent are committed together, with a compare-and-swap that
 rejects concurrent export tips. A v2 import resumes its counter and records the
-imported payload's exact hash as the next parent. These fields reserve lineage
-only; they perform no merge, cloud write, rollback protection or synchronization.
+imported payload's exact hash as the next parent. Manual exports and vault-folder
+writes share this lineage, so gaps in `rev` are normal. Manual import performs no
+merge or rollback protection.
+
+## Vault folder (extension only)
+
+Only the extension (`chrome-extension://`) offers a vault folder; the HTTP app
+shows no folder option. **Settings → Vault folder → Choose folder…** stores a
+directory handle in local metadata; only the folder name is shown. In Chrome,
+choose **Allow on every visit** to keep access between sessions. The passphrase
+is still required at every opening.
+
+- **File:** `keeplocal-vault.keeplocal` in the folder root, byte-for-byte the
+  binary v2 profile 2 format above. After a change (about 1.5 s later, and on
+  focus, visibility change and page hide) the app writes a new revision, reads
+  it back and verifies it. "Written to folder at HH:MM" means a local file write
+  only. A folder write does not count as a manual backup.
+- **Sign in:** the folder permission request is the first action of the click.
+  Availability is decided by listing the folder. Every root `*.keeplocal`
+  (at most 32, 64 MiB each; Mega conflict copies included) is authenticated with
+  the session key when it shares the vault salt. The head is the highest
+  encrypted `rev`, never a file date. Other files are ignored.
+- **Decision:** write local changes, load a newer folder head, or stop and ask
+  when both sides changed, the folder is older than a revision already seen, a
+  copy uses another passphrase or vault, or a copy is unreadable. On first
+  connection an empty local vault loads the folder and an identical record set
+  is adopted without writing; anything else asks. Foreign and unreadable copies
+  are never overwritten. The folder requires zero unreadable local records.
+- **Conflicts:** choosing a side requires typing REPLACE. The losing side is
+  first copied to the `keeplocal-preserved/` subfolder, read back and verified;
+  if that fails, nothing is replaced. Preserved files open with the normal
+  Import. The app never cleans that subfolder and reads only the root, so
+  preserved copies never become candidates.
+- **Unavailable folder:** a blocking screen offers Try again, Choose another
+  folder, Open read only, Start over… and Sign out. Read only is enforced in the
+  data layer (no writes). Folder reads have deadlines (15 s for metadata, 60 s
+  per file): a folder that does not answer leads to "The folder did not
+  respond" instead of a stuck sign-in. If it persists, select the same folder
+  again, or use Settings → Disconnect folder → Choose folder. Writes have no
+  deadline.
+- **Disconnect and reset:** disconnecting keeps the folder contents. Reset on the
+  sign-in screen or Start over… erases the local vault and its folder link, never
+  the folder copy. Import on the sign-in screen is refused while a folder is
+  connected.
+
+Per-note merge, rotating copies, folders written with another passphrase,
+opening another folder for recovery and a standalone recovery tool are not
+implemented.
 
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
 Versions, upstream release review and download integrity are recorded in
