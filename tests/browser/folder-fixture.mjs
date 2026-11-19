@@ -4,7 +4,7 @@ function installFolderFixture(name,timeouts) {
   const mode = {mode:'readwrite'};
   const fixture = window.folderTest = {
     name, permission:'prompt', requested:'granted', cancel:false,
-    stalls:new Set(), pending:[],
+    stalls:new Set(), pending:[], folderSignals:[],
     release() {
       const released=this.pending.splice(0);
       for (const {resume} of released)resume();
@@ -28,10 +28,16 @@ function installFolderFixture(name,timeouts) {
     kind, options, active:navigator.userActivation.isActive,
   });
   async function stall(kind,force=false){
-    if(!force&&!fixture.stalls.has(kind))return;
+    if(!force&&!fixture.stalls.has(kind))return false;
     await new Promise(resume=>fixture.pending.push({kind,resume}));
     record('resumed:'+kind);
+    return true;
   }
+  const addEventListener=EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener=function(type,listener,options){
+    if(this===window&&type==='pagehide'&&options?.signal)fixture.folderSignals.push(options.signal);
+    return addEventListener.call(this,type,listener,options);
+  };
   window.showDirectoryPicker = async options => {
     record('picker',options);
     if(fixture.cancel) throw new DOMException('Fictional picker cancellation','AbortError');
@@ -54,7 +60,8 @@ function installFolderFixture(name,timeouts) {
   };
   async function* stallEntries(kind,method,handle,args){
     await stall(kind);
-    yield* method.apply(handle,args);
+    try {yield* method.apply(handle,args);}
+    finally {record('settled:'+kind);}
   }
   const entries=FileSystemDirectoryHandle.prototype.entries;
   FileSystemDirectoryHandle.prototype.entries=function(...args){
@@ -128,8 +135,9 @@ function installFolderFixture(name,timeouts) {
   };
   const getFile=FileSystemFileHandle.prototype.getFile;
   FileSystemFileHandle.prototype.getFile=async function(...args){
-    await stall('getFile');
+    const delayed=await stall('getFile');
     const file=await getFile.apply(this,args);
+    if(delayed)record('settled:getFile');
     if(this.name!=='keeplocal-vault.keeplocal'||!fixture.corruptNextRead)return file;
     fixture.corruptNextRead=false;
     fixture.tamperedReads++;

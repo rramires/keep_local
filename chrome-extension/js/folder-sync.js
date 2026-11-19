@@ -38,7 +38,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       const reading=isReadOnly();
       setWriteMode('readOnly');
       try{return await pullFolderHead(handle,state.head,snapshot,key,lifetime);}
-      catch(error){if(!lifetime.aborted&&!reading)setWriteMode('readWrite');throw error;}
+      catch(error){if(!lifetime.aborted&&!reading&&error.name!=='TimeoutError')setWriteMode('readWrite');throw error;}
     }
     if(decision==='adopt'){
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
@@ -82,6 +82,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     const status=folderError(error);
     if(status.startsWith('error:'))return false;
     setWriteMode('readOnly');
+    if(status==='unresponsive')controller.abort();
     onStatus('readOnly');
     onUnavailable(handle,status);
     return true;

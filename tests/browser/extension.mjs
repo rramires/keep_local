@@ -40,14 +40,36 @@ async function confirmFolderWord(page) {
 
 const folderTestTimeouts={metadata:350,file:550};
 
-async function startFolderTimeoutFixture(browser,name){
+async function startFolderTimeoutFixture(browser,name,lang='en'){
   const {folderFixtureSource}=await import('./folder-fixture.mjs');
   const p=await browser.page(undefined,folderFixtureSource(name,folderTestTimeouts));
+  if(lang==='pt-BR'){
+    await p.eval("await(await import('./js/db.js')).saveMeta('lang','pt-BR')");
+    await p.reload();
+  }
   await harness.create(p);
   await harness.add(p,'Fictitious local note','Fictitious local content');
   await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
   await p.reload();
   return p;
+}
+
+async function waitForUnresponsive(page,kind){
+  const limit=folderTestTimeouts[kind]+2000;
+  const started=Date.now();
+  await page.eval("window.testLoginButton=document.querySelector('#login-form [type=submit]')");
+  await submitExtensionLogin(page);
+  await page.until("!!document.querySelector('[data-folder-status=unresponsive]')&&!testLoginButton.disabled",limit);
+  assertBrowserDeadline(Date.now()-started,limit);
+}
+
+function assertBrowserDeadline(elapsed,limit){
+  if(elapsed>limit)throw Error(`Folder recovery took ${elapsed} ms (budget ${limit} ms)`);
+}
+
+async function openTimedOutVaultReadOnly(page){
+  await page.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+  await page.until("!!document.querySelector('.folder-banner')&&!!document.querySelector('.app-view .note-card')");
 }
 
 export async function run({check,assert}) {
@@ -1203,6 +1225,75 @@ export async function run({check,assert}) {
       assert.deepEqual(await p.eval("folderTest.events.filter(event=>['list','request'].includes(event.kind))"),[]);
     }finally{await browser.close();}
   });
+
+  for(const [operation,lang] of [['queryPermission','en'],['keys','pt-BR']]){
+    await check(`G3.2 a stalled ${operation} offers local recovery in ${lang}`,async()=>{
+      const browser=await harness.launchExtension();
+      try{
+        const p=await startFolderTimeoutFixture(browser,'KL-TEST-LOGIN-'+operation,lang);
+        await p.eval(`folderTest.permission='granted';folderTest.stalls.add(${JSON.stringify(operation)})`);
+        await waitForUnresponsive(p,'metadata');
+        assert.equal(await p.eval("document.querySelector('[data-folder-message]').textContent"),
+          lang==='en'
+            ? 'The folder did not respond. Try again. If the problem continues, select the same folder using “Choose another folder”. The notes in this browser are safe and can be opened read only.'
+            : 'A pasta não respondeu. Tente de novo. Se continuar, escolha a mesma pasta em “Escolher outra pasta”. As notas deste navegador estão seguras e podem ser abertas só para leitura.');
+        assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-folder-action]')].map(button=>button.dataset.folderAction)"),
+          ['retry','chooseAnother','openReadOnly','startOver','exit']);
+        assert.equal(await p.eval("folderTest.events.filter(event=>event.kind==='list').length"),operation==='keys'?1:0);
+        await openTimedOutVaultReadOnly(p);
+        assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious local note']);
+        assert.deepEqual(await p.eval('folderTest.writes'),{});
+        assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      }finally{await browser.close();}
+    });
+  }
+
+  for(const operation of ['entries','getFile']){
+    await check(`G3.2 stalled ${operation} aborts admission, releases the lock and ignores a late read`,async()=>{
+      const {backupFixture}=await import('./backup-fixture.mjs');
+      const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+      const {decodeV2}=await import('../../js/backup-v2.js');
+      const {decryptRecords}=await import('../../js/backup-format.js');
+      const browser=await harness.launchExtension();
+      const primary='keeplocal-vault.keeplocal';
+      try{
+        const p=await startFolderTimeoutFixture(browser,'KL-TEST-ADMISSION-'+operation);
+        await p.eval("folderTest.permission='granted'");
+        await submitExtensionLogin(p);
+        await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+        const {salt,folderSeenRev}=await p.eval("(await(await import('./js/db.js')).readVault()).meta");
+        const remote=await backupFixture([harness.note({title:'Fictitious remote note'})],harness.PASSWORD,Buffer.from(salt,'base64'));
+        const remoteBytes=await remote.seal({...remote.payload,rev:folderSeenRev+1});
+        await writeFolderFixture(p,primary,remoteBytes);
+        await p.reload();
+        await p.eval(`folderTest.permission='granted';folderTest.stalls.add(${JSON.stringify(operation)})`);
+        await waitForUnresponsive(p,operation==='getFile'?'file':'metadata');
+        assert.equal(await p.eval('folderTest.folderSignals.at(-1)?.aborted'),true);
+        assert.equal(await p.eval("(await navigator.locks.query()).held.some(lock=>lock.name==='keeplocal-vault-lineage')"),false);
+        await openTimedOutVaultReadOnly(p);
+        const started=Date.now();
+        const archive=await captureFolderBackup(p);
+        assertBrowserDeadline(Date.now()-started,2000);
+        const {payload,key}=await decodeV2(Buffer.from(archive,'base64'),harness.PASSWORD);
+        assert.deepEqual((await decryptRecords(payload.notes,key)).map(note=>note.title),['Fictitious local note']);
+        assert.deepEqual(await p.eval('folderTest.writes'),{});
+        assert.equal(await p.eval('folderTest.writeAttempts'),0);
+
+        assert.deepEqual(await p.eval('folderTest.stalls.clear();folderTest.release()'),[operation]);
+        await p.until(`folderTest.events.some(event=>event.kind===${JSON.stringify('settled:'+operation)})`);
+        await p.eval("window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
+        assert.equal(await p.eval("(await import('./js/db.js')).isReadOnly()"),true);
+        assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious local note']);
+        assert.deepEqual(await p.eval('folderTest.writes'),{});
+        assert.equal(await p.eval('folderTest.writeAttempts'),0);
+        assert.equal(await readFolderFixture(p,primary),remoteBytes);
+
+        await p.eval("document.querySelector('.folder-banner [data-folder-action=retry]').click()");
+        await p.until("!document.querySelector('.folder-banner')&&(await import('./js/app.js')).getNotes().some(note=>note.title==='Fictitious remote note')");
+        assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      }finally{await browser.close();}
+    });
+  }
 
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');

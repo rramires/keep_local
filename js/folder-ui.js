@@ -20,7 +20,7 @@ function action(name,handler,primary=false) {
 }
 
 function folderReason(status) {
-  if(['notFound','denied','conflict','rollback','otherSalt','unreadableCopy'].includes(status))return t('folder.'+status);
+  if(['notFound','denied','unresponsive','conflict','rollback','otherSalt','unreadableCopy'].includes(status))return t('folder.'+status);
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
