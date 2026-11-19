@@ -5,6 +5,15 @@ import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
+function sameRecords(local,remote) {
+  if(local.length!==remote.length)return false;
+  const indexed=new Map(remote.map(record=>[record.id,record]));
+  return local.every(({id,iv,ciphertext,updatedAt})=>{
+    const other=indexed.get(id);
+    return other&&other.iv===iv&&other.ciphertext===ciphertext&&other.updatedAt===updatedAt;
+  });
+}
+
 export function decideFolderAction(snapshot,state) {
   const {notes,meta}=snapshot;
   const {head}=state;
@@ -16,7 +25,7 @@ export function decideFolderAction(snapshot,state) {
   if(!state.divergent&&head.hash===meta.folderSyncedHash)return localFolderDirty(meta)?'push':'saved';
   if(head.rev<(meta.folderSeenRev||0))return 'rollback';
   if(state.divergent)return 'conflict';
-  if(!meta.folderSyncedHash)return notes.length?'conflict':'pull';
+  if(!meta.folderSyncedHash)return sameRecords(notes,head.payload.notes)?'adopt':'conflict';
   if(head.rev===(meta.folderSeenRev||0)||localFolderDirty(meta))return 'conflict';
   return 'pull';
 }

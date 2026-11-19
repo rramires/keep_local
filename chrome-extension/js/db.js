@@ -265,23 +265,25 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal}={}) {
-  return vaultTransaction(({tx,meta},done,fail)=>{
+export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{
       try{
         const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
-        assertVaultSnapshot(current,expected,{allowNewEdits:true});
+        assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
+        const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          exportRev:rev,exportParent:hash,folderSyncedHash:hash,
+          folderSyncedHash:hash,
           folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
         };
+        if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         done();
       }catch(error){fail(error);}
     };
-  });
+  },adopt);
 }
 
 export async function readVault() {

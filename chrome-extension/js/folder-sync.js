@@ -1,7 +1,7 @@
-import {isReadOnly,readVault,setWriteMode} from './db.js';
+import {isReadOnly,readVault,recordFolderWrite,setWriteMode} from './db.js';
 import {hasPendingDrafts,watchLocalChanges} from './backup.js';
 import {enableFolderWrites} from './folder-store.js';
-import {createFolderWriter,folderFailure,withVaultLineage} from './folder-write.js';
+import {createFolderWriter,folderFailure,folderStamp,withVaultLineage} from './folder-write.js';
 import {decideFolderAction,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
 
 export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onIgnored=()=>{}}) {
@@ -27,7 +27,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(!admitting&&isReadOnly())return {status:'paused'};
     if(!admitting&&hasPendingDrafts())return {status:'push'};
     const decision=decideFolderAction(snapshot,state);
-    if(['push','pull','saved'].includes(decision)){
+    if(['push','pull','saved','adopt'].includes(decision)){
       const ignored=[...state.unreadable,...state.tooLarge,...state.otherSalt].sort();
       const warning=JSON.stringify(ignored);
       if(ignored.length&&warning!==lastWarning)onIgnored();
@@ -38,6 +38,16 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       setWriteMode('readOnly');
       try{return await pullFolderHead(handle,state.head,snapshot,key,lifetime);}
       catch(error){if(!lifetime.aborted&&!reading)setWriteMode('readWrite');throw error;}
+    }
+    if(decision==='adopt'){
+      if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
+        throw folderFailure('folder.changed');
+      await requireFolderSession(snapshot,key,lifetime);
+      const {rev,hash,exportedAt}=state.head;
+      const writtenAt=Date.parse(exportedAt);
+      await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt},{signal:lifetime,adopt:true});
+      if(admitting)await enableFolderWrites({key,signal:lifetime});
+      return {status:'saved',writtenAt};
     }
     if(decision!=='push'&&decision!=='saved'){
       setWriteMode('readOnly');

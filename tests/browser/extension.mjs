@@ -18,6 +18,17 @@ export async function submitExtensionLogin(page,password=harness.PASSWORD) {
   await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,x,y});
 }
 
+function captureFolderBackup(page) {
+  return page.eval(`(async()=>{
+    let archive;
+    URL.createObjectURL=blob=>{archive=blob;return 'blob:fixture';};
+    URL.revokeObjectURL=()=>{};
+    HTMLAnchorElement.prototype.click=()=>{};
+    await(await import('./js/backup.js')).exportBackup();
+    return new Uint8Array(await archive.arrayBuffer()).toBase64();
+  })()`);
+}
+
 export async function run({check,assert}) {
   await check('F1 MV3 origin, OPFS selection and deterministic browser spies',async()=>{
     assert.equal(typeof harness.launchExtension,'function','Expected a real unpacked MV3 harness');
@@ -669,8 +680,7 @@ export async function run({check,assert}) {
       const pb=await b.page(undefined,folderFixtureSource('KL-TEST-PC-B'));
       await harness.create(pa);
       await harness.add(pa,'Only on A initially','Fictitious A');
-      const salt=await pa.eval("(await import('./js/db.js')).getMeta('salt')");
-      await pb.eval(importExpression((await backupFixture([],harness.PASSWORD,Buffer.from(salt,'base64'))).base64));
+      await pb.eval(importExpression(await captureFolderBackup(pa)));
       await pb.reload();await harness.unlock(pb);
       await attach(pa);await relogin(pa);await waitForWrite(pa,0);
       await attach(pb);await copyFolderFiles(pa,pb);await relogin(pb);
@@ -826,6 +836,64 @@ export async function run({check,assert}) {
     }finally{await browser.close();}
   });
 
+  await check('G1.3 a first connection adopts identical backup records and rejects differing records',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {copyFolderFiles}=await import('./folder-transfer.mjs');
+    const {importExpression}=await import('./backup-fixture.mjs');
+    const a=await harness.launchExtension(),b=await harness.launchExtension();
+    const connect=async p=>{
+      await p.eval("document.querySelector('#folder-settings-btn').click()");
+      await p.until("document.activeElement.id==='modal-close'&&!!document.querySelector('[data-folder-action=choose]')");
+      await p.eval("document.querySelector('[data-folder-action=choose]').click()");
+    };
+    const meta=p=>p.eval("(await(await import('./js/db.js')).readVault()).meta");
+    try{
+      const pa=await a.page(undefined,folderFixtureSource('KL-TEST-ONBOARD-A'));
+      const pb=await b.page(undefined,folderFixtureSource('KL-TEST-ONBOARD-B'));
+      await harness.create(pa);
+      await harness.add(pa,'In a real backup','Fictitious A');
+      const backup=await captureFolderBackup(pa);
+      await connect(pa);
+      await pa.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)");
+      const head=await meta(pa);
+
+      await pb.eval(importExpression(backup));
+      await pb.reload();await harness.unlock(pb);
+      await copyFolderFiles(pa,pb);
+      await pb.eval('folderTest.writeAttempts=0');
+      const before=await meta(pb);
+      await connect(pb);
+      await pb.until("!!document.querySelector('[data-folder-status=conflict],.folder-settings [data-folder-state=saved]')");
+      assert.equal(await pb.eval("!!document.querySelector('[data-folder-status=conflict]')"),false);
+      const adopted=await meta(pb);
+      assert.equal(adopted.folderSyncedHash,head.folderSyncedHash);
+      assert.equal(adopted.folderSeenRev,head.folderSeenRev);
+      assert.equal(adopted.folderSyncedRevision,before.revision??0);
+      assert.equal(adopted.revision,before.revision);
+      assert.equal(await pb.eval('folderTest.writeAttempts'),0);
+      await pb.eval("document.querySelector('#modal-close').click()");
+      await harness.add(pb,'First edit in profile B','Fictitious B');
+      await pb.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${head.folderSeenRev})`);
+      assert.equal((await meta(pb)).folderSeenRev,head.folderSeenRev+1);
+    }finally{await Promise.all([a.close(),b.close()]);}
+
+    const extra=await harness.launchExtension();
+    try {
+      const p=await extra.page(undefined,folderFixtureSource('KL-TEST-ONBOARD-EXTRA'));
+      await harness.create(p);
+      await harness.add(p,'One shared note','Fictitious');
+      await connect(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)");
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.eval("(await import('./js/folder-store.js')).disconnectSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await harness.unlock(p);
+      await harness.add(p,'An extra local note','Fictitious');
+      await connect(p);
+      await p.until("!!document.querySelector('[data-folder-status=conflict]')");
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+    }finally{await extra.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');
@@ -900,12 +968,8 @@ export async function run({check,assert}) {
       await p.eval("folderTest.name='KL-TEST-COPY'");
       await writeFolderFixture(p,file,old);
       await choose('KL-TEST-COPY');
-      await p.until("!!document.querySelector('[data-folder-status=conflict]')");
+      await p.until("!!document.querySelector('.note-card')&&!document.querySelector('.folder-banner')");
       assert.equal(await currentFolder(),'KL-TEST-COPY');
-      await p.eval("document.querySelector('[data-folder-action=useFolder]').click()");
-      await p.until("!!document.querySelector('.app-dialog input')");
-      await p.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
-      await p.until("!!document.querySelector('.note-card')");
       assert.equal(await readFolderFixture(p,file),old);
 
       await denied();await choose('KL-TEST-NEW-EMPTY');
