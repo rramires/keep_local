@@ -766,6 +766,66 @@ export async function run({check,assert}) {
     }finally{await Promise.all([a.close(),b.close()]);}
   });
 
+  await check('G1.2 choosing a tied copy advances the main revision and keeps the prior file',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture}=await import('./backup-fixture.mjs');
+    const {decodeV2,payloadHash}=await import('../../js/backup-v2.js');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal',tie='keeplocal-vault (1).keeplocal';
+    const decode=bytes=>decodeV2(Buffer.from(bytes,'base64'),harness.PASSWORD);
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-TIED-PULL'));
+      const rev=()=>p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+      const app=()=>p.until("!!document.querySelector('.app-view .note-card')&&!document.querySelector('.folder-banner')");
+      const relogin=async()=>{
+        await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      };
+      await harness.create(p);
+      await harness.add(p,'Local at start','Fictitious');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await relogin();
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const tiedRev=(await rev())+1;
+      const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
+      const make=async title=>{
+        const fixture=await backupFixture([harness.note({title})],harness.PASSWORD,salt);
+        return fixture.seal({...fixture.payload,rev:tiedRev});
+      };
+      const x=await make('Fictitious X'),y=await make('Fictitious Y');
+      await writeFolderFixture(p,primary,x);
+      await writeFolderFixture(p,tie,y);
+      await relogin();
+      await p.until("!!document.querySelector('[data-folder-status=conflict] select')");
+      await p.eval(`document.querySelector('.folder-review select').value=${JSON.stringify(tie)};document.querySelector('[data-folder-action=useFolder]').click()`);
+      await p.until("!!document.querySelector('.app-dialog input')");
+      await p.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
+      await app();
+      const next=await decode(await readFolderFixture(p,primary));
+      const selected=await decode(y);
+      assert.equal(next.payload.rev,tiedRev+1);
+      assert.equal(next.payload.parent,await payloadHash(selected.payloadText));
+      assert.deepEqual(next.payload.notes,selected.payload.notes);
+      assert.equal(await readFolderFixture(p,tie),y);
+      assert.equal(await p.eval(`(async()=>{
+        const directory=await(await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+        for await(const file of directory.values()){
+          if(new Uint8Array(await(await file.getFile()).arrayBuffer()).toBase64()===${JSON.stringify(x)})return true;
+        }
+        return false;
+      })()`),true);
+      await p.eval("window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'))");
+      await app();
+      await relogin();
+      await app();
+      assert.equal(await rev(),tiedRev+1);
+      assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious Y']);
+      await harness.add(p,'First edit after tie','Fictitious');
+      await p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${tiedRev+1})`);
+      assert.equal((await decode(await readFolderFixture(p,primary))).payload.rev,tiedRev+2);
+    }finally{await browser.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');

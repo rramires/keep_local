@@ -31,9 +31,14 @@ export async function requireFolderSession(snapshot,key,signal) {
      vaultIdentity(snapshot.meta)!==getSessionVaultId())throw folderFailure('session.ended');
 }
 
-export async function pullFolderHead(handle,head,snapshot,key,signal) {
-  const copy=await readFolderCandidate(await handle.getFileHandle(head.name),key,snapshot.meta.salt);
+async function readReviewedCopy(handle,head,key,salt) {
+  const copy=await readFolderCandidate(await handle.getFileHandle(head.name),key,salt);
   if(copy.status!=='valid'||copy.hash!==head.hash)throw folderFailure('folder.changed');
+  return {name:head.name,...copy};
+}
+
+export async function pullFolderHead(handle,head,snapshot,key,signal) {
+  const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
   await requireFolderSession(snapshot,key,signal);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
@@ -64,9 +69,16 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
   if(choice==='remote'){
     const preserved=[await preserveLocalChoice(handle,snapshot,key,signal)];
-    if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
+    let target=head;
+    if(state.divergent){
+      if(main)preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
+      const selected=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
+      await requireFolderSession(snapshot,key,signal);
+      target=await writer.writeChosen(snapshot,state,selected);
+    }else if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state)){
       throw folderFailure('folder.changed');
-    return {...await pullFolderHead(handle,head,snapshot,key,signal),preserved};
+    }
+    return {...await pullFolderHead(handle,target,snapshot,key,signal),preserved};
   }
   if(main?.status!=='valid')throw folderFailure('folder.changed');
   const copies=main.name===head.name?[main]:[main,head];

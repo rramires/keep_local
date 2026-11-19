@@ -258,10 +258,10 @@ function assertVaultSnapshot(current,expected,{allowNewEdits=false}={}) {
   if(keys.some(key=>!(allowNewEdits&&key==='revision')&&current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
 }
 
-export async function verifyFolderWrite(expected,{signal}={}) {
-  assertWritable();
+export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={}) {
+  if(!replaceLocal)assertWritable();
   const current=Object.fromEntries((await getAllMetaRecords()).map(row=>[row.key,row.value]));
-  assertVaultSnapshot(current,expected,{allowNewEdits:true});
+  assertVaultSnapshot(current,expected,{allowNewEdits:!replaceLocal});
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
