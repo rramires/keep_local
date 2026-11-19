@@ -92,15 +92,15 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
     }
     return {...await pullFolderHead(handle,target,snapshot,key,signal),preserved,replacedEmptyMain:target.replacedEmptyMain};
   }
-  if(main?.status!=='valid')throw folderFailure('folder.changed');
-  const copies=main.name===head.name?[main]:[main,head];
+  if(!['valid','emptyMain'].includes(main?.status))throw folderFailure('folder.changed');
+  const copies=main.status==='valid'?(main.name===head.name?[main]:[main,head]):[];
   const preserved=await preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal);
   await requireFolderSession(snapshot,key,signal);
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
     const result=await writer.write(snapshot,{...state,head},{replace:true});
-    return {status:'saved',result,preserved};
+    return {status:'saved',result,preserved,replacedEmptyMain:result.replacedEmptyMain};
   }catch(error){
     if(reading&&!signal.aborted)setWriteMode('readOnly');
     throw error;

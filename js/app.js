@@ -223,7 +223,7 @@ async function configureFolderSync({admit=false,selected}={}) {
           const {preserved,replacedEmptyMain}=await sync.resolve(review,choice,name);
           await showApp();
           if(!signal.aborted){
-            showToast(t('folder.preserved',{files:preserved.join(', ')}));
+            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}));
             if(replacedEmptyMain)showToast(t('folder.emptyMainReplaced'));
           }
         },

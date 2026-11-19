@@ -29,6 +29,15 @@ function captureFolderBackup(page) {
   })()`);
 }
 
+async function confirmFolderWord(page) {
+  await page.until("!!document.querySelector('.app-dialog input')");
+  await page.eval(`(async()=>{
+    const {t}=await import('./js/i18n.js'),input=document.querySelector('.app-dialog input');
+    input.value=t('folder.replaceWord');input.dispatchEvent(new Event('input'));
+    document.querySelector('[data-dialog-action=confirm]').click();
+  })()`);
+}
+
 export async function run({check,assert}) {
   await check('F1 MV3 origin, OPFS selection and deterministic browser spies',async()=>{
     assert.equal(typeof harness.launchExtension,'function','Expected a real unpacked MV3 harness');
@@ -968,6 +977,71 @@ export async function run({check,assert}) {
       await harness.add(p,'First local edit','Fictitious');
       await p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${folderRev})`);
       assert.equal(await p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),folderRev+1);
+    }finally{await browser.close();}
+  });
+
+  await check('G2.2 explicit local choice replaces an empty main and leaves the older copy intact',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {decodeV2,payloadHash}=await import('../../js/backup-v2.js');
+    const {decryptRecords}=await import('../../js/backup-format.js');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal',secondary='keeplocal-vault (1).keeplocal';
+    const decode=bytes=>decodeV2(Buffer.from(bytes,'base64'),harness.PASSWORD);
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-EMPTY-ROLLBACK'));
+      const rev=()=>p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+      const waitRev=seen=>p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${seen})`);
+      const relogin=async()=>{
+        await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      };
+      const rollback=async()=>{
+        await writeFolderFixture(p,primary,'');
+        await p.eval("window.dispatchEvent(new Event('focus'))");
+        await p.until("!!document.querySelector('[data-folder-status=rollback]')");
+      };
+      const actionExists=action=>p.eval(`!!document.querySelector('[data-folder-action=${action}]')`);
+      await harness.create(p);
+      await harness.add(p,'Fictitious older note','Fictitious');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await relogin();await waitRev(0);
+      const oldRev=await rev(),old=await readFolderFixture(p,primary);
+      await harness.add(p,'Fictitious recent note','Fictitious');
+      await waitRev(oldRev);
+      const previous=await rev();
+      await writeFolderFixture(p,secondary,old);
+      await rollback();
+      assert.equal(await actionExists('useLocal'),true);
+      assert.equal(await actionExists('useFolder'),true);
+      assert.match(await p.eval("document.querySelector('.folder-review').innerText"),/The main file is empty/);
+      await p.eval("document.querySelector('[data-folder-action=useLocal]').click()");
+      await p.until("!!document.querySelector('.app-dialog input')");
+      assert.equal(await p.eval("document.querySelector('[data-dialog-action=confirm]').disabled"),true);
+      await confirmFolderWord(p);
+      await waitRev(previous);
+      await p.until("document.querySelector('#toast-container')?.innerText.includes('empty main file was replaced')");
+      assert.doesNotMatch(await p.eval("document.querySelector('#toast-container').innerText"),/Copies preserved/);
+      const written=await decode(await readFolderFixture(p,primary)),earlier=await decode(old);
+      assert.equal(written.payload.rev,previous+1);
+      assert.equal(written.payload.parent,await payloadHash(earlier.payloadText));
+      assert.deepEqual((await decryptRecords(written.payload.notes,written.key)).map(note=>note.title).sort(),
+        ['Fictitious older note','Fictitious recent note']);
+      assert.equal(await readFolderFixture(p,secondary),old);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[secondary,primary]);
+      await p.eval("window.dispatchEvent(new Event('focus'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
+      assert.equal(await p.eval("!!document.querySelector('.app-view')"),true);
+      await relogin();
+      await p.until("!!document.querySelector('.app-view .note-card')");
+      assert.equal(await rev(),previous+1);
+
+      await rollback();
+      await p.eval("document.querySelector('[data-folder-action=useFolder]').click()");
+      await confirmFolderWord(p);
+      await p.until("!!document.querySelector('.app-view .note-card')&&document.querySelector('#toast-container')?.innerText.includes('Copies preserved')");
+      assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious older note']);
+      assert.ok((await p.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+      assert.equal(await readFolderFixture(p,primary),'');
+      assert.equal(await readFolderFixture(p,secondary),old);
     }finally{await browser.close();}
   });
 
