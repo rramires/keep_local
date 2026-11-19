@@ -9,6 +9,12 @@ bash build-extension.sh
 node tests/build/extension.mjs
 ```
 
+On the shared development machine, run every command with at most 4 CPUs:
+`taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit` and
+`CHROME_BIN=… taskset -c 0-3 nice -n 10 node tests/browser/run.mjs`. Child Chromium
+processes inherit the CPU affinity. A failure that appears only under this limit is a
+timing bug.
+
 The browser runner binds only to 127.0.0.1 and creates disposable contexts/profiles
 with fictitious data. Missing Chromium is SKIP and does not satisfy acceptance.
 Fixtures are fabricated v2 exports using the current immutable profile; no old

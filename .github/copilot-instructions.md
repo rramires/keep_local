@@ -76,11 +76,15 @@ version stays 1.0.0 and `permissions: []`; extension copies are tracked.
 
 Use a task branch, never commit master, merge, push or rewrite history without
 an explicit new instruction. Stage by explicit paths. `_temp` is owner-ignored.
-One coherent task/group per commit, immediately after the complete gate:
+One coherent task/group per commit, immediately after the complete gate.
+The machine is shared: tests, gate, probes and builds use at most 4 CPUs. Prefix them
+with `taskset -c 0-3 nice -n 10` (child Chromium processes inherit the affinity) and
+pass `--test-concurrency=4` to `node --test`. A failure seen only under this limit is
+a timing bug, not a reason to lift it.
 
 ```bash
-node --test tests/unit
-CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
 bash build-extension.sh
 node tests/build/extension.mjs
 diff -r js chrome-extension/js
