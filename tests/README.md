@@ -56,6 +56,14 @@ failure, filename collisions, tied revisions, first connection and empty files.
 The original review probes enumerate the root. Check the preservation
 subdirectory separately when verifying which records survived a choice.
 
+The first-connection checks include both an empty imported vault that pulls
+and an equivalent populated vault that adopts the folder head without writing
+a file. Separate regressions exercise recovery of an empty main file with an
+older side copy and verify that preservation cleanup removes only the failed
+attempt. The cleanup tests exercise directory denial, blocked writers, byte
+corruption, denied removal and an identity mismatch. The tied review is
+measured at 1100 and 390 px in both themes.
+
 On the shared machine, use these commands for the folder gate:
 
 ```bash
