@@ -762,7 +762,7 @@ export async function run({check,assert}) {
       assert.equal(await readFolderFixture(pa,'keeplocal-vault (1).keeplocal'),independentA);
       await hasNote(pa,'Independent A');
       const copiesA=Object.values(await preserved(pa));
-      const copiesB=Object.values(await preserved(pb)).filter(Boolean);
+      const copiesB=Object.values(await preserved(pb));
       assert.equal(copiesA.length,2);
       assert.ok(copiesA.includes(independentA));
       assert.ok(copiesA.includes(independentB));
@@ -1042,6 +1042,74 @@ export async function run({check,assert}) {
       assert.ok((await p.eval('folderTest.entries()')).includes('keeplocal-preserved'));
       assert.equal(await readFolderFixture(p,primary),'');
       assert.equal(await readFolderFixture(p,secondary),old);
+    }finally{await browser.close();}
+  });
+
+  await check('G2.3 preservation removes only its failed attempt and keeps both versions on error',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture}=await import('./backup-fixture.mjs');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    try {
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-PRESERVE-CLEANUP'));
+      const local=()=>p.eval(`(async()=>{
+        const {meta,notes}=await(await import('./js/db.js')).readVault();
+        return {revision:meta.revision,notes};
+      })()`);
+      const preserved=()=>p.eval(`(async()=>{
+        const folder=await(await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+        const files={};
+        for await(const [name,entry] of folder.entries())
+          files[name]=new Uint8Array(await(await entry.getFile()).arrayBuffer()).toBase64();
+        return files;
+      })()`);
+      await harness.create(p);
+      await harness.add(p,'Fictitious local note','Fictitious');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const prior=await readFolderFixture(p,primary);
+      const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
+      const other=await backupFixture([harness.note({title:'Fictitious folder note'})],harness.PASSWORD,salt);
+      const bytes=await other.seal({...other.payload,rev:1});
+      await p.eval(`(async()=>{
+        const folder=await(await folderTest.directory()).getDirectoryHandle('keeplocal-preserved',{create:true});
+        const files={'owner.keeplocal':new TextEncoder().encode('Fictitious owner file'),
+          'preserved-prior.keeplocal':Uint8Array.fromBase64(${JSON.stringify(prior)})};
+        for(const [name,data] of Object.entries(files)){
+          const file=await folder.getFileHandle(name,{create:true}),stream=await file.createWritable();
+          await stream.write(data);await stream.close();
+        }
+      })()`);
+      const originalCopies=await preserved(),originalLocal=await local();
+      await writeFolderFixture(p,primary,bytes);
+      await p.eval("window.dispatchEvent(new Event('focus'))");
+      await p.until("!!document.querySelector('[data-folder-status=conflict]')");
+      const fail=async(mode,{denyRemoval=false,otherIdentity=false}={})=>{
+        await p.eval(`folderTest.failPreservation=${JSON.stringify(mode)};folderTest.denyPreservationRemoval=${denyRemoval};folderTest.rejectPreservationIdentity=${otherIdentity};folderTest.preservationRemovals=[];document.querySelector('.folder-reason').textContent='';document.querySelector('[data-folder-action=useLocal]').click()`);
+        await confirmFolderWord(p);
+        await p.until("document.querySelector('.folder-reason')?.textContent.includes('Could not preserve')");
+        assert.equal(await p.eval("!!document.querySelector('[data-folder-status=conflict]')"),true);
+        assert.equal(await readFolderFixture(p,primary),bytes);
+        assert.deepEqual(await local(),originalLocal);
+      };
+      for (const mode of [true,'tamper','directory']){
+        await fail(mode);
+        assert.deepEqual(await preserved(),originalCopies);
+        assert.equal((await p.eval('folderTest.preservationRemovals')).length,mode==='directory'?0:1);
+      }
+      await fail(true,{denyRemoval:true});
+      const denialCopies=await preserved();
+      const attempted=await p.eval('folderTest.preservationRemovals');
+      assert.equal(attempted.length,1);
+      assert.deepEqual(denialCopies,{...originalCopies,[attempted[0]]:''});
+
+      await fail(true,{otherIdentity:true});
+      assert.deepEqual(await p.eval('folderTest.preservationRemovals'),[]);
+      const finalCopies=await preserved();
+      assert.equal(Object.keys(finalCopies).length,Object.keys(denialCopies).length+1);
+      for(const [name,data] of Object.entries(denialCopies))assert.equal(finalCopies[name],data);
     }finally{await browser.close();}
   });
 

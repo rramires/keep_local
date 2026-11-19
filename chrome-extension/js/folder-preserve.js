@@ -28,23 +28,32 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal) {
   signal.throwIfAborted();
   const directory=await handle.getDirectoryHandle(PRESERVED,{create:true});
   const file=await allocateFile(directory,`preserved-${time}-${side}-r${rev}-${hash.slice(0,8)}`);
-  const stream=await file.createWritable({mode:'exclusive'});
+  let stream,writeStarted=false;
   try {
+    stream=await file.createWritable({mode:'exclusive'});
     if((await file.getFile()).size!==0)throw folderFailure('folder.preserveFailed');
+    writeStarted=true;
     await stream.write(bytes);
     signal.throwIfAborted();
     await stream.close();
+    const stored=await file.getFile();
+    if(stored.size!==bytes.length)throw folderFailure('folder.preserveFailed');
+    const reread=new Uint8Array(await stored.arrayBuffer());
+    if(await bytesHash(reread)!==hash||
+       (await decodeV2WithKey(reread,key,salt)).status!=='valid')
+      throw folderFailure('folder.preserveFailed');
+    return file.name;
   } catch(error) {
-    await stream.abort().catch(()=>{});
+    if(stream)await stream.abort().catch(()=>{});
+    try {
+      const current=await directory.getFileHandle(file.name);
+      if(await file.isSameEntry(current)&&(writeStarted||(await current.getFile()).size===0))
+        await directory.removeEntry(file.name);
+    } catch {
+      // Keep the original failure if the directory cannot undo this attempt.
+    }
     throw error;
   }
-  const stored=await file.getFile();
-  if(stored.size!==bytes.length)throw folderFailure('folder.preserveFailed');
-  const reread=new Uint8Array(await stored.arrayBuffer());
-  if(await bytesHash(reread)!==hash||
-     (await decodeV2WithKey(reread,key,salt)).status!=='valid')
-    throw folderFailure('folder.preserveFailed');
-  return file.name;
 }
 
 export async function preserveFolderChoice(handle,copies,key,salt,signal) {

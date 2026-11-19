@@ -3,7 +3,7 @@ function installFolderFixture(name) {
   const mode = {mode:'readwrite'};
   const fixture = window.folderTest = {
     name, permission:'prompt', requested:'granted', cancel:false,
-    events:[], writes:{}, writeAttempts:0, tamperedReads:0,
+    events:[], writes:{}, writeAttempts:0, tamperedReads:0, preservationRemovals:[],
     clear() { this.events.length=0; this.writes={}; },
     async directory(create=false) {
       return (await navigator.storage.getDirectory()).getDirectoryHandle(this.name,{create});
@@ -46,10 +46,42 @@ function installFolderFixture(name) {
       return derive.apply(this,args);
     };
   }
+  const getDirectoryHandle=FileSystemDirectoryHandle.prototype.getDirectoryHandle;
+  FileSystemDirectoryHandle.prototype.getDirectoryHandle=async function(name,options){
+    if(name==='keeplocal-preserved'&&options?.create&&fixture.failPreservation==='directory')
+      throw new DOMException('Test preservation directory denied','NotAllowedError');
+    return getDirectoryHandle.call(this,name,options);
+  };
+  const removeEntry=FileSystemDirectoryHandle.prototype.removeEntry;
+  FileSystemDirectoryHandle.prototype.removeEntry=async function(name,options){
+    if(this.name==='keeplocal-preserved'){
+      fixture.preservationRemovals.push(name);
+      if(fixture.denyPreservationRemoval)
+        throw new DOMException('Test preservation removal denied','NotAllowedError');
+    }
+    return removeEntry.call(this,name,options);
+  };
+  const isSameEntry=FileSystemHandle.prototype.isSameEntry;
+  FileSystemHandle.prototype.isSameEntry=async function(other){
+    if(this.name.startsWith('preserved-')&&fixture.rejectPreservationIdentity)return false;
+    return isSameEntry.call(this,other);
+  };
   const createWritable=FileSystemFileHandle.prototype.createWritable;
   FileSystemFileHandle.prototype.createWritable=async function(...args){
-    if(this.name.startsWith('preserved-')&&fixture.failPreservation)
-      throw new DOMException('Test preservation writer occupied','NoModificationAllowedError');
+    if(this.name.startsWith('preserved-')){
+      if(fixture.failPreservation===true)
+        throw new DOMException('Test preservation writer occupied','NoModificationAllowedError');
+      const stream=await createWritable.apply(this,args);
+      if(fixture.failPreservation==='tamper'){
+        const write=stream.write.bind(stream);
+        stream.write=data=>{
+          const bytes=data.slice();
+          bytes[bytes.length-1]^=1;
+          return write(bytes);
+        };
+      }
+      return stream;
+    }
     if(this.name!=='keeplocal-vault.keeplocal')return createWritable.apply(this,args);
     fixture.writeAttempts++;
     if(fixture.removeBeforeWrite){
