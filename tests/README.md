@@ -9,6 +9,12 @@ bash build-extension.sh
 node tests/build/extension.mjs
 ```
 
+On the shared development machine, run every command with at most 4 CPUs:
+`taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit` and
+`CHROME_BIN=… taskset -c 0-3 nice -n 10 node tests/browser/run.mjs`. Child Chromium
+processes inherit the CPU affinity. A failure that appears only under this limit is a
+timing bug.
+
 The browser runner binds only to 127.0.0.1 and creates disposable contexts/profiles
 with fictitious data. Missing Chromium is SKIP and does not satisfy acceptance.
 Fixtures are fabricated v2 exports using the current immutable profile; no old
@@ -26,9 +32,58 @@ ZIP while library SHA-256 verification still runs against tracked source files.
 The independent reviewer probes and real unpacked-extension/UI compatibility
 scripts are preserved under the owner's ignored `_temp/` folder.
 
-The File System Access spike is a separate disposable package outside Git. It
-adds no synchronization behavior to this app. Automatic folder writing and the
-password/key section remain blocked pending explicit owner authorization.
+## Extension folder verification
+
+The browser runner also loads the real unpacked MV3 extension in a fresh
+Chromium profile using the ID documented in the README. Synchronize the tracked
+extension copies with `bash build-extension.sh` before running new browser tests
+against a runtime change. The final gate repeats the complete HTTP and extension
+runner three consecutive times.
+
+The extension fixtures install the picker substitute and permission, PBKDF2 and
+IndexedDB spies via CDP. They use the origin-private file system with fictitious
+directories. The tests exercise profile 2 writes and readback, limits, retries, two-profile
+reconciliation and confirmed local reset. Two Chromium profiles use separate
+OPFS directories; the test helper copies only the .keeplocal files between them.
+Read-only checks count both file writes and IndexedDB readwrite transactions.
+The Windows Chrome chooser and persistent grant are covered by the owner's
+manual procedure.
+
+The conflict checks verify the same typed confirmation with or without the
+optional manual export. They check the exact copies in the preservation
+subdirectory, import those copies in disposable profiles, and cover preservation
+failure, filename collisions, tied revisions, first connection and empty files.
+The original review probes enumerate the root. Check the preservation
+subdirectory separately when verifying which records survived a choice.
+
+The first-connection checks include both an empty imported vault that pulls
+and an equivalent populated vault that adopts the folder head without writing
+a file. Separate regressions exercise recovery of an empty main file with an
+older side copy and verify that preservation cleanup removes only the failed
+attempt. The cleanup tests exercise directory denial, blocked writers, byte
+corruption, denied removal and an identity mismatch. The tied review is
+measured at 1100 and 390 px in both themes.
+
+Folder recovery tests in the unpacked extension stall the permission query,
+directory listing, identity comparison and candidate reads. The scenarios
+check passphrase validation, read-only access without writes, export after the
+folder lock is released, late completion, and selection of the same folder
+from recovery or settings. Instrumentation and shorter read deadlines are
+installed with CDP before scripts run in a disposable profile. Production
+read deadlines are 15 seconds for metadata and 60 seconds per candidate file.
+Writes and the native permission prompt use their ordinary completion path.
+
+On the shared machine, use these commands for the folder gate:
+
+```bash
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 bash build-extension.sh
+taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
+```
+
+Build once before running the browser suite when the app sources have changed.
+Repeat the browser suite three times at phase closing.
 
 ## Phase 2c verification
 

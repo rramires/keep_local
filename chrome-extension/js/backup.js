@@ -1,7 +1,9 @@
 import {confirmDialog} from './dialogs.js';
+import {folderUnloadWarning} from './folder-status.js';
+import {withVaultLineage} from './folder-write.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
-import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload } from './db.js';
+import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity } from './db.js';
 import { createKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
@@ -14,11 +16,19 @@ let unsavedChanges = false;
 const drafts=new Set();
 export function setDraftDirty(id,dirty){if(dirty)drafts.add(id);else drafts.delete(id);}
 export function clearDrafts(){drafts.clear();}
+export function hasPendingDrafts(){return drafts.size>0;}
 export async function refreshBackupState(){unsavedChanges=!!await getMeta('dirtySinceBackup');}
 
 
+const localChanges=new Set();
+export function watchLocalChanges(listener) {
+  localChanges.add(listener);
+  return ()=>localChanges.delete(listener);
+}
+
 export function setUnsaved() {
   unsavedChanges = true;
+  for(const listener of localChanges)listener();
 }
 
 export function clearUnsaved() {
@@ -32,19 +42,26 @@ export function isUnsaved() {
 export async function initBeforeUnload() {
   await refreshBackupState();
   window.addEventListener('beforeunload', (e) => {
-    if (isUnsaved()) {
+    const folderWarning=folderUnloadWarning();
+    if (folderWarning===null?isUnsaved():folderWarning||hasPendingDrafts()) {
       e.preventDefault();
       e.returnValue = '';
     }
   });
 }
 
-export async function exportBackup({recovery=false}={}) {
+export function exportBackup(options) {
+  if(globalThis.location?.protocol==='chrome-extension:')return withVaultLineage(()=>makeBackupDownload(options));
+  return makeBackupDownload(options);
+}
+
+async function makeBackupDownload({recovery=false}={}) {
   const key=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
   if(!key)throw new Error(t('login.noAccount'));
   const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};
   const {notes,meta}=await readVault();
-  if(meta.vaultId!==getSessionVaultId())throw new Error(t('vault.changed'));
+  if(vaultIdentity(meta)!==vaultId)throw new Error(t('vault.changed'));
+  const readOnly=isReadOnly();
   const unreadableCount=(await unreadableRecords(notes,key)).length;
   await assertCurrent();
   if(unreadableCount&&!recovery&&!await confirmDialog(tp('backup.unreadableConfirm',unreadableCount),{signal}))return null;
@@ -53,20 +70,24 @@ export async function exportBackup({recovery=false}={}) {
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
   const payload=makePayload(notes,preferences,rev,meta.exportParent||null);
   const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
-  const hash=await payloadHash(JSON.stringify(payload));
-  await assertCurrent();
-  await recordExport(meta,rev,hash,{signal});
+  let receiptMeta=meta;
+  if(!readOnly){
+    const hash=await payloadHash(JSON.stringify(payload));
+    await assertCurrent();
+    await recordExport(meta,rev,hash,{signal});
+    receiptMeta={...meta,exportRev:rev,exportParent:hash};
+  }
   await assertCurrent();
   const blob=new Blob([bytes],{type:'application/octet-stream'}),url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download=`keeplocal-backup-${new Date().toISOString().slice(0,10)}.keeplocal`;
   try{document.body.appendChild(a);a.click();}finally{a.remove();URL.revokeObjectURL(url);}
   await assertCurrent();
-  const clean=await acknowledgeDownload(meta,Date.now(),{signal});
-  unsavedChanges=!clean;
-  return {unreadableCount,meta:{...meta,exportRev:rev,exportParent:hash},notes};
+  if(!readOnly) unsavedChanges=!await acknowledgeDownload(receiptMeta,Date.now(),{signal});
+  return {unreadableCount,meta:receiptMeta,notes};
 }
 
 export async function importBackup(file, password) {
+  assertWritable();
   if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
   const bytes=new Uint8Array(await file.arrayBuffer());
   if(bytes.length<44)throw new Error(t('backup.unrecognizedFormat'));

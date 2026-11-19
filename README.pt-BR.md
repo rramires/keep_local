@@ -86,6 +86,12 @@ O build lê a versão do manifest (atualmente 1.0.0), sincroniza as cópias vers
 e gera `dist/keep_local_extension_v1.0.0.zip`. Para teste manual, use
 `chrome://extensions` → Modo desenvolvedor → Carregar sem compactação →
 `chrome-extension/`. O manifest mantém `permissions: []`.
+
+ID da extensão `dplgmdpgehkbgphaimafofojbjhlkphm`.
+Carregar sem compactação de qualquer pasta mantém o mesmo ID, a mesma origem e os
+mesmos dados do IndexedDB. A instalação antiga sem a chave do manifest tem outra
+origem e um IndexedDB separado. Na instalação atual de teste, remova a instância
+antiga e carregue `chrome-extension/` de novo.
 [Instruções dos testes](tests/README.md). O runner usa apenas perfis descartáveis
 com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios visuais.
 

@@ -1,5 +1,5 @@
 import {noticeDialog} from './dialogs.js';
-import { readVault, replaceVault } from './db.js';
+import { readVault, replaceVault, resetFolderLocalVault, assertWritable, isReadOnly, vaultIdentity } from './db.js';
 import { generateSalt, deriveKey, verifyKeyCheck, createKeyCheck, encrypt, arrayToBase64, arrayBufferToBase64, base64ToArray } from './crypto.js';
 import { decryptRecords } from './backup-format.js';
 import { validatePassword } from './password-policy.js';
@@ -9,6 +9,7 @@ import { t } from './i18n.js';
 import { passwordFeedback,focusPanel } from './form-ui.js';
 
 export async function changePassword(currentPassword,newPassword,{signal}={}) {
+  assertWritable();
   const policy=validatePassword(newPassword);if(!policy.valid)throw new Error(policy.errors.join(' '));
   const previous=await readVault(),meta=previous.meta;
   const current=await deriveKey(currentPassword,base64ToArray(meta.salt),false);
@@ -25,11 +26,31 @@ export async function changePassword(currentPassword,newPassword,{signal}={}) {
   return key;
 }
 export async function resetVault(confirmation) {
+  assertWritable();
   if(confirmation!==t('account.resetWord'))throw new Error(t('account.resetCancelled'));
   const previous=await readVault(),vaultId=crypto.randomUUID();
   await replaceVault({notes:[],meta:{vaultId}},previous.meta);
   clearSession();publishVaultEvent('vault-replaced',{vaultId});
 }
+export async function resetFromLogin(confirmation,expected) {
+  if(confirmation!==t('account.resetWord'))throw new Error(t('account.resetCancelled'));
+  if(await getSessionKey())throw new Error(t('vault.changed'));
+  const vaultId=crypto.randomUUID();
+  await resetFolderLocalVault(expected,vaultId);
+  clearSession();
+  publishVaultEvent('vault-replaced',{vaultId});
+}
+
+export async function resetFromFolder(confirmation,expected,{key,signal}) {
+  if(confirmation!==t('account.resetWord'))throw new Error(t('account.resetCancelled'));
+  if(signal.aborted||!isReadOnly()||!key||key!==await getSessionKey()||
+     signal.aborted||getSessionVaultId()!==vaultIdentity(expected))throw new Error(t('vault.changed'));
+  const vaultId=crypto.randomUUID();
+  await resetFolderLocalVault(expected,vaultId,{signal});
+  clearSession();
+  publishVaultEvent('vault-replaced',{vaultId});
+}
+
 export function renderPasswordChange(container,onChanged,{signal,onRecovery,onClose}={}) {
   const trigger=document.activeElement;
   container.innerHTML=`<form id="change-password-form" class="panel-form">
@@ -62,7 +83,7 @@ export function renderPasswordChange(container,onChanged,{signal,onRecovery,onCl
       if(signal?.aborted||!form.isConnected)return;
       const allowed=['auth.passwordsNoMatch','login.wrongPassword','vault.changed','account.unreadable'].map(t);
       allowed.push(validatePassword(container.querySelector('#next-password').value).errors.join(' '));
-      form.querySelector('#change-password-error').textContent=allowed.includes(error.message)?error.message:t('account.failed');
+      form.querySelector('#change-password-error').textContent=error.code==='vault.readOnly'?t(error.code):allowed.includes(error.message)?error.message:t('account.failed');
       button.disabled=false;
       if(error.code==='account.unreadable'&&onRecovery&&!form.querySelector('#account-recovery')){
         const recover=document.createElement('button');recover.type='button';recover.className='btn-secondary';recover.id='account-recovery';recover.textContent=t('recovery.open');recover.addEventListener('click',onRecovery);form.append(recover);

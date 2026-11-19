@@ -1,0 +1,28 @@
+/* Folder availability and the read-only view. */
+.folder-card { padding: 24px; min-width: 0; }
+.folder-card h1 { margin: 0 0 14px; font-size: 1.3rem; }
+.folder-name { font-weight: 600; overflow-wrap: anywhere; }
+.folder-reason { color: var(--text-secondary); margin: 10px 0 18px; overflow-wrap: anywhere; }
+.folder-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.folder-banner { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 20px; }
+.folder-note-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: inherit; }
+.folder-task-list { list-style: none; margin: 0; padding: 0; }
+.folder-task-list label { display: flex; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
+.folder-task-list .folder-task-list { margin-inline-start: 22px; }
+[data-vault-read-only] :is(
+  #change-password-btn, #edit-labels-btn, #empty-trash-btn, .new-note-bar,
+  .card-action, .vault-card > .vault-card-actions, #vault-new-item,
+  #recovery-copy, .recovery-step
+) { display: none; }
+
+.folder-settings-trigger { width: 100%; text-align: start; }
+.folder-settings h3, .folder-settings p { margin: 0; }
+
+.folder-indicator { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
+.folder-indicator[hidden] { display: none; }
+.sidebar .folder-indicator { padding: 8px 16px; }
+.folder-review .folder-actions { margin-top: 12px; }
+.folder-review-warnings { display: grid; gap: 8px; margin-top: 12px; }
+.folder-review-warnings p { margin: 0; }
+.folder-review select { min-width: 0; max-width: 100%; color-scheme: dark; }
+[data-theme="light"] .folder-review select { color-scheme: light; }

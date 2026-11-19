@@ -2,8 +2,9 @@ import {wordDialog} from './dialogs.js';
 // auth.js — Password creation/validation, session management
 
 import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64, base64ToArray } from './crypto.js';
-import { saveMeta, getMeta, isFirstUse, createVault, ensureVaultId } from './db.js';
+import { getMeta, getAllMetaRecords, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
+import {requestFolderAccess} from './folder-store.js';
 
 import { storeSessionKey } from './session.js';
 export { storeSessionKey, getSessionKey, refreshSession, clearSession, logout, startSessionTimer, stopSessionTimer } from './session.js';
@@ -52,7 +53,7 @@ export async function login(password) {
 
 // --- Auth UI Rendering ---
 
-export function renderAuthView(container, { onAuthenticated }) {
+export function renderAuthView(container,{onAuthenticated,folder}) {
   const firstUse = true; // Will be updated after check
 
   container.innerHTML = `
@@ -134,7 +135,7 @@ export function renderAuthView(container, { onAuthenticated }) {
     </div>
   `;
 
-  initAuthListeners(container, onAuthenticated);
+  initAuthListeners(container,onAuthenticated,folder);
   checkExistingAccount(container);
 }
 
@@ -159,7 +160,7 @@ function switchTab(container, tabName) {
   container.querySelector('#import-form').classList.toggle('hidden', tabName !== 'import');
 }
 
-function initAuthListeners(container, onAuthenticated) {
+function initAuthListeners(container,onAuthenticated,folder) {
   // Tab switching
   container.querySelectorAll('.auth-tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(container, tab.dataset.tab));
@@ -210,24 +211,37 @@ function initAuthListeners(container, onAuthenticated) {
   });
 
   // --- Login form ---
-  container.querySelector('#login-form').addEventListener('submit', async (e) => {
+  const loginForm=container.querySelector('#login-form');
+  const loginButton=loginForm.querySelector('[type=submit]');
+  loginForm.addEventListener('submit',async e=>{
     e.preventDefault();
-    const loginError = container.querySelector('#login-error');
-    const loginPw = container.querySelector('#login-password');
-    loginError.textContent = '';
-
+    if(loginButton.disabled) return;
+    loginButton.disabled=true;
+    const loginError=container.querySelector('#login-error');
+    const loginPw=container.querySelector('#login-password');
+    loginError.textContent='';
     try {
-      const key = await login(loginPw.value);
-      onAuthenticated(key);
-    } catch (err) {
-      loginError.textContent = t(typeof err.code==='string'?err.code:err.message);
+      const permissionFailure=folder?await requestFolderAccess(folder):null;
+      const key=await login(loginPw.value);
+      loginPw.value='';
+      await onAuthenticated(key,folder?{handle:folder,permissionFailure}:null);
+    } catch(err) {
+      loginError.textContent=t(typeof err.code==='string'?err.code:err.message);
+    } finally {
+      loginButton.disabled=false;
     }
   });
 
   container.querySelector('#reset-vault').addEventListener('click',async()=>{
-    const {resetVault}=await import('./account.js');
-    const confirmation=await wordDialog(t('account.resetPrompt'),{title:t('account.reset'),word:t('account.resetWord'),danger:true});
-    try{await resetVault(confirmation);location.reload();}catch(error){container.querySelector('#login-error').textContent=error.message;}
+    const {resetVault,resetFromLogin}=await import('./account.js');
+    const expected=folder?Object.fromEntries((await getAllMetaRecords()).map(row=>[row.key,row.value])):null;
+    const prompt=t('account.resetPrompt')+(folder?' '+t('folder.resetPreservesCopy'):'');
+    const confirmation=await wordDialog(prompt,{title:t('account.reset'),word:t('account.resetWord'),danger:true});
+    try{
+      if(expected)await resetFromLogin(confirmation,expected);
+      else await resetVault(confirmation);
+      location.reload();
+    }catch(error){container.querySelector('#login-error').textContent=error.code==='vault.readOnly'?t(error.code):error.message;}
   });
 
   // --- Import ---
@@ -279,7 +293,7 @@ function initAuthListeners(container, onAuthenticated) {
     importBtn.disabled = true;
 
     try {
-      // Import logic will be implemented in backup.js
+      if(folder)throw new Error(t('folder.importLocked'));
       const { importBackup } = await import('./backup.js');
       const key = await importBackup(selectedFile, importPw.value);
       onAuthenticated(key);

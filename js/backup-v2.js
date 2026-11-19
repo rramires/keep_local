@@ -26,16 +26,21 @@ export async function encodeV2(key,salt,payload,profile=BACKUP_PROFILES[0]) {
   if(bytes.length>MAX_BACKUP_BYTES)throw new Error('backup.tooLarge');
   return bytes;
 }
+export async function decodePayloadV2(bytes,key,profile) {
+  if(bytes.length<44||bytes.length>MAX_BACKUP_BYTES)throw new Error('backup.invalidFile');
+  const salt=bytes.subarray(0,16),iv=bytes.subarray(16,28),ciphertext=bytes.subarray(28);
+  const payloadText=await decrypt(key,iv,ciphertext,backupAAD(profile,salt,iv));
+  return {payload:validatePayload(JSON.parse(payloadText),profile),payloadText};
+}
+
 export async function decodeV2(bytes,password) {
   if(bytes.length<44||bytes.length>MAX_BACKUP_BYTES)throw new Error('backup.invalidFile');
-  const salt=bytes.slice(0,16),iv=bytes.slice(16,28),ciphertext=bytes.slice(28);
+  const salt=bytes.slice(0,16);
   for(const profile of BACKUP_PROFILES){
     validateProfile(profile);
     const key=await deriveKey(password,salt,false,profile.iterations);
     try {
-      const payloadText=await decrypt(key,iv,ciphertext,backupAAD(profile,salt,iv));
-      const payload=validatePayload(JSON.parse(payloadText),profile);
-      return {key,salt,profile,payload,payloadText};
+      return {key,salt,profile,...await decodePayloadV2(bytes,key,profile)};
     } catch {}
   }
   throw new Error('backup.wrongPasswordOrCorrupted');

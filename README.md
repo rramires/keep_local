@@ -84,7 +84,13 @@ CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
 The build reads the manifest version (currently 1.0.0), synchronizes tracked copies
 and creates `dist/keep_local_extension_v1.0.0.zip`. Manual test: open
 `chrome://extensions` → Developer mode → Load unpacked → `chrome-extension/`.
-The manifest keeps `permissions: []`. [Test instructions](tests/README.md).
+The manifest keeps `permissions: []`.
+
+Extension ID `dplgmdpgehkbgphaimafofojbjhlkphm`.
+Loading the unpacked extension from any folder keeps the same ID, origin and
+IndexedDB data. An older installation without the manifest key has a separate
+origin with its own IndexedDB. For the current test installation, remove the old
+instance and load `chrome-extension/` again. [Test instructions](tests/README.md).
 The runner uses disposable profiles and fictional data only; a missing-Chromium
 `SKIP` does not establish browser acceptance.
 

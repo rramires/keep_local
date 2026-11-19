@@ -8,7 +8,12 @@ import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-act
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
-import { ensureVaultId, getMeta, saveMeta } from './db.js';
+import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
+import {createFolderSync} from './folder-sync.js';
+import {confirmFolderReset,renderFolderReview} from './folder-review.js';
+import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
+import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
+import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
@@ -37,6 +42,7 @@ let sessionGeneration=0;
 const enqueueWrite=serialQueue();
 const knownVersions=new Map();
 let loadedVaultId=null;
+let folderGate=null,folderSync=null,folderKey=null,folderLoaded=null;
 let newDraft={title:'',content:'',expanded:false};
 let barSaving=null;
 const newTodoIds=new Set();
@@ -62,6 +68,7 @@ const secretUI = createSecretUI({notify: showToast});
 document.addEventListener('DOMContentLoaded', async () => {
   try { sessionStorage.removeItem('keeplocal_session_key');sessionStorage.removeItem('keeplocal_session_ts'); } catch {}
   await openDB();
+  if(folderSupported() && await readSyncFolder()) setWriteMode('readOnly');
   await initI18n();
   await initTheme();
   await initBeforeUnload();
@@ -81,6 +88,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function teardownSession() {
   secretUI.dispose();
+  folderGate=null;
+  setFolderStatus(null);
+  folderSync?.dispose();folderSync=null;folderKey=null;folderLoaded=null;
+  setWriteMode('readWrite');
   closeDialogs();
   stopSessionTimer();clearSession();sessionController?.abort();sessionController=null;modalController?.abort();modalController=null;scope?.dispose();scope=null;
   sessionGeneration++;
@@ -91,11 +102,36 @@ function teardownSession() {
   newDraft={title:'',content:'',expanded:false};newTodoIds.clear();clearDrafts();searchText='';vaultSearch='';vaultLabel=null;
   cryptoKey=null;notes=[];knownVersions.clear();loadedVaultId=null;unreadableCount=0;unreadableRecords=[];
 }
-function showAuth(message='') {
+async function showAuth(message='') {
   teardownSession();
-  appContainer.innerHTML='';
-  renderAuthView(appContainer,{onAuthenticated:async key=>{
-    cryptoKey=key;storeSessionKey(key);await showApp();
+  appContainer.replaceChildren();
+  const generation=sessionGeneration;
+  const supported=folderSupported();
+  if(supported) setWriteMode('readOnly');
+  const folder=supported?await readSyncFolder():null;
+  if(generation!==sessionGeneration)return;
+  setWriteMode(folder?'readOnly':'readWrite');
+  renderAuthView(appContainer,{folder,onAuthenticated:async(key,attempt)=>{
+    if(generation!==sessionGeneration)return;
+    cryptoKey=key;storeSessionKey(key);
+    if(attempt){
+      sessionController ||= new AbortController();
+      setSessionSignal(sessionController.signal);
+      const signal=sessionController.signal;
+      startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
+      const status=await checkFolder(attempt.handle,attempt.permissionFailure);
+      if(signal.aborted)return;
+      if(status!=='ok'){
+        setFolderStatus('readOnly');
+        folderGate=folderGateFor(attempt.handle,status,key,signal);
+        folderGate.renderBlock();
+        return;
+      }
+      try {if(!await configureFolderSync({admit:true,selected:attempt.handle}))return;}
+      catch {if(!signal.aborted)void showAuth(t('vault.changed'));return;}
+      if(signal.aborted)return;
+    }
+    await showApp();
   }});
   const error=document.getElementById('login-error');if(error)error.textContent=message;
 }
@@ -108,13 +144,13 @@ async function showApp({reload=true}={}) {
   setSessionSignal(sessionController.signal);
   scope?.dispose();scope=createScope();
   const vaultId=getSessionVaultId()||await ensureVaultId(await getMeta('salt'));
-  const currentId=await getMeta('vaultId');
+  const currentId=isReadOnly()?await ensureVaultId(await getMeta('salt')):await getMeta('vaultId');
   if(generation!==sessionGeneration)return;
   if(vaultId!==currentId){showAuth(t('vault.changed'));return;}
   loadedVaultId=vaultId;setSessionVaultId(vaultId);
   const unwatch=watchVaultEvents(event=>{
     if(event?.type==='vault-replaced'&&event.vaultId!==loadedVaultId)showAuth(t('vault.changed'));
-    else if(event?.type==='note-changed')void refreshChangedNote(event.id);
+    else if(event?.type==='note-changed'){void refreshChangedNote(event.id);folderSync?.schedule();}
   });
   scope.signal.addEventListener('abort',unwatch,{once:true});
   startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
@@ -125,12 +161,83 @@ async function showApp({reload=true}={}) {
   await purgeExpiredTrash();
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
-  const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
-  if(generation!==sessionGeneration)return;
-  vaultLayout = layout === 'list' ? 'list' : 'grid';
-  vaultClipboardWarningDismissed = warningDismissed === true;
+  if(reload || !isReadOnly()){
+    const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
+    if(generation!==sessionGeneration)return;
+    vaultLayout = layout === 'list' ? 'list' : 'grid';
+    vaultClipboardWarningDismissed = warningDismissed === true;
+  }
   renderCurrentView();
-  await requestPersistence();
+  if(folderLoaded){
+    const {rev,exportedAt}=folderLoaded;
+    folderLoaded=null;
+    showToast(t('folder.loaded',{rev,time:folderTime(exportedAt)}));
+  }
+  if(!isReadOnly()) await requestPersistence();
+  if(generation===sessionGeneration&&!isReadOnly()&&folderKey!==cryptoKey) await configureFolderSync();
+}
+
+function folderGateFor(handle,status,key,signal) {
+  return createFolderGate(appContainer,{
+    handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
+    onResume:selected=>configureFolderSync({admit:true,selected}),
+    onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
+  });
+}
+
+async function configureFolderSync({admit=false,selected}={}) {
+  folderSync?.dispose();
+  folderSync=null;
+  folderKey=cryptoKey;
+  const signal=sessionController?.signal,key=cryptoKey;
+  if(!folderSupported()||!key||(!admit&&isReadOnly()))return false;
+  const handle=selected??await readSyncFolder();
+  if(signal?.aborted||key!==cryptoKey)return false;
+  if(!handle){setFolderStatus(null);return false;}
+  const rerenderPulled=async head=>{
+    modalController?.abort();modalController=null;
+    if(activeEdit){activeEdit.cancel();activeEdit.cleanup?.();activeEdit=null;}
+    await initI18n({persistDefault:false});await initTheme();
+    document.title=t('app.title');
+    if(signal.aborted)return;
+    folderLoaded=head;
+    if(document.querySelector('.app-view'))await showApp();
+  };
+  const sync=createFolderSync({
+    handle,key,signal,onPulled:rerenderPulled,onIgnored:()=>showToast(t('folder.ignoredCopies')),
+    onEmptyMainReplaced:()=>showToast(t('folder.emptyMainReplaced')),
+    onUnavailable:(folder,status)=>{
+      folderGate=folderGateFor(folder,status,key,signal);
+      if(document.querySelector('.app-view'))void showApp();
+      else folderGate.renderBlock();
+    },
+    onReview:review=>{
+      modalController?.abort();modalController=null;
+      setFolderStatus('readOnly',undefined,{conflict:review.status==='conflict'});
+      folderGate=folderGateFor(handle,review.status,key,signal);
+      renderFolderReview(appContainer,review,{
+        handle,signal,onExit:logout,onOpenReadOnly:showApp,
+        onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
+        onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
+        resolve:async(choice,name)=>{
+          const {preserved,replacedEmptyMain}=await sync.resolve(review,choice,name);
+          await showApp();
+          if(!signal.aborted){
+            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}));
+            if(replacedEmptyMain)showToast(t('folder.emptyMainReplaced'));
+          }
+        },
+      });
+    },
+    onStatus:(status,detail)=>{
+      setFolderStatus(status,detail,{onRetry:()=>folderSync?.flush()});
+      if(detail==='folder.unreadable')showToast(t(detail));
+    },
+  });
+  folderSync=sync;
+  if(admit)return sync.admit();
+  sync.schedule();
+  return true;
 }
 
 function renderAppShell() {
@@ -222,7 +329,28 @@ function renderAppShell() {
   `;
 
   document.getElementById('search-input').value=currentView==='vault'?'':searchText;
+  if(isReadOnly()){
+    appContainer.querySelector('.app-view').setAttribute('data-vault-read-only','');
+    folderGate?.renderBanner(document.getElementById('main-content'));
+  } else if(folderSupported()){
+    addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
+  }
+  if(folderSupported())document.getElementById('backup-btn').after(createFolderIndicator());
   initAppListeners();
+}
+
+async function openFolderSettings(trigger) {
+  if(!await closeModal()||!cryptoKey||!trigger.isConnected) return;
+  closeMobileSidebar();
+  const key=cryptoKey;
+  modalController=new AbortController();
+  renderFolderSettings(document.getElementById('modal-card'),{
+    key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
+    trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
+    hasUnreadable:()=>unreadableCount>0,pauseFolder:()=>folderSync?.dispose(),
+    onFolderChange:selected=>key===cryptoKey?configureFolderSync({admit:!!selected,selected}):undefined,
+  });
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 function initAppListeners() {
@@ -455,7 +583,7 @@ async function changeManyFromUI(sources,change) {
     for(const {next,fields} of plans){noteWrites.recordCommit(next.id,next.updatedAt,knownVersions.get(next.id));knownVersions.set(next.id,next.updatedAt);if(activeEdit?.id===next.id)activeEdit.applyFields?.({...fields,updatedAt:next.updatedAt});publishVaultEvent('note-changed',{id:next.id});}
     setUnsaved();
   }});return generation===sessionGeneration;}
-  catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='note.conflict'?(error.origin==='local'?'note.actionLocalConflict':'note.actionConflict'):'note.actionFailed'));}return false;}
+  catch(error){if(generation===sessionGeneration){if(error.code==='vault.changed')showAuth(t('vault.changed'));else showToast(t(error.code==='vault.readOnly'?error.code:error.code==='note.conflict'?(error.origin==='local'?'note.actionLocalConflict':'note.actionConflict'):'note.actionFailed'));}return false;}
 }
 
 export async function permanentDeleteNote(id) {
@@ -474,7 +602,7 @@ export async function permanentDeleteNote(id) {
 async function deleteFromUI(id){
   const generation=sessionGeneration;
   try{await permanentDeleteNote(id);return generation===sessionGeneration;}
-  catch{if(generation===sessionGeneration)showToast(t('note.deleteFailed'));return false;}
+  catch(error){if(generation===sessionGeneration)showToast(t(error.code==='vault.readOnly'?error.code:'note.deleteFailed'));return false;}
 }
 
 async function refreshChangedNote(id) {
@@ -531,6 +659,7 @@ function renderCurrentView() {
       break;
   }
 
+  if(isReadOnly()) quietReadOnlyCards(document.getElementById('main-inner'));
   if (unreadableCount) {
     const warning = document.createElement('div');
     warning.className = 'unreadable-warning notice notice-warning';
@@ -583,7 +712,7 @@ async function dismissVaultClipboardWarning() {
 async function setVaultLayout(layout) {
   const signal = scope.signal;
   try {
-    await saveMeta('vaultLayout', layout);
+    if(!isReadOnly()) await saveMeta('vaultLayout', layout);
     if (signal.aborted) return;
     vaultLayout = layout;
     if (currentView === 'vault') {
@@ -659,6 +788,7 @@ function renderArchiveView(searchQuery) {
 }
 
 async function purgeExpiredTrash(){
+  if(isReadOnly()) return;
   try{await purgeTrash(notes,permanentDeleteNote);}catch(error){showToast(t(error.code||'note.saveFailed'));}
 }
 
@@ -960,6 +1090,12 @@ async function openNoteModal(note) {
   note=structuredClone(note);
   if (note.type === 'vault') {
     showVaultModal(note);
+  } else if (isReadOnly()) {
+    modalController=new AbortController();
+    renderReadOnlyNote(document.getElementById('modal-card'),note,{
+      signal:modalController.signal,trigger:document.activeElement,onClose:closeModal,
+    });
+    document.getElementById('modal-overlay').classList.add('open');
   } else if (note.type === 'text') {
     openTextModal(note);
   } else {
@@ -984,7 +1120,7 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
   } else {
     renderVaultDetail(modal, item, {
       onClose: closeModal, controls: secretUI, signal,
-      onEdit: () => openVaultEditor(item),
+      onEdit: isReadOnly()?null:()=>openVaultEditor(item),
     });
   }
   focusPanel(modal, {

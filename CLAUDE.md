@@ -32,6 +32,8 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
 
 `node --test tests/unit`, `CHROME_BIN=… node tests/browser/run.mjs`, `bash build-extension.sh`, `node tests/build/extension.mjs`, `diff -r` das cópias e `git diff --check`.
 
+- **Máquina compartilhada: no máximo 4 CPUs** (pedido do dono, 2026-11-19). Vale para Claude e Codex, em testes, gate, sondas e builds: prefixar com `taskset -c 0-3 nice -n 10` e rodar os unitários com `node --test --test-concurrency=4 tests/unit`. A afinidade passa para os processos filhos (Chrome incluso). `systemd-run -p CPUQuota` **não** limita neste WSL (o cgroup do usuário não tem `cpu`). Uma falha que só aparece com o limite é bug de tempo, não motivo para tirar o limite.
+
 - Um `SKIP` do navegador **não é aprovação**.
 - Fechamento de fase: o runner de browser completo passa **3 vezes seguidas, sem reexecutar falha isolada**. Teste intermitente é **bug** (já houve um: autosave × ação de barra), não "flake".
 - Testes só com dados fictícios e perfis descartáveis. **Nunca** o cofre real, `D:\MegaSync` ou o perfil habitual do Chrome.

@@ -4,6 +4,34 @@ const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
 
 let dbInstance = null;
+let writeMode = 'readWrite';
+let transientVault = null;
+
+export function isReadOnly() {
+  return writeMode === 'readOnly';
+}
+
+export function setWriteMode(mode) {
+  if (mode !== 'readOnly' && mode !== 'readWrite') throw new TypeError('Invalid vault write mode');
+  writeMode = mode;
+  if (!isReadOnly()) transientVault = null;
+}
+
+export function assertWritable() {
+  if (isReadOnly()) throw Object.assign(new Error('vault.readOnly'), {code:'vault.readOnly'});
+}
+
+async function writeTransaction(stores,explicitTransition=false) {
+  if(!explicitTransition) assertWritable();
+  const db = await openDB();
+  if(!explicitTransition) assertWritable();
+  return db.transaction(stores, 'readwrite');
+}
+
+export function vaultIdentity({salt,vaultId}) {
+  return vaultId ?? (isReadOnly() && transientVault?.salt === salt ? transientVault?.id : null);
+}
+
 
 export function openDB() {
   return new Promise((resolve, reject) => {
@@ -43,9 +71,8 @@ export async function saveMeta(key, value) {
     if(changed)(await import('./backup.js')).setUnsaved();
     return;
   }
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').put({ key, value });
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -63,9 +90,8 @@ export async function getMeta(key) {
 }
 
 export async function deleteMeta(key) {
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -75,9 +101,8 @@ export async function deleteMeta(key) {
 // --- Notes store ---
 
 export async function saveNoteRecord(record) {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').put(record);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -105,9 +130,8 @@ export async function getAllNoteRecords() {
 }
 
 export async function deleteNoteRecord(id) {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -115,9 +139,8 @@ export async function deleteNoteRecord(id) {
 }
 
 export async function clearAllNotes() {
-  const db = await openDB();
+  const tx = await writeTransaction('notes');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('notes', 'readwrite');
     tx.objectStore('notes').clear();
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -125,9 +148,8 @@ export async function clearAllNotes() {
 }
 
 export async function clearAllMeta() {
-  const db = await openDB();
+  const tx = await writeTransaction('meta');
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('meta', 'readwrite');
     tx.objectStore('meta').clear();
     tx.oncomplete = () => resolve();
     tx.onerror = (e) => reject(e.target.error);
@@ -149,10 +171,13 @@ export async function isFirstUse() {
   return salt === null;
 }
 
-export async function vaultTransaction(action) {
-  const db = await openDB();
+export function vaultTransaction(action) {
+  return transactVault(action);
+}
+
+async function transactVault(action,explicitTransition=false) {
+  const tx = await writeTransaction(['notes', 'meta'],explicitTransition);
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['notes', 'meta'], 'readwrite');
     let result, failure;
     const fail = (error) => { failure ||= error; try { tx.abort(); } catch {} };
     tx.oncomplete = () => resolve(result);
@@ -180,16 +205,85 @@ export function createVault(values) {
 }
 
 export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
-  return vaultTransaction(({tx,notes,meta},done,fail)=>{
+  return replaceLocalVault(records,values,expected,signal);
+}
+
+export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
+  return replaceLocalVault([],{vaultId},expected,signal,true);
+}
+
+export function replaceVaultFromFolder({notes,meta},expected,{signal}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true);
+}
+
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false) {
+  return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.revision||0)!==(expected.revision||0)||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('vault.changed');
+      assertVaultSnapshot(current,expected);
       replace();
     }catch(error){fail(error);}};
-  });
+  },explicitTransition);
+}
+
+export function storeFolderConnection(handle,expected,vaultId,{signal,transition=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try {
+        const actual=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        assertVaultSnapshot(actual,expected);
+        if(!actual.vaultId&&vaultId)meta.put({key:'vaultId',value:vaultId});
+        if(handle){
+          meta.put({key:'syncFolder',value:handle});
+          meta.put({key:'folderConnectionId',value:crypto.randomUUID()});
+        }else{
+          meta.delete('syncFolder');
+          meta.delete('folderConnectionId');
+        }
+        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        done();
+      }catch(error){fail(error);}
+    };
+  },transition);
+}
+
+function assertVaultSnapshot(current,expected,{allowNewEdits=false}={}) {
+  const keys=['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
+    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'];
+  if(keys.some(key=>!(allowNewEdits&&key==='revision')&&current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
+}
+
+export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={}) {
+  if(!replaceLocal)assertWritable();
+  const current=Object.fromEntries((await getAllMetaRecords()).map(row=>[row.key,row.value]));
+  assertVaultSnapshot(current,expected,{allowNewEdits:!replaceLocal});
+  if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
+}
+
+export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try{
+        const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
+        const keepLineage=adopt&&(current.exportRev||0)>rev;
+        const state={
+          folderSyncedHash:hash,
+          folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
+        };
+        if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
+        for(const [key,value] of Object.entries(state))meta.put({key,value});
+        done();
+      }catch(error){fail(error);}
+    };
+  },adopt);
 }
 
 export async function readVault() {
@@ -206,14 +300,24 @@ export function recordExport(expected,rev,hash,{signal}={}) {
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||(current.exportRev||0)!==(expected.exportRev||0))throw new Error('backup.concurrent');
+      if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||current.exportRev!==expected.exportRev||current.exportParent!==expected.exportParent||current.folderConnectionId!==expected.folderConnectionId)throw new Error('backup.concurrent');
       meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
     }catch(error){fail(error);}};
   });
 }
 
-export function ensureVaultId(expectedSalt) {
-  return vaultTransaction(({meta},done,fail)=>{
+export async function ensureVaultId(expectedSalt,{signal}={}) {
+  if (isReadOnly()) {
+    const values = Object.fromEntries((await getAllMetaRecords()).map(({key,value})=>[key,value]));
+    if (expectedSalt && values.salt !== expectedSalt) throw new Error('vault.changed');
+    if (values.vaultId) return values.vaultId;
+    if (!transientVault || transientVault.salt !== values.salt) {
+      transientVault = {salt:values.salt,id:crypto.randomUUID()};
+    }
+    return transientVault.id;
+  }
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       if(expectedSalt&&values.salt!==expectedSalt)throw new Error('vault.changed');
@@ -245,7 +349,7 @@ export function acknowledgeDownload(expected,at,{signal}={}) {
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();request.onsuccess=()=>{try{
       const values=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
-      if(values.vaultId!==expected.vaultId)throw new Error('vault.changed');
+      assertVaultSnapshot(values,expected,{allowNewEdits:true});
       meta.put({key:'lastBackupAt',value:at});
       const clean=(values.revision||0)===(expected.revision||0);
       if(clean)meta.put({key:'dirtySinceBackup',value:false});done(clean);

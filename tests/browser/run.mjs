@@ -8,3 +8,5 @@ try {
  await check('smoke: create vault, note, lock, unlock; no console errors',async()=>{const p=await browser.page();await create(p);await add(p);await p.eval("document.querySelector('#lock-btn').click()");await unlock(p);assert.equal(await p.eval("document.querySelectorAll('.note-card').length"),1);assert.deepEqual(p.errors,[]);await assert.rejects(p.eval("(()=>{throw Error('CDP failure must propagate')})()"),/CDP failure must propagate/);await p.close();});
  for(const file of ['regressions.mjs','phase-2b.mjs','action-failures.mjs','phase-2c.mjs','ui-layout.mjs','dialogs.mjs','batch-queue.mjs','compat-rejection.mjs','vault-core.mjs']){if(existsSync(ROOT+'/tests/browser/'+file)){const m=await import('./'+file);await m.run({browser,check,assert});}}
 } finally {await browser.close();}
+const extension=await import('./extension.mjs');
+await extension.run({check,assert});

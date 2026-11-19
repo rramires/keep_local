@@ -1,6 +1,6 @@
 // i18n.js — Internationalization module (EN / PT-BR)
 
-import { saveMeta, getMeta } from './db.js';
+import { saveMeta, getMeta, isReadOnly } from './db.js';
 
 let currentLang = 'en';
 
@@ -107,6 +107,64 @@ const en = {
   "note.conflict": "Another tab saved a newer version. Your draft is still open.",
   "note.saveAsNew": "Save as a new note",
   "vault.saveAsNew": "Save as new item",
+  "vault.readOnly": "Read only: folder unavailable",
+  "folder.blocked": "Vault folder unavailable",
+  "folder.startOver": "Start over…",
+  "folder.resetRevision": "This browser has revision {rev} dated {date}.",
+  "folder.noDate": "no recorded date",
+  "folder.state.saved": "Written to folder at {time}",
+  "folder.state.pending": "Folder write pending…",
+  "folder.state.error": "Error writing to folder: {reason}",
+  "folder.state.readOnly": "Read only",
+  "folder.tryNow": "Try now",
+  "folder.ignoredCopies": "Foreign or unreadable folder copies were left untouched.",
+  "folder.readback": "The file read back differs from the written copy.",
+  "folder.conflict": "Choose a vault version",
+  "folder.rollback": "The folder contains an older revision",
+  "folder.otherSalt": "Copy from another passphrase or vault",
+  "folder.unreadableCopy": "Unreadable copy in the folder",
+  "folder.localSummary": "This browser: {notes}.",
+  "folder.localDirtySummary": "This browser: {notes}, with local changes.",
+  "folder.diskSummary": "Folder: revision {rev}, written at {time}, {notes}.",
+  "folder.chooseCopy": "Choose a file for the folder version",
+  "folder.exportLocal": "Export local backup",
+  "folder.useFolder": "Use folder version",
+  "folder.useLocal": "Write local data to folder",
+  "folder.exportReady": "Local backup download started. Verify the saved file.",
+  "folder.preserveLocal": "Using the folder version replaces the data in this browser after saving an encrypted copy in keeplocal-preserved/.",
+  "folder.preserveTiedMain": "The chosen copy becomes the main file after any previous main file is preserved there.",
+  "folder.preserveFolder": "Writing local data replaces the main folder file after saving it and any selected tied copy in keeplocal-preserved/.",
+  "folder.preserveFailed": "Could not preserve and verify a vault copy. No vault version was replaced.",
+  "folder.preserved": "Copies preserved in keeplocal-preserved/: {files}",
+  "folder.replaceWord": "REPLACE",
+  "folder.replaceTitle": "Replace vault data",
+  "folder.replacePrompt": "Type {word} to confirm this replacement.",
+  "folder.loaded": "Loaded revision {rev} written at {time}.",
+  "folder.replaceEmptyMain": "The main file is empty and will be replaced with the data from this browser. The other copies in the folder will stay as they are.",
+  "folder.emptyMainReplaced": "The empty main file was replaced with a verified vault copy.",
+  "folder.changed": "The vault or folder changed. Review it again.",
+  "folder.retry": "Try again",
+  "folder.chooseAnother": "Choose another folder",
+  "folder.openReadOnly": "Open read only",
+  "folder.exit": "Sign out",
+  "folder.notFound": "Folder not found. It may have been renamed, moved or disconnected.",
+  "folder.denied": "Folder permission denied.",
+  "folder.unresponsive": "The folder did not respond. Try again. If the problem continues, select the same folder using “Choose another folder”. The notes in this browser are safe and can be opened read only.",
+  "folder.other": "Folder access error ({name}).",
+  "folder.actionFailed": "Could not change the vault folder.",
+  "folder.settings": "Settings",
+  "folder.section": "Vault folder",
+  "folder.description": "KeepLocal writes an encrypted copy to the selected folder.",
+  "folder.permissionTip": "In Chrome, choose “Allow on every visit” to keep access between sessions.",
+  "folder.choose": "Choose folder…",
+  "folder.change": "Change folder",
+  "folder.connected": "Folder connected: {name}",
+  "folder.disconnect": "Disconnect folder",
+  "folder.disconnectConfirm": "Disconnect “{name}” from this vault? The folder contents will be preserved.",
+  "folder.unsupported": "Vault folders are available in the extension.",
+  "folder.importLocked": "Disconnect the folder after signing in or reset the local vault.",
+  "folder.resetPreservesCopy": "The copy in the folder will remain.",
+  "folder.unreadable": "Recover unreadable records before connecting a vault folder.",
   "account.change": "Change master passphrase",
   "account.current": "Current passphrase",
   "account.new": "New passphrase",
@@ -377,6 +435,64 @@ const ptBR = {
   "note.conflict": "Outra aba salvou uma versão mais nova. Seu rascunho continua aberto.",
   "note.saveAsNew": "Salvar como nova nota",
   "vault.saveAsNew": "Salvar como novo item",
+  "vault.readOnly": "Somente leitura: pasta indisponível",
+  "folder.blocked": "Pasta do cofre indisponível",
+  "folder.startOver": "Começar do zero…",
+  "folder.resetRevision": "Este navegador tem a revisão {rev} de {date}.",
+  "folder.noDate": "data não registrada",
+  "folder.state.saved": "Gravado na pasta às {time}",
+  "folder.state.pending": "Gravação pendente…",
+  "folder.state.error": "Erro ao gravar na pasta: {reason}",
+  "folder.state.readOnly": "Somente leitura",
+  "folder.tryNow": "Tentar agora",
+  "folder.ignoredCopies": "Cópias ilegíveis ou de outro cofre foram preservadas.",
+  "folder.readback": "A cópia relida difere da cópia gravada.",
+  "folder.conflict": "Escolha uma versão do cofre",
+  "folder.rollback": "A pasta contém uma revisão anterior",
+  "folder.otherSalt": "Cópia de outra senha ou de outro cofre",
+  "folder.unreadableCopy": "Cópia ilegível na pasta",
+  "folder.localSummary": "Neste navegador: {notes}.",
+  "folder.localDirtySummary": "Neste navegador: {notes}, com alterações locais.",
+  "folder.diskSummary": "Na pasta: revisão {rev}, gravada às {time}, {notes}.",
+  "folder.chooseCopy": "Escolha o arquivo da versão da pasta",
+  "folder.exportLocal": "Exportar backup local",
+  "folder.useFolder": "Usar a versão da pasta",
+  "folder.useLocal": "Gravar os dados locais na pasta",
+  "folder.exportReady": "Download do backup local iniciado. Confira o arquivo salvo.",
+  "folder.preserveLocal": "Usar a versão da pasta substitui os dados deste navegador após salvar uma cópia cifrada em keeplocal-preserved/.",
+  "folder.preserveTiedMain": "A cópia escolhida vira o arquivo principal após a preservação do principal anterior, se houver.",
+  "folder.preserveFolder": "Gravar os dados locais substitui o arquivo principal após salvá-lo em keeplocal-preserved/ junto com a cópia empatada selecionada, se houver.",
+  "folder.preserveFailed": "Não foi possível preservar e conferir uma cópia do cofre. Nenhuma versão foi substituída.",
+  "folder.preserved": "Cópias preservadas em keeplocal-preserved/: {files}",
+  "folder.replaceWord": "SUBSTITUIR",
+  "folder.replaceTitle": "Substituir dados do cofre",
+  "folder.replacePrompt": "Digite {word} para confirmar a substituição.",
+  "folder.loaded": "Carregada a revisão {rev} gravada às {time}.",
+  "folder.replaceEmptyMain": "O arquivo principal está vazio e será substituído pelos dados deste navegador. As outras cópias da pasta ficam como estão.",
+  "folder.emptyMainReplaced": "O arquivo principal vazio foi substituído por uma cópia conferida do cofre.",
+  "folder.changed": "O cofre ou a pasta mudou. Confira novamente.",
+  "folder.retry": "Tentar de novo",
+  "folder.chooseAnother": "Escolher outra pasta",
+  "folder.openReadOnly": "Abrir só leitura",
+  "folder.exit": "Sair",
+  "folder.notFound": "Pasta não encontrada. Ela pode ter sido renomeada, movida ou desconectada.",
+  "folder.denied": "Permissão da pasta negada.",
+  "folder.unresponsive": "A pasta não respondeu. Tente de novo. Se continuar, escolha a mesma pasta em “Escolher outra pasta”. As notas deste navegador estão seguras e podem ser abertas só para leitura.",
+  "folder.other": "Erro de acesso à pasta ({name}).",
+  "folder.actionFailed": "Não foi possível alterar a pasta do cofre.",
+  "folder.settings": "Configurações",
+  "folder.section": "Pasta do cofre",
+  "folder.description": "O KeepLocal grava uma cópia cifrada na pasta escolhida.",
+  "folder.permissionTip": "No Chrome, escolha “Permitir em todas as visitas” (Allow on every visit) para manter o acesso entre sessões.",
+  "folder.choose": "Escolher pasta…",
+  "folder.change": "Trocar pasta",
+  "folder.connected": "Pasta conectada: {name}",
+  "folder.disconnect": "Desconectar pasta",
+  "folder.disconnectConfirm": "Desconectar “{name}” deste cofre? O conteúdo da pasta será preservado.",
+  "folder.unsupported": "Pastas do cofre estão disponíveis na extensão.",
+  "folder.importLocked": "Desconecte a pasta depois de entrar ou redefina o cofre local.",
+  "folder.resetPreservesCopy": "A cópia na pasta será preservada.",
+  "folder.unreadable": "Recupere os registros ilegíveis antes de conectar uma pasta ao cofre.",
   "account.change": "Trocar frase-senha mestra",
   "account.current": "Frase-senha atual",
   "account.new": "Nova frase-senha",
@@ -580,17 +696,17 @@ export function getLang() {
 export async function setLang(lang) {
   if (!dictionaries[lang]) return;
   currentLang = lang;
-  await saveMeta('lang', lang);
+  if (!isReadOnly()) await saveMeta('lang', lang);
   document.documentElement.lang = lang === 'pt-BR' ? 'pt-BR' : 'en';
 }
 
-export async function initI18n() {
+export async function initI18n({persistDefault=true}={}) {
   const saved = await getMeta('lang');
   if (saved && dictionaries[saved]) {
     currentLang = saved;
   } else {
     currentLang = navigator.language?.startsWith('pt') ? 'pt-BR' : 'en';
-    await saveMeta('lang', currentLang);
+    if (persistDefault && !isReadOnly()) await saveMeta('lang', currentLang);
   }
   document.documentElement.lang = currentLang === 'pt-BR' ? 'pt-BR' : 'en';
 }
