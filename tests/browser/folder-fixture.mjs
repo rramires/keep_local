@@ -1,8 +1,15 @@
 // Installed in disposable test pages via CDP before any application script.
-function installFolderFixture(name) {
+function installFolderFixture(name,timeouts) {
+  if(timeouts)globalThis.__keepLocalTestFolderTimeouts=timeouts;
   const mode = {mode:'readwrite'};
   const fixture = window.folderTest = {
     name, permission:'prompt', requested:'granted', cancel:false,
+    stalls:new Set(), pending:[],
+    release() {
+      const released=this.pending.splice(0);
+      for (const {resume} of released)resume();
+      return released.map(({kind})=>kind);
+    },
     events:[], writes:{}, writeAttempts:0, tamperedReads:0, preservationRemovals:[],
     clear() { this.events.length=0; this.writes={}; },
     async directory(create=false) {
@@ -20,6 +27,11 @@ function installFolderFixture(name) {
   const record = (kind,options) => fixture.events.push({
     kind, options, active:navigator.userActivation.isActive,
   });
+  async function stall(kind,force=false){
+    if(!force&&!fixture.stalls.has(kind))return;
+    await new Promise(resume=>fixture.pending.push({kind,resume}));
+    record('resumed:'+kind);
+  }
   window.showDirectoryPicker = async options => {
     record('picker',options);
     if(fixture.cancel) throw new DOMException('Fictional picker cancellation','AbortError');
@@ -27,6 +39,7 @@ function installFolderFixture(name) {
   };
   FileSystemHandle.prototype.queryPermission = async function(options=mode) {
     record('query',options);
+    await stall('queryPermission');
     return fixture.permission;
   };
   FileSystemHandle.prototype.requestPermission = async function(options=mode) {
@@ -37,7 +50,15 @@ function installFolderFixture(name) {
   const keys = FileSystemDirectoryHandle.prototype.keys;
   FileSystemDirectoryHandle.prototype.keys = function(...args) {
     record('list');
-    return keys.apply(this,args);
+    return fixture.stalls.has('keys')?stallEntries('keys',keys,this,args):keys.apply(this,args);
+  };
+  async function* stallEntries(kind,method,handle,args){
+    await stall(kind);
+    yield* method.apply(handle,args);
+  }
+  const entries=FileSystemDirectoryHandle.prototype.entries;
+  FileSystemDirectoryHandle.prototype.entries=function(...args){
+    return fixture.stalls.has('entries')?stallEntries('entries',entries,this,args):entries.apply(this,args);
   };
   for (const kind of ['deriveBits','deriveKey']) {
     const derive=SubtleCrypto.prototype[kind];
@@ -64,6 +85,7 @@ function installFolderFixture(name) {
   const isSameEntry=FileSystemHandle.prototype.isSameEntry;
   FileSystemHandle.prototype.isSameEntry=async function(other){
     if(this.name.startsWith('preserved-')&&fixture.rejectPreservationIdentity)return false;
+    await stall('isSameEntry');
     return isSameEntry.call(this,other);
   };
   const createWritable=FileSystemFileHandle.prototype.createWritable;
@@ -106,6 +128,7 @@ function installFolderFixture(name) {
   };
   const getFile=FileSystemFileHandle.prototype.getFile;
   FileSystemFileHandle.prototype.getFile=async function(...args){
+    await stall('getFile');
     const file=await getFile.apply(this,args);
     if(this.name!=='keeplocal-vault.keeplocal'||!fixture.corruptNextRead)return file;
     fixture.corruptNextRead=false;
@@ -125,6 +148,6 @@ function installFolderFixture(name) {
   };
 }
 
-export function folderFixtureSource(name='KL-TEST-'+crypto.randomUUID().replaceAll('-','').slice(0,12)) {
-  return `(${installFolderFixture})(${JSON.stringify(name)})`;
+export function folderFixtureSource(name='KL-TEST-'+crypto.randomUUID().replaceAll('-','').slice(0,12),timeouts) {
+  return `(${installFolderFixture})(${JSON.stringify(name)},${JSON.stringify(timeouts)})`;
 }

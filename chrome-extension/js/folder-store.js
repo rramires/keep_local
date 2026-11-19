@@ -4,6 +4,7 @@ import {getSessionKey,getSessionVaultId,setSessionVaultId} from './session.js';
 import {decideFolderAction} from './folder-reconcile.js';
 import {readFolderState} from './folder-vault.js';
 import {withVaultLineage} from './folder-write.js';
+import {withFolderReadTimeout} from './folder-timeout.js';
 
 const access = {mode:'readwrite'};
 
@@ -11,7 +12,8 @@ function failure(code) {
   return Object.assign(new Error(code),{code});
 }
 
-function folderError(error) {
+export function folderError(error) {
+  if (error?.name==='TimeoutError') return 'unresponsive';
   if (error?.name==='NotFoundError') return 'notFound';
   if (error?.name==='NotAllowedError' || error?.name==='SecurityError') return 'denied';
   return 'error:'+(typeof error?.name==='string'?error.name:'Error');
@@ -28,7 +30,7 @@ export function readSyncFolder() {
 
 export async function requestFolderAccess(handle) {
   try {
-    const permission=await handle.queryPermission(access);
+    const permission=await withFolderReadTimeout(()=>handle.queryPermission(access));
     const result=permission==='prompt'?await handle.requestPermission(access):permission;
     return result==='granted'?null:'denied';
   } catch(error) {
@@ -39,7 +41,7 @@ export async function requestFolderAccess(handle) {
 
 export async function probeFolder(handle) {
   try {
-    for await (const entry of handle.keys()) break;
+    await withFolderReadTimeout(async()=>{for await (const entry of handle.keys()) break;});
     return 'ok';
   } catch(error) {
     return folderError(error);
@@ -47,7 +49,7 @@ export async function probeFolder(handle) {
 }
 
 export async function checkFolder(handle,permissionFailure) {
-  if(permissionFailure==='denied') return permissionFailure;
+  if(permissionFailure==='denied'||permissionFailure==='unresponsive') return permissionFailure;
   const actual=await probeFolder(handle);
   return actual==='ok'?(permissionFailure??actual):actual;
 }
@@ -70,7 +72,7 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=fals
     const observed=await readFolderState(handle,key,snapshot.meta.salt);
     const decision=decideFolderAction(snapshot,observed);
     if(decision==='otherSalt'||decision==='unreadableCopy')return {handle,status:decision};
-    const alreadyAttached=snapshot.meta.syncFolder&&await handle.isSameEntry(snapshot.meta.syncFolder);
+    const alreadyAttached=snapshot.meta.syncFolder&&await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder));
     if(!alreadyAttached||!hold){
       if(alreadyAttached)await enableFolderWrites({key,signal});
       else await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta,hold}});

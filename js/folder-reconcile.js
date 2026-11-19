@@ -3,6 +3,7 @@ import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
+import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
 function sameRecords(local,remote) {
@@ -44,7 +45,8 @@ export async function requireFolderSession(snapshot,key,signal) {
 }
 
 async function readReviewedCopy(handle,head,key,salt) {
-  const copy=await readFolderCandidate(await handle.getFileHandle(head.name),key,salt);
+  const file=await withFolderReadTimeout(()=>handle.getFileHandle(head.name));
+  const copy=await readFolderCandidate(file,key,salt);
   if(copy.status!=='valid'||copy.hash!==head.hash)throw folderFailure('folder.changed');
   return {name:head.name,...copy};
 }
@@ -72,7 +74,7 @@ export async function pullFolderHead(handle,head,snapshot,key,signal) {
 export async function resolveFolderReview({handle,writer,review,choice,name,key,signal}) {
   const snapshot=await readVault();
   await requireFolderSession(snapshot,key,signal);
-  if(!snapshot.meta.syncFolder||!await handle.isSameEntry(snapshot.meta.syncFolder))throw folderFailure('folder.changed');
+  if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))throw folderFailure('folder.changed');
   const state=await writer.scan(snapshot.meta.salt);
   if(folderLocalStamp(snapshot)!==folderLocalStamp(review.snapshot)||folderStamp(state)!==folderStamp(review.state))
     throw folderFailure('folder.changed');

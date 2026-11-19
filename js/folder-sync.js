@@ -1,6 +1,7 @@
 import {isReadOnly,readVault,recordFolderWrite,setWriteMode} from './db.js';
 import {hasPendingDrafts,watchLocalChanges} from './backup.js';
-import {enableFolderWrites} from './folder-store.js';
+import {enableFolderWrites,folderError} from './folder-store.js';
+import {withFolderReadTimeout} from './folder-timeout.js';
 import {createFolderWriter,folderFailure,folderStamp,withVaultLineage} from './folder-write.js';
 import {decideFolderAction,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
 
@@ -20,7 +21,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
   async function inspect(admitting=false) {
     const snapshot=await readVault();
     await requireFolderSession(snapshot,key,lifetime);
-    if(!snapshot.meta.syncFolder||!await handle.isSameEntry(snapshot.meta.syncFolder))
+    if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))
       throw folderFailure('folder.changed');
     const state=await writer.scan(snapshot.meta.salt);
     await requireFolderSession(snapshot,key,lifetime);
@@ -78,10 +79,11 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
   }
 
   function accessIssue(error) {
-    if(!['NotFoundError','NotAllowedError','SecurityError'].includes(error.name))return false;
+    const status=folderError(error);
+    if(status.startsWith('error:'))return false;
     setWriteMode('readOnly');
     onStatus('readOnly');
-    onUnavailable(handle,error.name==='NotFoundError'?'notFound':'denied');
+    onUnavailable(handle,status);
     return true;
   }
 

@@ -1,18 +1,21 @@
 import {base64ToArray} from './crypto.js';
+import {withFolderReadTimeout} from './folder-timeout.js';
 import {BACKUP_PROFILES,decodePayloadV2,payloadHash} from './backup-v2.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
 
 export const MAIN_FILE='keeplocal-vault.keeplocal';
 const MAX_CANDIDATES=32;
 
-export async function listCandidates(handle) {
-  const entries=[];
-  for await(const [name,entry] of handle.entries()){
-    if(entry.kind!=='file'||!/\.keeplocal$/i.test(name))continue;
-    if(entries.length===MAX_CANDIDATES)return {entries,limitExceeded:true};
-    entries.push({name,entry});
-  }
-  return {entries,limitExceeded:false};
+export function listCandidates(handle) {
+  return withFolderReadTimeout(async()=>{
+    const entries=[];
+    for await(const [name,entry] of handle.entries()){
+      if(entry.kind!=='file'||!/\.keeplocal$/i.test(name))continue;
+      if(entries.length===MAX_CANDIDATES)return {entries,limitExceeded:true};
+      entries.push({name,entry});
+    }
+    return {entries,limitExceeded:false};
+  });
 }
 
 export async function decodeV2WithKey(bytes,key,localSaltB64) {
@@ -29,10 +32,13 @@ export async function decodeV2WithKey(bytes,key,localSaltB64) {
 }
 
 export async function readFolderCandidate(entry,key,salt,{allowEmpty=false}={}) {
-  const file=await entry.getFile();
-  if(allowEmpty&&file.size===0)return {status:'emptyMain'};
-  if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge'};
-  return decodeV2WithKey(new Uint8Array(await file.arrayBuffer()),key,salt);
+  const result=await withFolderReadTimeout(async()=>{
+    const file=await entry.getFile();
+    if(allowEmpty&&file.size===0)return {status:'emptyMain'};
+    if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge'};
+    return {bytes:new Uint8Array(await file.arrayBuffer())};
+  },'file');
+  return result.status?result:decodeV2WithKey(result.bytes,key,salt);
 }
 
 export async function readFolderState(handle,key,salt) {

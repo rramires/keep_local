@@ -38,6 +38,18 @@ async function confirmFolderWord(page) {
   })()`);
 }
 
+const folderTestTimeouts={metadata:350,file:550};
+
+async function startFolderTimeoutFixture(browser,name){
+  const {folderFixtureSource}=await import('./folder-fixture.mjs');
+  const p=await browser.page(undefined,folderFixtureSource(name,folderTestTimeouts));
+  await harness.create(p);
+  await harness.add(p,'Fictitious local note','Fictitious local content');
+  await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+  await p.reload();
+  return p;
+}
+
 export async function run({check,assert}) {
   await check('F1 MV3 origin, OPFS selection and deterministic browser spies',async()=>{
     assert.equal(typeof harness.launchExtension,'function','Expected a real unpacked MV3 harness');
@@ -1174,6 +1186,21 @@ export async function run({check,assert}) {
           assert.ok(view.scroll<=width);
         }
       }
+    }finally{await browser.close();}
+  });
+
+  await check('G3.1 a stalled permission query still verifies and rejects the wrong passphrase',async()=>{
+    const browser=await harness.launchExtension();
+    try{
+      const p=await startFolderTimeoutFixture(browser,'KL-TEST-WRONG-PASSPHRASE');
+      await p.eval("folderTest.stalls.add('queryPermission')");
+      const started=Date.now();
+      await submitExtensionLogin(p,'Fictitious wrong passphrase!');
+      await p.until("document.querySelector('#login-error')?.textContent.includes('Incorrect passphrase')&&!document.querySelector('#login-form [type=submit]').disabled",folderTestTimeouts.metadata+2000);
+      assert.ok(Date.now()-started<=folderTestTimeouts.metadata+2000);
+      assert.equal(await p.eval("!!(await import('./js/session.js')).getSessionVaultId()"),false);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+      assert.deepEqual(await p.eval("folderTest.events.filter(event=>['list','request'].includes(event.kind))"),[]);
     }finally{await browser.close();}
   });
 
