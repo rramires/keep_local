@@ -48,6 +48,8 @@ function installFolderFixture(name) {
   }
   const createWritable=FileSystemFileHandle.prototype.createWritable;
   FileSystemFileHandle.prototype.createWritable=async function(...args){
+    if(this.name.startsWith('preserved-')&&fixture.failPreservation)
+      throw new DOMException('Test preservation writer occupied','NoModificationAllowedError');
     if(this.name!=='keeplocal-vault.keeplocal')return createWritable.apply(this,args);
     fixture.writeAttempts++;
     if(fixture.removeBeforeWrite){

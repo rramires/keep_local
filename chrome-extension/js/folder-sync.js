@@ -114,6 +114,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     const result=await withVaultLineage(()=>resolveFolderReview({handle,writer,review,choice,name,key,signal:lifetime}));
     if(result.status==='pulled')await interpret(result);
     else onStatus('saved',result.result.writtenAt);
+    return result;
   }
 
   const flush=()=>void run();

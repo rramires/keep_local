@@ -215,10 +215,14 @@ async function configureFolderSync({admit=false,selected}={}) {
       setFolderStatus('readOnly',undefined,{conflict:review.status==='conflict'});
       folderGate=folderGateFor(handle,review.status,key,signal);
       renderFolderReview(appContainer,review,{
-        handle,signal,notify:showToast,onExit:logout,onOpenReadOnly:showApp,
+        handle,signal,onExit:logout,onOpenReadOnly:showApp,
         onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
         onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
-        resolve:async(choice,name)=>{await sync.resolve(review,choice,name);await showApp();},
+        resolve:async(choice,name)=>{
+          const {preserved}=await sync.resolve(review,choice,name);
+          await showApp();
+          if(!signal.aborted)showToast(t('folder.preserved',{files:preserved.join(', ')}));
+        },
       });
     },
     onStatus:(status,detail)=>{

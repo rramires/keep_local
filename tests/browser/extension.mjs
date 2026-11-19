@@ -652,6 +652,18 @@ export async function run({check,assert}) {
     const rev=p=>p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
     const waitForWrite=(p,n)=>p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${n})`);
     const hasNote=(p,title)=>p.until(`(await import('./js/app.js')).getNotes().some(note=>note.title===${JSON.stringify(title)})`);
+    const confirm=async(p,action)=>{
+      await p.eval(`document.querySelector('[data-folder-action=${action}]').click()`);
+      await p.until("!!document.querySelector('.app-dialog input')");
+      await p.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
+    };
+    const preserved=p=>p.eval(`(async()=>{
+      const directory=await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+      const files={};
+      for await(const [name,entry] of directory.entries())
+        files[name]=new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64();
+      return files;
+    })()`);
     try{
       const pa=await a.page(undefined,folderFixtureSource('KL-TEST-PC-A'));
       const pb=await b.page(undefined,folderFixtureSource('KL-TEST-PC-B'));
@@ -701,23 +713,44 @@ export async function run({check,assert}) {
       })()`);
       assert.ok(archive.includes('Independent B'));
       assert.deepEqual(await pb.eval('folderTest.writes'),{});
-      await pb.eval("document.querySelector('[data-folder-action=useFolder]').click()");
+      assert.match(await pb.eval("document.querySelector('.folder-review').innerText"),/keeplocal-preserved/);
+      await pb.eval('folderTest.failPreservation=true');
+      await confirm(pb,'useFolder');
+      await pb.until("document.querySelector('.folder-review [role=status]').textContent.includes('preserve')");
+      assert.equal(await readFolderFixture(pb,primary),independentA);
+      assert.deepEqual(await pb.eval('folderTest.writes'),{});
+      assert.equal(await pb.eval("(await import('./js/db.js')).isReadOnly()"),true);
+      await pb.eval('folderTest.failPreservation=false');
+      await confirm(pb,'useFolder');
       await hasNote(pb,'Independent A');
       assert.equal(await pb.eval('folderTest.writeAttempts'),0);
 
       await pa.eval("const picker=document.querySelector('.folder-review select');picker.value='keeplocal-vault (1).keeplocal';picker.dispatchEvent(new Event('change'))");
       assert.match(await pa.eval("document.querySelector('.folder-review').innerText"),/Folder: revision [^\n]+4 notes/);
-      await pa.eval("document.querySelector('[data-folder-action=useLocal]').click()");
-      await pa.until("!!document.querySelector('.app-dialog input')");
-      await pa.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
+      await confirm(pa,'useLocal');
       await waitForWrite(pa,common+1);
       assert.equal(await readFolderFixture(pa,'keeplocal-vault (1).keeplocal'),independentA);
       await hasNote(pa,'Independent A');
+      const copiesA=Object.values(await preserved(pa));
+      const copiesB=Object.values(await preserved(pb)).filter(Boolean);
+      assert.equal(copiesA.length,2);
+      assert.ok(copiesA.includes(independentA));
+      assert.ok(copiesA.includes(independentB));
+      assert.equal(copiesB.length,1);
+      for(const [base64,title] of [...copiesA.map(bytes=>[bytes,bytes===independentA?'Independent A':'Independent B']),[copiesB[0],'Independent B']]){
+        const clean=await harness.launchExtension();
+        try{
+          const page=await clean.page();
+          await page.eval(importExpression(base64));
+          await page.reload();await harness.unlock(page);
+          await hasNote(page,title);
+        }finally{await clean.close();}
+      }
       const written=await readFolderFixture(pa,primary);
       await writeFolderFixture(pb,'keeplocal-vault (2).keeplocal',written);
       await pb.eval("window.dispatchEvent(new Event('focus'))");
       await pb.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${common+1})`);
-      assert.deepEqual(await pb.eval('folderTest.entries()'),['keeplocal-vault (2).keeplocal',primary]);
+      assert.deepEqual(await pb.eval('folderTest.entries()'),['keeplocal-preserved','keeplocal-vault (2).keeplocal',primary]);
 
       await writeFolderFixture(pa,primary,old);
       // Leave the old copy in place as an independent candidate. Both are now below the seen revision.

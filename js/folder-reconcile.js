@@ -2,6 +2,7 @@ import {readVault,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} 
 import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
+import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
 export function decideFolderAction(snapshot,state) {
@@ -58,20 +59,24 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const state=await writer.scan(snapshot.meta.salt);
   if(folderLocalStamp(snapshot)!==folderLocalStamp(review.snapshot)||folderStamp(state)!==folderStamp(review.state))
     throw folderFailure('folder.changed');
-  if(choice==='remote'){
-    const head=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head.rev);
-    if(!head)throw folderFailure('folder.changed');
-    return pullFolderHead(handle,head,snapshot,key,signal);
-  }
+  const head=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head?.rev);
+  if(!head||unsafeFolder(state))throw folderFailure('folder.changed');
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
-  if(main?.status!=='valid'||unsafeFolder(state))throw folderFailure('folder.changed');
+  if(choice==='remote'){
+    const preserved=[await preserveLocalChoice(handle,snapshot,key,signal)];
+    if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
+      throw folderFailure('folder.changed');
+    return {...await pullFolderHead(handle,head,snapshot,key,signal),preserved};
+  }
+  if(main?.status!=='valid')throw folderFailure('folder.changed');
+  const copies=main.name===head.name?[main]:[main,head];
+  const preserved=await preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal);
+  await requireFolderSession(snapshot,key,signal);
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
-    const parent=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head.rev);
-    if(!parent)throw folderFailure('folder.changed');
-    const result=await writer.write(snapshot,{...state,head:parent},{replace:true});
-    return {status:'saved',result};
+    const result=await writer.write(snapshot,{...state,head},{replace:true});
+    return {status:'saved',result,preserved};
   }catch(error){
     if(reading&&!signal.aborted)setWriteMode('readOnly');
     throw error;

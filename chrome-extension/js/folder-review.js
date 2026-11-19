@@ -5,7 +5,6 @@ import {focusPanel} from './form-ui.js';
 import {exportBackup} from './backup.js';
 import {readVault} from './db.js';
 import {MAIN_FILE} from './folder-vault.js';
-import {folderLocalStamp} from './folder-reconcile.js';
 import {localFolderDirty} from './folder-write.js';
 
 function tag(name,text,className) {
@@ -31,7 +30,7 @@ export async function confirmFolderReset({key,signal,onReset}) {
   await onReset();
 }
 
-export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,notify,onRefresh,onReset}) {
+export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,onRefresh,onReset}) {
   const wrap=tag('main',undefined,'auth-view folder-block folder-review');
   wrap.dataset.folderStatus=review.status;
   const container=tag('div',undefined,'auth-container');
@@ -41,7 +40,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   const controls=tag('div',undefined,'folder-actions');
   const {state,snapshot}=review;
   const head=state.head;
-  let exported=false,busy=false;
+  let busy=false;
   const report=tag('p',undefined,'folder-reason');
   report.setAttribute('role','status');
   panel.append(heading,tag('p',handle.name,'folder-name'));
@@ -73,6 +72,10 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
     label.append(selection);
     panel.append(label);
   }
+  const canChoose=head&&['rollback','conflict'].includes(review.status);
+  const canOverwrite=canChoose&&state.candidates.some(row=>row.name===MAIN_FILE&&row.status==='valid');
+  if(canChoose)panel.append(tag('p',t('folder.preserveLocal')));
+  if(canOverwrite)panel.append(tag('p',t('folder.preserveFolder')));
   panel.append(report,controls);
 
   const run=async work=>{
@@ -97,21 +100,17 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
     return node;
   };
   button('exportLocal',async()=>{
-    const archive=await exportBackup();
-    exported=!!archive&&folderLocalStamp(archive)===folderLocalStamp(snapshot)&&JSON.stringify(archive.notes)===JSON.stringify(snapshot.notes);
-    if(exported)report.textContent=t('folder.exportReady');
+    if(await exportBackup())report.textContent=t('folder.exportReady');
   });
-  const confirm=async()=>await wordDialog(t('folder.replacePrompt',{word:t('folder.replaceWord')}),{
+  const confirm=async message=>await wordDialog(t(message)+' '+t('folder.replacePrompt',{word:t('folder.replaceWord')}),{
     title:t('folder.replaceTitle'),word:t('folder.replaceWord'),danger:true,signal,
   })===t('folder.replaceWord');
-  if(head&&['rollback','conflict'].includes(review.status)){
-    button('useFolder',async()=>{
-      if(exported||await confirm())await resolve('remote',selection?.value??head.name);
-    });
-    if(state.candidates.some(row=>row.name===MAIN_FILE&&row.status==='valid')){
-      button('useLocal',async()=>{if(await confirm())await resolve('local',selection?.value??head.name);});
-    }
-  }
+  if(canChoose)button('useFolder',async()=>{
+    if(await confirm('folder.preserveLocal'))await resolve('remote',selection?.value??head.name);
+  });
+  if(canOverwrite)button('useLocal',async()=>{
+    if(await confirm('folder.preserveFolder'))await resolve('local',selection?.value??head.name);
+  });
   button('openReadOnly',onOpenReadOnly);
   if(onReset)button('startOver',onReset);
   button('exit',onExit);

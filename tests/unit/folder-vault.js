@@ -44,3 +44,45 @@ test('G3 reconciliation distinguishes dirty data, previous revisions and foreign
   assert.equal(decideFolderAction(clean,{...state,head:null,candidates:[]}), 'push');
   assert.equal(decideFolderAction(clean,{...state,candidates:[{name:'keeplocal-vault.keeplocal',status:'otherSalt'}],otherSalt:['keeplocal-vault.keeplocal']}),'otherSalt');
 });
+
+test('G1.1 an occupied preservation name gets a suffix without overwriting',async()=>{
+  const {preserveFolderChoice}=await import('../../js/folder-preserve.js');
+  const salt=generateSalt(),encodedSalt=arrayToBase64(salt);
+  const key=await deriveKey('fictional test vault phrase',salt);
+  const bytes=await encodeV2(key,salt,makePayload([],{},5));
+  const source=new Blob([bytes]);
+  const candidate={name:vault.MAIN_FILE,...await vault.decodeV2WithKey(bytes,key,encodedSalt)};
+  const marker=new Blob(['existing preservation']);
+  const files=new Map();
+  const directory={
+    async getFileHandle(name,{create=false}={}){
+      // Occupy every unsuffixed name, independent of the wall-clock second.
+      if(!name.endsWith('-2.keeplocal'))files.set(name,marker);
+      if(!files.has(name)&&!create)throw new DOMException('Missing','NotFoundError');
+      if(!files.has(name))files.set(name,new Blob());
+      return {
+        name,
+        getFile:async()=>files.get(name),
+        async createWritable(){
+          let pending;
+          return {
+            async write(data){pending=new Blob([data]);},
+            async close(){files.set(name,pending);},
+          };
+        },
+      };
+    },
+  };
+  const handle={
+    getFileHandle:async()=>({getFile:async()=>source}),
+    async getDirectoryHandle(name,options){
+      assert.equal(name,'keeplocal-preserved');
+      assert.deepEqual(options,{create:true});
+      return directory;
+    },
+  };
+  const [name]=await preserveFolderChoice(handle,[candidate],key,encodedSalt,new AbortController().signal);
+  assert.match(name,/^preserved-\d{8}T\d{6}Z-folder-r5-[a-f0-9]{8}-2\.keeplocal$/);
+  assert.equal(files.get(name.replace('-2.keeplocal','.keeplocal')),marker);
+  assert.deepEqual(new Uint8Array(await files.get(name).arrayBuffer()),bytes);
+});
