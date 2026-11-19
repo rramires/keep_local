@@ -41,7 +41,7 @@ test('G3 reconciliation distinguishes dirty data, previous revisions and foreign
   assert.equal(decideFolderAction({...clean,meta:{...clean.meta,revision:5}},state),'conflict');
   assert.equal(decideFolderAction({...clean,meta:{...clean.meta,folderSeenRev:4}},state),'rollback');
   assert.equal(decideFolderAction(clean,{...state,divergent:true}),'conflict');
-  assert.equal(decideFolderAction({notes:[],meta:{}},state),'conflict');
+  assert.equal(decideFolderAction({notes:[],meta:{}},state),'pull');
   assert.equal(decideFolderAction({notes:[two,one],meta:{}},state),'adopt');
   for(const field of ['id','iv','ciphertext','updatedAt']){
     assert.equal(decideFolderAction({notes:[two,{...one,[field]:'different'}],meta:{}},state),'conflict');

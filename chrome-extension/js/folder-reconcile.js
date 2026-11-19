@@ -25,7 +25,10 @@ export function decideFolderAction(snapshot,state) {
   if(!state.divergent&&head.hash===meta.folderSyncedHash)return localFolderDirty(meta)?'push':'saved';
   if(head.rev<(meta.folderSeenRev||0))return 'rollback';
   if(state.divergent)return 'conflict';
-  if(!meta.folderSyncedHash)return sameRecords(notes,head.payload.notes)?'adopt':'conflict';
+  if(!meta.folderSyncedHash){
+    if(notes.length===0)return 'pull';
+    return sameRecords(notes,head.payload.notes)?'adopt':'conflict';
+  }
   if(head.rev===(meta.folderSeenRev||0)||localFolderDirty(meta))return 'conflict';
   return 'pull';
 }

@@ -390,6 +390,8 @@ export async function run({check,assert}) {
 
   await check('F5 extension settings select, replace and disconnect folders in English and Portuguese',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const primary='keeplocal-vault.keeplocal';
     const browser=await harness.launchExtension();
     try {
       const p=await browser.page(undefined,folderFixtureSource());
@@ -415,16 +417,17 @@ export async function run({check,assert}) {
       assert.match(await text(),new RegExp('Folder connected: '+selected));
       assert.match(await text(),/Folder write pending|Written to folder/);
       assert.doesNotMatch(await text(),/\bsynced\b|\bsynchronized\b/i);
-      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
+      await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
+      assert.deepEqual(await p.eval('folderTest.entries()'),[primary]);
+      const originalFile=await readFolderFixture(p,primary);
 
       await p.eval("folderTest.name='KL-TEST-settings-replacement';document.querySelector('[data-folder-action=change]').click()");
       await p.until("document.querySelector('.folder-settings .folder-name')?.textContent.includes('KL-TEST-settings-replacement')");
-      assert.deepEqual(await p.eval('folderTest.entries()'),[]);
       // Existing content stands in for unrelated user data without a file write.
       await p.eval("(await folderTest.directory()).getDirectoryHandle('FICTITIOUS-EXISTING-FOLDER',{create:true})");
       await close();
       await p.reload();
-      await p.eval("folderTest.permission='granted'");
+      await p.eval("folderTest.permission='granted';folderTest.name='KL-TEST-settings-replacement'");
       await submitExtensionLogin(p);
       await p.until("!!document.querySelector('#folder-settings-btn')");
       assert.equal(await name(),'KL-TEST-settings-replacement');
@@ -433,6 +436,8 @@ export async function run({check,assert}) {
       await open('disconnect');
       assert.match(await text(),/Configurações[\s\S]+Pasta do cofre[\s\S]+Pasta conectada: KL-TEST-settings-replacement/);
 
+      await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
+      const replacementFile=await readFolderFixture(p,primary);
       const ask=async()=>{
         await p.eval("document.querySelector('[data-folder-action=disconnect]').click()");
         await p.until("document.activeElement.dataset.dialogAction==='cancel'");
@@ -456,7 +461,13 @@ export async function run({check,assert}) {
         }
         return rows;
       })()`);
-      assert.deepEqual(contents,{[selected]:[],'KL-TEST-settings-replacement':[['directory','FICTITIOUS-EXISTING-FOLDER']]});
+      assert.deepEqual(contents[selected],[['file',primary]]);
+      assert.deepEqual(contents['KL-TEST-settings-replacement'].sort(),[
+        ['directory','FICTITIOUS-EXISTING-FOLDER'],['file',primary],
+      ]);
+      assert.equal(await readFolderFixture(p,primary),replacementFile);
+      await p.eval(`folderTest.name=${JSON.stringify(selected)}`);
+      assert.equal(await readFolderFixture(p,primary),originalFile);
       assert.deepEqual(p.errors,[]);
     } finally { await browser.close(); }
   });
@@ -926,6 +937,37 @@ export async function run({check,assert}) {
       assert.equal(await readFolderFixture(p,primary),junk);
       assert.equal(await p.eval('folderTest.writeAttempts'),0);
       assert.deepEqual(await p.eval('folderTest.writes'),{});
+    }finally{await browser.close();}
+  });
+
+  await check('G2.1 an imported empty vault pulls the first folder without writing a file',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture,writeFolderFixture}=await import('./folder-transfer.mjs');
+    const {backupFixture,importExpression}=await import('./backup-fixture.mjs');
+    const {generateSalt}=await import('../../js/crypto.js');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    const salt=generateSalt(),folderRev=3;
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-EMPTY-ONBOARD'));
+      const empty=await backupFixture([],harness.PASSWORD,salt);
+      const populated=await backupFixture([harness.note({title:'Fictitious folder note'})],harness.PASSWORD,salt);
+      await p.eval(importExpression(empty.base64));
+      await p.reload();await harness.unlock(p);
+      const bytes=await populated.seal({...populated.payload,rev:folderRev});
+      await writeFolderFixture(p,primary,bytes);
+      await p.eval("folderTest.writeAttempts=0;document.querySelector('#folder-settings-btn').click()");
+      await p.until("document.activeElement.id==='modal-close'&&!!document.querySelector('[data-folder-action=choose]')");
+      await p.eval("document.querySelector('[data-folder-action=choose]').click()");
+      await p.until("!!document.querySelector('[data-folder-status=conflict],.app-view .note-card')");
+      assert.equal(await p.eval("!!document.querySelector('[data-folder-status=conflict]')"),false);
+      assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious folder note']);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[primary]);
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+      assert.equal(await readFolderFixture(p,primary),bytes);
+      await harness.add(p,'First local edit','Fictitious');
+      await p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${folderRev})`);
+      assert.equal(await p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),folderRev+1);
     }finally{await browser.close();}
   });
 
