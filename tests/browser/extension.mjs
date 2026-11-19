@@ -811,6 +811,9 @@ export async function run({check,assert}) {
       await p.until("!!document.querySelector('.app-dialog input')");
       await p.eval("const input=document.querySelector('.app-dialog input');input.value='REPLACE';input.dispatchEvent(new Event('input'));document.querySelector('[data-dialog-action=confirm]').click()");
       await app();
+      const afterPull=await p.eval("(await(await import('./js/db.js')).readVault()).meta");
+      assert.equal(afterPull.revision,afterPull.folderSyncedRevision,'Opening a tied copy must not dirty an absent language preference');
+      assert.equal(afterPull.lang,undefined);
       const next=await decode(await readFolderFixture(p,primary));
       const selected=await decode(y);
       assert.equal(next.payload.rev,tiedRev+1);
@@ -824,8 +827,9 @@ export async function run({check,assert}) {
         }
         return false;
       })()`),true);
-      await p.eval("window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'))");
+      await p.eval("window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
       await app();
+      assert.equal(await rev(),tiedRev+1);
       await relogin();
       await app();
       assert.equal(await rev(),tiedRev+1);

@@ -696,13 +696,13 @@ export async function setLang(lang) {
   document.documentElement.lang = lang === 'pt-BR' ? 'pt-BR' : 'en';
 }
 
-export async function initI18n() {
+export async function initI18n({persistDefault=true}={}) {
   const saved = await getMeta('lang');
   if (saved && dictionaries[saved]) {
     currentLang = saved;
   } else {
     currentLang = navigator.language?.startsWith('pt') ? 'pt-BR' : 'en';
-    if (!isReadOnly()) await saveMeta('lang', currentLang);
+    if (persistDefault && !isReadOnly()) await saveMeta('lang', currentLang);
   }
   document.documentElement.lang = currentLang === 'pt-BR' ? 'pt-BR' : 'en';
 }

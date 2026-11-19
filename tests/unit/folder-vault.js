@@ -92,3 +92,20 @@ test('G1.1 an occupied preservation name gets a suffix without overwriting',asyn
   assert.equal(files.get(name.replace('-2.keeplocal','.keeplocal')),marker);
   assert.deepEqual(new Uint8Array(await files.get(name).arrayBuffer()),bytes);
 });
+
+test('G1.5 an unreadable local snapshot stops before creating a preservation file',async()=>{
+  const {preserveLocalChoice}=await import('../../js/folder-preserve.js');
+  const salt=generateSalt(),key=await deriveKey('fictional test vault phrase',salt);
+  const snapshot={
+    meta:{salt:arrayToBase64(salt)},
+    notes:[{
+      id:crypto.randomUUID(),updatedAt:Date.now(),
+      iv:arrayToBase64(new Uint8Array(12)),
+      ciphertext:arrayToBase64(new Uint8Array(16)),
+    }],
+  };
+  let creates=0;
+  const handle={async getDirectoryHandle(){creates++;throw Error('Directory creation attempted');}};
+  await assert.rejects(preserveLocalChoice(handle,snapshot,key,new AbortController().signal),{code:'folder.preserveFailed'});
+  assert.equal(creates,0);
+});

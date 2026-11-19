@@ -49,6 +49,25 @@ Read-only checks count both file writes and IndexedDB readwrite transactions.
 The Windows Chrome chooser and persistent grant are covered by the owner's
 manual procedure.
 
+The conflict checks verify the same typed confirmation with or without the
+optional manual export. They check the exact copies in the preservation
+subdirectory, import those copies in disposable profiles, and cover preservation
+failure, filename collisions, tied revisions, first connection and empty files.
+The original review probes enumerate the root. Check the preservation
+subdirectory separately when verifying which records survived a choice.
+
+On the shared machine, use these commands for the folder gate:
+
+```bash
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 bash build-extension.sh
+taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
+```
+
+Build once before running the browser suite when the app sources have changed.
+Repeat the browser suite three times at phase closing.
+
 ## Phase 2c verification
 
 `tests/unit/note-write-queue.js` forces both action/editor orders for pin, color,

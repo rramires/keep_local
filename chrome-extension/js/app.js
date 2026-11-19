@@ -197,7 +197,7 @@ async function configureFolderSync({admit=false,selected}={}) {
   const rerenderPulled=async head=>{
     modalController?.abort();modalController=null;
     if(activeEdit){activeEdit.cancel();activeEdit.cleanup?.();activeEdit=null;}
-    await initI18n();await initTheme();
+    await initI18n({persistDefault:false});await initTheme();
     document.title=t('app.title');
     if(signal.aborted)return;
     folderLoaded=head;
