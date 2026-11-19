@@ -64,6 +64,15 @@ attempt. The cleanup tests exercise directory denial, blocked writers, byte
 corruption, denied removal and an identity mismatch. The tied review is
 measured at 1100 and 390 px in both themes.
 
+Folder recovery tests in the unpacked extension stall the permission query,
+directory listing, identity comparison and candidate reads. The scenarios
+check passphrase validation, read-only access without writes, export after the
+folder lock is released, late completion, and selection of the same folder
+from recovery or settings. Instrumentation and shorter read deadlines are
+installed with CDP before scripts run in a disposable profile. Production
+read deadlines are 15 seconds for metadata and 60 seconds per candidate file.
+Writes and the native permission prompt use their ordinary completion path.
+
 On the shared machine, use these commands for the folder gate:
 
 ```bash
