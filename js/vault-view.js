@@ -122,7 +122,7 @@ export function renderVaultCard(item, {open, change, remove, labelOptions = [], 
   return card;
 }
 
-export function renderVaultSection(root, {items, layout, onLayout, onNew, onDismissWarning, query, selectedLabel, onLabel, ...cardActions}) {
+export function renderVaultSection(root, {items, layout, onLayout, lockMinutes, onLockMinutes, onNew, onDismissWarning, query, selectedLabel, onLabel, ...cardActions}) {
   const labels = [...new Set(items.flatMap(item => item.labels).filter(Boolean))].sort();
   const activeLabel = labels.includes(selectedLabel) ? selectedLabel : null;
   const searchActive = !!query;
@@ -142,6 +142,19 @@ export function renderVaultSection(root, {items, layout, onLayout, onNew, onDism
     button.setAttribute('aria-pressed', String(layout === mode));
     controls.append(button);
   }
+  const lockLabel=element('label','form-field vault-lock-preference',t('vault.lockLabel'));
+  const lock=element('select');
+  lock.dataset.vaultLock='';
+  for(const [value,key] of [['','default'],['2','two'],['1','one']]){
+    const option=element('option','',t('vault.lock.'+key));
+    option.value=value;
+    lock.append(option);
+  }
+  lock.value=lockMinutes??'';
+  lock.disabled=!onLockMinutes;
+  lock.addEventListener('change',()=>onLockMinutes?.(lock.value?Number(lock.value):null));
+  lockLabel.append(lock);
+  controls.append(lockLabel);
   toolbar.append(controls);
   section.append(toolbar);
   if (onDismissWarning) {

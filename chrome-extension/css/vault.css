@@ -67,3 +67,7 @@
 .vault-generator-options { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .vault-generator-option { display: inline-flex; align-items: center; gap: 6px; }
 .vault-generator .form-error:empty { display: none; }
+
+.vault-lock-preference { flex-basis: 100%; }
+.vault-lock-preference select { max-width: 100%; color-scheme: dark; }
+[data-theme=light] .vault-lock-preference select { color-scheme: light; }

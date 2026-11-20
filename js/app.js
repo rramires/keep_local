@@ -15,7 +15,7 @@ import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
-import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
+import { getSessionVaultId, setSessionVaultId, setSessionSignal, setIdleTimeout } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
@@ -53,6 +53,7 @@ let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let vaultLayout = 'grid';
+let vaultLockMinutes=null;
 let vaultLabel = null;
 let vaultClipboardWarningDismissed = false;
 let sidebarCollapsed = false;
@@ -163,10 +164,13 @@ async function showApp({reload=true}={}) {
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
   if(reload || !isReadOnly()){
-    const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
+    const [layout, warningDismissed, lockMinutes] = await Promise.all([
+      getMeta('vaultLayout'),getMeta('vaultClipboardWarningDismissed'),getMeta('vaultLockMinutes'),
+    ]);
     if(generation!==sessionGeneration)return;
     vaultLayout = layout === 'list' ? 'list' : 'grid';
     vaultClipboardWarningDismissed = warningDismissed === true;
+    vaultLockMinutes=lockMinutes===1||lockMinutes===2?lockMinutes:null;
   }
   renderCurrentView();
   if(folderLoaded){
@@ -645,6 +649,7 @@ function renderCurrentView() {
         query: vaultSearch,
         selectedLabel: vaultLabel, onLabel: label => { vaultLabel=label; renderCurrentView(); },
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
+        lockMinutes:vaultLockMinutes,onLockMinutes:isReadOnly()?null:setVaultLockMinutes,
         onNew: chooseNewVaultItem,
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
       });
@@ -683,6 +688,7 @@ function renderCurrentView() {
     warning.append(recover);document.getElementById('main-inner').prepend(warning);
   }
   updateSidebarLabels();
+  applyVaultIdleTimeout();
 }
 
 const vaultCardActions = {
@@ -723,6 +729,27 @@ async function setVaultLayout(layout) {
     }
   } catch {
     if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
+}
+
+function applyVaultIdleTimeout() {
+  const inside=currentView==='vault'||document.querySelector('#modal-overlay.open :is(.vault-detail,.vault-editor)');
+  setIdleTimeout(inside&&vaultLockMinutes?vaultLockMinutes*60_000:undefined);
+}
+
+async function setVaultLockMinutes(minutes) {
+  const signal=scope?.signal;
+  if(!signal||signal.aborted||isReadOnly()||![null,1,2].includes(minutes))return;
+  try {
+    await saveMeta('vaultLockMinutes',minutes);
+    if(signal.aborted)return;
+    vaultLockMinutes=minutes;
+    applyVaultIdleTimeout();
+  } catch {
+    if(!signal.aborted){
+      renderCurrentView();
+      showToast(t('note.saveFailed'));
+    }
   }
 }
 
@@ -1131,6 +1158,7 @@ function showVaultModal(item, {editor = false, isNew = false, template = false} 
     initial: editor ? '[data-vault-title]' : '#modal-close',
   });
   document.getElementById('modal-overlay').classList.add('open');
+  applyVaultIdleTimeout();
 }
 
 async function chooseNewVaultItem() {

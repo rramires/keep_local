@@ -263,4 +263,51 @@ export async function run({browser,check,assert}) {
       assert.equal(await p.eval("(await(await import('./js/db.js')).readVault()).notes.length"),0);
     }finally{await p.close();}
   });
+
+  await check('E5 the section and vault details use the local idle period without aging other views',async()=>{
+    const clock=`(()=>{
+      let now=Date.now();
+      Date.now=()=>now;
+      window.advanceVaultClock=ms=>{now+=ms;window.dispatchEvent(new Event('focus'));};
+    })()`;
+    const p=await browser.page(undefined,clock);
+    const advance=ms=>p.eval(`advanceVaultClock(${ms})`);
+    const select=async value=>{
+      await p.eval(`const lock=document.querySelector('[data-vault-lock]');lock.value='${value}';lock.dispatchEvent(new Event('change',{bubbles:true}));`);
+      await p.until(`(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===${value})`);
+    };
+    try{
+      await create(p);
+      const item=vaultFixture();
+      await p.eval(`await(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      await openVaultSection(p);
+      await p.until("!!document.querySelector('[data-vault-lock]')",2500);
+      assert.equal(await p.eval("document.querySelector('[data-vault-lock]').value"),'');
+      await select(2);
+      await advance(60001);
+      assert.equal(await p.eval("!!document.querySelector('.vault-section')"),true);
+      await p.eval("document.querySelector('[data-view=notes]').click()");
+      await advance(240000);
+      assert.equal(await p.eval("!!document.querySelector('.app-view')"),true);
+      await openVaultSection(p);
+      await p.eval("document.querySelector('[data-vault-open]').click();document.querySelector('[data-vault-edit]').click()");
+      await p.until("document.activeElement.matches('[data-vault-title]')");
+      await p.eval("const field=document.querySelector('[data-vault-title]');field.value='Fictitious uncommitted draft';field.dispatchEvent(new Event('input',{bubbles:true}));advanceVaultClock(120001)");
+      await p.until("!!document.querySelector('#login-form:not(.hidden)')");
+      await unlock(p);
+      await openVaultSection(p);
+      assert.equal(await p.eval("(await import('./js/app.js')).getNotes()[0].title"),item.title);
+      assert.equal(await p.eval("document.querySelector('[data-vault-lock]').value"),'2');
+      await select(1);
+      await p.eval("document.querySelector('[data-vault-action=trash]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('[data-vault-open]')");
+      await p.eval("document.querySelector('[data-vault-open]').click()");
+      await p.until("!!document.querySelector('.vault-detail')");
+      await advance(60001);
+      await p.until("!!document.querySelector('#login-form:not(.hidden)')");
+      assert.deepEqual(p.errors,[]);
+    }finally{await p.close();}
+  });
 }

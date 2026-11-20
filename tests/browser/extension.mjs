@@ -1376,6 +1376,44 @@ export async function run({check,assert}) {
     }finally{await browser.close();}
   });
 
+  await check('E5 idle preference stays out of exports and folder copies and cannot write in read-only mode',async()=>{
+    const {folderFixtureSource}=await import('./folder-fixture.mjs');
+    const {readFolderFixture}=await import('./folder-transfer.mjs');
+    const {decodeV2}=await import('../../js/backup-v2.js');
+    const browser=await harness.launchExtension();
+    const primary='keeplocal-vault.keeplocal';
+    try{
+      const p=await browser.page(undefined,folderFixtureSource('KL-TEST-LOCAL-VAULT-IDLE'));
+      await harness.create(p);
+      await harness.add(p,'Fictitious folder entry','Fictitious note');
+      await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
+      await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      const before=await readFolderFixture(p,primary);
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await p.until("!!document.querySelector('[data-vault-lock]')",2500);
+      await p.eval("const lock=document.querySelector('[data-vault-lock]');lock.value='1';lock.dispatchEvent(new Event('change',{bubbles:true}))");
+      await p.until("(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===1)");
+      await p.eval("window.dispatchEvent(new Event('focus'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
+      assert.equal(await readFolderFixture(p,primary),before);
+      const exportBytes=await captureFolderBackup(p);
+      for(const bytes of [before,exportBytes]){
+        const {payload}=await decodeV2(Buffer.from(bytes,'base64'),harness.PASSWORD);
+        assert.ok(Object.keys(payload.preferences).every(name=>['theme','lang'].includes(name)));
+      }
+      await p.reload();await p.eval("folderTest.permission='denied'");await submitExtensionLogin(p);
+      await p.until("!!document.querySelector('[data-folder-action=openReadOnly]')");
+      await p.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+      await p.until("!!document.querySelector('.folder-banner')");
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await p.until("document.querySelector('[data-vault-lock]')?.disabled===true");
+      await p.eval("const lock=document.querySelector('[data-vault-lock]');lock.value='2';lock.dispatchEvent(new Event('change',{bubbles:true}))");
+      assert.equal(await p.eval("(await import('./js/db.js')).getMeta('vaultLockMinutes')"),1);
+      assert.deepEqual(await p.eval('folderTest.writes'),{});
+      assert.equal(await p.eval('folderTest.writeAttempts'),0);
+    }finally{await browser.close();}
+  });
+
   await check('G4 localized folder indicators and unload warnings follow verified writes',async()=>{
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {writeFolderFixture}=await import('./folder-transfer.mjs');
