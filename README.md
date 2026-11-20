@@ -107,6 +107,8 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: rotation/reset,
   cross-tab events, retention and persistence.
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI helpers.
+- `js/vault-model.js`, `js/vault-view.js`, `js/vault-editor.js`, `js/secret-ui.js`,
+  `css/vault.css`: Passwords and Keys models, lists, editor, secret controls and styles.
 - `js/folder-*.js`, `css/folder.css`: extension vault folder (handle and
   permission, read deadlines, candidates, write/verify, reconciliation,
   preservation, status and screens).

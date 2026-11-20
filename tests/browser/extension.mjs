@@ -784,9 +784,19 @@ export async function run({check,assert}) {
       assert.equal(await readFolderFixture(pb,primary),independentA);
       assert.deepEqual(await pb.eval('folderTest.writes'),{});
       assert.equal(await pb.eval("(await import('./js/db.js')).isReadOnly()"),true);
-      await pb.eval('folderTest.failPreservation=false');
+      await pb.eval(`(()=>{
+        const schedule=window.setTimeout;
+        window.toastDurations=[];
+        window.setTimeout=(callback,delay,...args)=>{
+          if(delay===5000||delay===12000)toastDurations.push(delay);
+          return schedule(callback,delay,...args);
+        };
+        folderTest.failPreservation=false;
+      })()`);
       await confirm(pb,'useFolder');
       await hasNote(pb,'Independent A');
+      await pb.until("document.querySelector('#toast-container')?.textContent.includes('Copies preserved')");
+      assert.deepEqual(await pb.eval('toastDurations'),[5000,12000]);
       assert.equal(await pb.eval('folderTest.writeAttempts'),0);
 
       await pa.eval("const picker=document.querySelector('.folder-review select');picker.value='keeplocal-vault (1).keeplocal';picker.dispatchEvent(new Event('change'))");

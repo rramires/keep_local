@@ -108,6 +108,8 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,
   comunicação entre abas, retenção e persistência.
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: utilitários da UI.
+- `js/vault-model.js`, `js/vault-view.js`, `js/vault-editor.js`, `js/secret-ui.js`,
+  `css/vault.css`: Modelos de dados, lista, editor, controles de segredos e estilos de Senhas e Chaves.
 - `js/folder-*.js`, `css/folder.css`: pasta do cofre da extensão (handle e
   permissão, prazos de leitura, candidatos, gravação/conferência, reconciliação,
   preservação, estado e telas).

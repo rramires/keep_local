@@ -223,7 +223,7 @@ async function configureFolderSync({admit=false,selected}={}) {
           const {preserved,replacedEmptyMain}=await sync.resolve(review,choice,name);
           await showApp();
           if(!signal.aborted){
-            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}));
+            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}),undefined,undefined,12000);
             if(replacedEmptyMain)showToast(t('folder.emptyMainReplaced'));
           }
         },
@@ -2228,7 +2228,7 @@ function initTaskDragDrop(note) {
 
 // --- Toast ---
 
-function showToast(message, actionText, onAction) {
+function showToast(message, actionText, onAction, duration=5000) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
@@ -2251,7 +2251,7 @@ function showToast(message, actionText, onAction) {
   scope.later(() => {
     toast.classList.add('toast-out');
     scope.later(() => toast.remove(), 200);
-  }, 5000);
+  }, duration);
 }
 
 // --- Confirm Dialog ---
