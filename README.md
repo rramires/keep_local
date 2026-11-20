@@ -126,6 +126,13 @@ The standalone recovery reader implements this contract independently. Open
 the HTML file directly in Chrome or Edge to read a backup offline.
 [Open the recovery reader](recovery/keeplocal-recovery.html).
 
+The reader displays unrecognized color names as plain text and ignores extra
+properties on notes, tasks and vault blocks. For an unrecognized note type it
+shows the title and a newer-format warning. For an unrecognized vault block it
+shows only the warning in place of the block. Known vault fields stay masked
+until explicitly revealed. Records with invalid field types are reported as
+unreadable. The app applies strict validation when importing a backup.
+
 New exports use `.keeplocal`, MIME `application/octet-stream`, without magic,
 plaintext app/version identifiers, JSON headers or KDF parameters:
 

@@ -454,6 +454,99 @@ export async function run({ browser, check, assert }) {
     });
   });
 
+  await check('H1.5 future colors and fields recover safely while unknown content stays out of the DOM', async () => {
+    const futureColor = '<future-tone>';
+    const field = {
+      kind: 'field', id: crypto.randomUUID(), label: 'Safe field label', secret: false,
+      value: 'FICTITIOUS-H15-MASKED', futureFlag: 'FICTITIOUS-H15-EXTRA-BLOCK',
+    };
+    const task = {
+      id: crypto.randomUUID(), text: 'Safe task text', done: false, parentId: null, order: 0,
+      extra: 'FICTITIOUS-H15-EXTRA-TASK',
+    };
+    const fixtures = [
+      note({ title: 'Future color', color: futureColor, extra: 'FICTITIOUS-H15-EXTRA-NOTE' }),
+      note({ title: 'Checklist with extra keys', type: 'todo', tasks: [task] }),
+      note({
+        title: 'Vault with a future block', type: 'vault', content: 'FICTITIOUS-H15-EXTRA-VAULT-CONTENT',
+        blocks: [field, {
+          kind: 'FICTITIOUS-H15-KIND', id: crypto.randomUUID(),
+          label: 'FICTITIOUS-H15-BLOCK-LABEL', value: 'FICTITIOUS-H15-BLOCK-VALUE',
+        }],
+      }),
+      note({
+        title: 'Future note type', type: 'FICTITIOUS-H15-TYPE',
+        content: 'FICTITIOUS-H15-NOTE-CONTENT', labels: ['FICTITIOUS-H15-NOTE-LABEL'],
+        blocks: [{ ...field, label: 'FICTITIOUS-H15-NOTE-BLOCK' }],
+      }),
+    ];
+    const malformed = [
+      note({ title: 42 }),
+      note({ color: ['default'] }),
+      note({ type: { name: 'text' } }),
+      note({ type: 'vault', blocks: [{ ...field, kind: null }] }),
+      note({ type: 'vault', blocks: [{ ...field, value: false }] }),
+    ];
+    const { bytes } = await backupFixture([...fixtures, ...malformed]);
+
+    await withRecovery(browser, async ({ page, directory, url }) => {
+      const path = join(directory, 'future-notes.keeplocal');
+      await writeFile(path, bytes);
+      await selectFile(page, path);
+      await submit(page, PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+
+      const readTitles = () => page.eval(`[...document.querySelectorAll('#notes .note-title')].map(node => node.textContent)`);
+      const scan = async () => assert.equal(await page.eval(`[document.documentElement.textContent, document.documentElement.outerHTML,
+        document.body.innerText].some(value => value.includes('FICTITIOUS-H15-'))`), false);
+      for (const [locale, colorLabel, warning, unreadable] of [
+        ['en', 'Color', 'Newer format than this tool supports.', 'Unreadable record'],
+        ['pt-BR', 'Cor', 'Formato mais novo que esta ferramenta.', 'Registro ilegível'],
+      ]) {
+        await setLanguage(page, locale);
+        assert.deepEqual(await readTitles(), fixtures.map(item => item.title));
+        assert.equal(await page.eval("document.querySelector('[data-stat=unreadableCount] dd').textContent"), String(malformed.length));
+        assert.deepEqual(await page.eval(`[...document.querySelectorAll('.unreadable')].map(node => node.textContent)`),
+          malformed.map(item => unreadable + ' · ' + item.id));
+        await scan();
+
+        await page.eval("for (const card of document.querySelectorAll('#notes details')) card.open = true");
+        await page.until("document.querySelectorAll('.note-body').length === 3");
+        assert.deepEqual(await page.eval(`[...document.querySelectorAll('#notes .notice')].map(node => node.textContent)`),
+          [warning, warning]);
+        assert.equal(await page.eval(`[...document.querySelectorAll('#notes .note-title')]
+          .find(node => node.textContent === ${JSON.stringify(fixtures[3].title)}).closest('.note').textContent`),
+          fixtures[3].title + warning);
+        assert.equal(await page.eval("document.querySelector('.note-meta span:last-child').textContent"), colorLabel + ': ' + futureColor);
+        assert.equal(await page.eval("document.querySelector('.note-content').textContent"), fixtures[0].content);
+        assert.equal(await page.eval("document.querySelector('.task').textContent"), '[ ] ' + task.text);
+        assert.deepEqual(await page.eval(`[...document.querySelectorAll('.field-label, .field-value')].map(node => node.textContent)`),
+          [field.label, '••••••••']);
+        assert.equal(await page.eval("document.querySelectorAll('#notes button').length"), 2);
+        await scan();
+
+        for (const [term, expected] of [
+          [fixtures[3].title, [fixtures[3].title]],
+          [field.label, [fixtures[2].title]],
+          ['H15-MASKED', []],
+          ['H15-BLOCK-LABEL', []],
+          ['H15-NOTE-LABEL', []],
+          ['', fixtures.map(item => item.title)],
+        ]) {
+          await page.eval(`(() => {
+            const filter = document.querySelector('#filter');
+            filter.value = ${JSON.stringify(term)};
+            filter.dispatchEvent(new Event('input'));
+          })()`);
+          assert.deepEqual(await readTitles(), expected);
+          await scan();
+        }
+      }
+      assert.deepEqual(page.errors, []);
+      assert.ok(page.requests.every(request => request === url));
+    });
+  });
+
   await check('H1.2 the standalone interface handles drag and drop, languages and the loopback HTTP reader', async () => {
     const expected = JSON.parse(await readFile(EXPECTED, 'utf8'));
     await withRecovery(browser, async ({ page, directory }) => {

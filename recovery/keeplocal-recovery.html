@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Y5DeljjGe7fNJR7CmrDvoSyhO0PG+GjWETB3b9CJdNU='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9FIAH5HDFL/568WRZrVyeXti1/Rk30Qd3Q4gDuVwRKw='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -180,6 +180,7 @@
       filter: 'Filter notes',
       empty: 'No matching notes.',
       unreadable: 'Unreadable record',
+      newerFormat: 'Newer format than this tool supports.',
       text: 'Text',
       todo: 'Checklist',
       vault: 'Passwords & Keys',
@@ -222,6 +223,7 @@
       filter: 'Filtrar notas',
       empty: 'Nenhuma nota correspondente.',
       unreadable: 'Registro ilegível',
+      newerFormat: 'Formato mais novo que esta ferramenta.',
       text: 'Texto',
       todo: 'Lista de tarefas',
       vault: 'Senhas e Chaves',
@@ -435,40 +437,44 @@
     return tasks.every(task => task.parentId === null || ids.get(task.parentId)?.parentId === null);
   }
 
-  function validBlocks(blocks) {
-    if (!Array.isArray(blocks) || blocks.length > 200) return false;
+  function readableBlocks(blocks) {
+    if (!Array.isArray(blocks) || blocks.length > 200) return null;
+    const readable = [];
     const ids = new Set();
     const flags = ['secret', 'multiline', 'primary'];
     for (const block of blocks) {
-      if (!isObject(block) || !isId(block.id)) return false;
+      if (!isObject(block) || !isId(block.id) || typeof block.kind !== 'string') return null;
       const id = block.id.toLowerCase();
-      if (ids.has(id)) return false;
+      if (ids.has(id)) return null;
       ids.add(id);
-      const allowed = ['id', 'kind'];
       if (block.kind === 'field') {
-        allowed.push('label', 'value', ...flags);
         if (!isString(block.label, 200) || !isString(block.value, 65_536) ||
-            flags.some(flag => Object.hasOwn(block, flag) && typeof block[flag] !== 'boolean')) return false;
+            flags.some(flag => Object.hasOwn(block, flag) && typeof block[flag] !== 'boolean')) return null;
+        readable.push({ kind: 'field', label: block.label, value: block.value });
       } else if (block.kind === 'text') {
-        allowed.push('value');
-        if (!isString(block.value, 65_536)) return false;
-      } else if (block.kind !== 'divider') {
-        return false;
+        if (!isString(block.value, 65_536)) return null;
+        readable.push({ kind: 'text', value: block.value });
+      } else {
+        readable.push({ kind: block.kind === 'divider' ? 'divider' : null });
       }
-      if (Object.keys(block).some(key => !allowed.includes(key))) return false;
     }
-    return true;
+    return readable;
   }
 
-  function validNote(note, record) {
+  function readableNote(note, record) {
     if (!isObject(note) || note.id !== record.id || note.updatedAt !== record.updatedAt ||
-        !isString(note.title, 4096) || typeof note.pinned !== 'boolean' || !COLORS.has(note.color) ||
+        !isString(note.title, 4096) || typeof note.type !== 'string' ||
+        typeof note.pinned !== 'boolean' || typeof note.color !== 'string' ||
         !Array.isArray(note.labels) || note.labels.length > 100 || !note.labels.every(label => isString(label, 200)) ||
         !isTime(note.createdAt) || !Number.isSafeInteger(note.order) ||
-        !isOptionalTime(note.deletedAt) || !isOptionalTime(note.archivedAt)) return false;
-    if (note.type === 'text') return isString(note.content, MAX_NOTE_BYTES);
-    if (note.type === 'todo') return validTasks(note.tasks);
-    return note.type === 'vault' && !Object.hasOwn(note, 'content') && !Object.hasOwn(note, 'tasks') && validBlocks(note.blocks);
+        !isOptionalTime(note.deletedAt) || !isOptionalTime(note.archivedAt)) return null;
+    if (note.type === 'text') return isString(note.content, MAX_NOTE_BYTES) ? note : null;
+    if (note.type === 'todo') return validTasks(note.tasks) ? note : null;
+    if (note.type === 'vault') {
+      const blocks = readableBlocks(note.blocks);
+      return blocks ? { ...note, blocks } : null;
+    }
+    return { id: note.id, title: note.title, type: null };
   }
 
   // Internal records share the derived key and were sealed without additional data.
@@ -478,8 +484,7 @@
       const iv = decodeBase64(record.iv, 12);
       const ciphertext = decodeBase64(record.ciphertext, 16, MAX_NOTE_BYTES + 16);
       const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, ciphertext);
-      const note = JSON.parse(decoder.decode(plaintext));
-      return validNote(note, record) ? note : null;
+      return readableNote(JSON.parse(decoder.decode(plaintext)), record);
     } catch {
       return null;
     }
@@ -512,7 +517,9 @@
     if (!term) return true;
     const contains = value => searchable(value).includes(term);
     if (!note) return Boolean(id && contains(id));
-    if (contains(note.title) || note.labels.some(contains)) return true;
+    if (contains(note.title)) return true;
+    if (note.type === null) return false;
+    if (note.labels.some(contains)) return true;
     if (note.type === 'text') return contains(note.content);
     if (note.type === 'todo') return note.tasks.some(task => contains(task.text));
     return note.blocks.some(block => block.kind === 'field' && contains(block.label));
@@ -540,7 +547,7 @@
         body.append(element('hr', undefined, 'vault-divider'));
       } else if (block.kind === 'text') {
         body.append(element('p', block.value, 'vault-text'));
-      } else {
+      } else if (block.kind === 'field') {
         const group = element('div', undefined, 'vault-field');
         const output = element('p', MASK, 'field-value');
         const controls = element('div', undefined, 'actions');
@@ -550,20 +557,28 @@
         controls.append(show, button('copy', () => void copyField(block.value)));
         group.append(element('div', block.label || t('field'), 'field-label'), output, controls);
         body.append(group);
+      } else {
+        body.append(element('p', t('newerFormat'), 'notice'));
       }
     }
   }
 
   function renderEntry({ note, id }) {
     if (!note) return element('p', t('unreadable') + ' · ' + (id ?? '—'), 'note unreadable');
+    const title = element('span', note.title || t('untitled'), 'note-title');
+    if (note.type === null) {
+      const card = element('article', undefined, 'note');
+      card.append(title, element('p', t('newerFormat'), 'notice'));
+      return card;
+    }
     const card = element('details', undefined, 'note');
     const summary = element('summary');
-    summary.append(element('span', note.title || t('untitled'), 'note-title'));
+    summary.append(title);
     const meta = element('div', undefined, 'note-meta');
     meta.append(element('span', t(note.type)));
     if (note.labels.length) meta.append(element('span', t('tags') + ': ' + note.labels.join(', ')));
     const color = [...COLORS].indexOf(note.color);
-    meta.append(element('span', t('color') + ': ' + t('colors')[color]));
+    meta.append(element('span', t('color') + ': ' + (t('colors')[color] ?? note.color)));
     if (note.deletedAt !== null) meta.append(element('span', t('trash')));
     if (note.archivedAt !== null) meta.append(element('span', t('archived')));
     card.append(summary, meta);

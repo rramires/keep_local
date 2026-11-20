@@ -123,6 +123,14 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 
 ## Formato binário do backup e recuperação
 
+A [ferramenta de recuperação](recovery/keeplocal-recovery.html) abre cópias
+offline no Chrome ou Edge. Ela exibe cores desconhecidas como texto e ignora
+chaves adicionais em notas, tarefas e blocos do cofre. Para um tipo de nota
+desconhecido, exibe o título e um aviso de formato mais novo. Para um bloco
+desconhecido, exibe só o aviso no lugar do bloco. Os campos conhecidos do cofre
+ficam mascarados até serem revelados. Registros com campos de tipo inválido
+aparecem como ilegíveis. O app aplica validação estrita ao importar um backup.
+
 Exportações novas usam `.keeplocal`: `[salt 16 bytes][iv 12 bytes][ciphertext+tag]`,
 sem magic, app, versão, parâmetros KDF ou cabeçalho JSON em claro. O perfil 2
 (único atual, tentado primeiro) usa PBKDF2-HMAC-SHA-256, 600000 iterações, senha
@@ -245,9 +253,8 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
-Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha, abrir
-outra pasta para recuperação e ferramenta de recuperação independente não estão
-implementados.
+Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha e abrir
+outra pasta para recuperação ainda aguardam implementação.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).
