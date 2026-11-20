@@ -190,4 +190,77 @@ export async function run({browser,check,assert}) {
       assert.deepEqual(p.errors,[]);
     }finally{await p.close();}
   });
+
+  await check('E4 undo restores a deleted secret through the queue and clears history across editors and lock',async()=>{
+    const p=await browser.page();
+    const secret='FICTITIOUS-history-sentinel-6021';
+    const item=vaultFixture({blocks:[{id:crypto.randomUUID(),kind:'field',label:'Password',value:secret}]});
+    const edit=async()=>{
+      await p.eval("document.querySelector('[data-vault-open]').click();document.querySelector('[data-vault-edit]').click()");
+      await p.until("document.activeElement.matches('[data-vault-title]')");
+    };
+    const undo=()=>p.eval("document.querySelector('[data-vault-undo]').disabled");
+    try{
+      await create(p);
+      await p.eval(`await(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      await openVaultSection(p);
+      await edit();
+      await p.until("!!document.querySelector('[data-vault-undo]')",2500);
+      assert.equal(await undo(),true);
+      await p.eval("document.querySelector('[data-vault-remove]').click()");
+      assert.equal(await undo(),false);
+      assert.equal(await p.eval("document.querySelectorAll('.vault-block').length"),0);
+      await p.eval("document.querySelector('#modal-close').focus()");
+      await pressVaultKey(p,'z','KeyZ',90,2);
+      await p.until("document.querySelectorAll('.vault-block').length===1");
+      assert.equal(await p.eval("document.querySelector('[data-vault-value]').value"),'');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      const stored=await p.eval(`(async()=>{
+        const a=await import('./js/app.js'),d=await import('./js/db.js'),f=await import('./js/backup-format.js');
+        const {notes,meta}=await d.readVault();
+        return {value:(await f.decryptRecords(notes,a.getCryptoKey()))[0].blocks[0].value,storage:JSON.stringify([meta,Object.entries(localStorage),Object.entries(sessionStorage)])};
+      })()`);
+      assert.equal(stored.value,secret);
+      assert.ok(!stored.storage.includes(secret));
+      await edit();
+      assert.equal(await undo(),true);
+      await fillVaultInput(p,'[data-vault-title]','Fictitious typing intermediate');
+      await fillVaultInput(p,'[data-vault-title]','Fictitious typing final');
+      assert.equal(await undo(),true);
+      await p.eval("document.querySelector('#modal-close').focus()");
+      assert.equal(await undo(),false);
+      await p.eval("document.querySelector('[data-vault-undo]').click()");
+      assert.equal(await p.eval("document.querySelector('[data-vault-title]').value"),item.title);
+      await pressVaultKey(p,'Y','KeyY',89,2);
+      assert.equal(await p.eval("document.querySelector('[data-vault-title]').value"),'Fictitious typing final');
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await unlock(p);
+      await openVaultSection(p);
+      await edit();
+      assert.equal(await undo(),true);
+      assert.equal(await p.eval("document.querySelector('[data-vault-redo]').disabled"),true);
+      assert.equal(await p.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(secret)})`),false);
+      assert.deepEqual(p.errors,[]);
+    }finally{await p.close();}
+  });
+
+  await check('E4 applying a preset is one reversible structural change',async()=>{
+    const p=await browser.page();
+    try{
+      await create(p);
+      await openVaultSection(p);
+      await chooseVaultTemplate(p,'ssh');
+      await p.until("!!document.querySelector('[data-vault-undo]')",2500);
+      await p.eval("document.querySelector('[data-vault-undo]').click()");
+      assert.equal(await p.eval("document.querySelectorAll('[data-vault-block]').length"),1);
+      assert.equal(await p.eval("document.querySelector('[data-vault-label]').value"),'');
+      await p.eval("document.querySelector('[data-vault-redo]').click()");
+      assert.equal(await p.eval("document.querySelectorAll('[data-vault-block]').length"),5);
+      assert.equal(await p.eval("document.querySelector('[data-vault-block] textarea')?.tagName"),'TEXTAREA');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      assert.equal(await p.eval("(await(await import('./js/db.js')).readVault()).notes.length"),0);
+    }finally{await p.close();}
+  });
 }

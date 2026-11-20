@@ -1106,7 +1106,7 @@ async function openNoteModal(note) {
   return note;
 }
 
-function showVaultModal(item, {editor = false, isNew = false} = {}) {
+function showVaultModal(item, {editor = false, isNew = false, template = false} = {}) {
   const modal = document.getElementById('modal-card');
   const controller = new AbortController();
   modalController = controller;
@@ -1114,7 +1114,7 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
   const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`) || document.getElementById('vault-new-item');
   if (editor) {
     activeEdit = renderVaultEditor(modal, item, {
-      signal, isNew, onClose: closeModal,
+      signal, isNew, template, onClose: closeModal,
       onSave: draft => saveFromUI(draft, {mergeDraft:false}),
       onDirty: dirty => setDraftDirty('editor',dirty),
       onPin: draft => changeFromUI(draft, next => { next.pinned = !next.pinned; }),
@@ -1140,12 +1140,12 @@ async function chooseNewVaultItem() {
   const selected=await choiceDialog(t('vault.templatePrompt'),choices,{title:t('vault.new'),signal});
   if(!selected||signal.aborted)return;
   const item=newVaultItem(Math.min(0,...notes.map(note=>note.order))-1,createVaultTemplate(selected));
-  await openVaultEditor(item,true);
+  await openVaultEditor(item,true,selected!=='blank');
 }
 
-async function openVaultEditor(item, isNew = false) {
+async function openVaultEditor(item, isNew = false, template = false) {
   if (!await closeModal() || !cryptoKey) return;
-  showVaultModal(item, {editor:true, isNew});
+  showVaultModal(item, {editor:true, isNew, template});
 }
 
 function openTextModal(note) {

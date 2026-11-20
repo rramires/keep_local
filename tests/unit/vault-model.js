@@ -173,3 +173,23 @@ test('E3 sampling rejects the nonuniform tail and shuffle consumes bounded unifo
   assert.equal(value,'12345670');
   assert.equal(draws,16);
 });
+
+test('E4 vault history keeps 50 steps, truncates redo and clears private snapshots',async()=>{
+  const {createVaultHistory}=await import('../../js/vault-history.js');
+  const initial={title:'0',blocks:[field({label:'Password',value:'fictional-history'})]};
+  const history=createVaultHistory(initial);
+  for(let index=1;index<=51;index++)history.record({...initial,title:String(index)});
+  let count=0,last;
+  while(history.canUndo()){last=history.undo();count++;}
+  assert.equal(count,50);
+  assert.equal(last.title,'1');
+  last.blocks[0].value='mutated';
+  assert.equal(history.redo().blocks[0].value,'fictional-history');
+  history.record({...initial,title:'branch',pinned:true});
+  assert.equal(history.canRedo(),false);
+  assert.ok(!Object.hasOwn(history.undo(),'pinned'));
+  history.clear();
+  assert.equal(history.canUndo(),false);
+  assert.equal(history.canRedo(),false);
+  assert.equal(history.undo(),null);
+});

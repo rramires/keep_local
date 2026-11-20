@@ -112,6 +112,7 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
   `css/vault.css`: Modelos de dados, lista, editor, controles de segredos e estilos de Senhas e Chaves.
 - `js/vault-templates.js`: modelos prontos e criação de blocos traduzidos.
 - `js/password-generator.js`, `js/vault-generator.js`: geração de senhas e controles do editor.
+- `js/vault-history.js`: desfazer e refazer em memória no editor de senhas.
 - `js/folder-*.js`, `css/folder.css`: pasta do cofre da extensão (handle e
   permissão, prazos de leitura, candidatos, gravação/conferência, reconciliação,
   preservação, estado e telas).
