@@ -62,3 +62,8 @@
 .dialog-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
 
 .vault-primary-indicator { margin-inline-start: .4em; color: var(--accent-color); }
+
+.vault-generator { border: 1px solid var(--input-border); border-radius: var(--border-radius); padding: 12px; gap: 10px; min-width: 0; }
+.vault-generator-options { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.vault-generator-option { display: inline-flex; align-items: center; gap: 6px; }
+.vault-generator .form-error:empty { display: none; }

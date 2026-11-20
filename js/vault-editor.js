@@ -4,6 +4,7 @@ import {t} from './i18n.js';
 import {element, vaultButton} from './vault-view.js';
 import {isSecretField, toggleVaultPrimary, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
 import {SECRET_MASK} from './secret-ui.js';
+import {renderVaultGenerator} from './vault-generator.js';
 
 function privateInput(tag, label, maxLength) {
   const input = element(tag);
@@ -35,6 +36,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
   let draft = structuredClone(item);
   const preset = new Map(isNew?item.blocks.map(block=>[block.id,block]):[]);
   const secretCleanups = new Set();
+  let openGenerator=null;
   const panel = element('section', 'panel-form vault-editor');
   panel.setAttribute('translate', 'no');
   const header = element('header', 'panel-header');
@@ -145,6 +147,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     let revealing = false;
     let reveal;
     let toggleSecret;
+    let generate;
 
     function syncValue() {
       const current = get();
@@ -158,6 +161,8 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
         toggleSecret.textContent = (secret ? '🔒 ' : '🔓 ') + t('vault.secret');
         toggleSecret.setAttribute('aria-pressed', String(secret));
         reveal.hidden = !secret;
+        generate.hidden = !secret;
+        if(!secret&&row.contains(openGenerator))closeGenerator();
         reveal.textContent = t(revealing ? 'vault.hide' : 'vault.reveal');
         reveal.setAttribute('aria-pressed', String(revealing));
       }
@@ -214,7 +219,27 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
       primary.textContent=block.primary?'★':'☆';
       primary.setAttribute('aria-label',t('vault.primary'));
       primary.setAttribute('aria-pressed',String(!!block.primary));
-      controls.prepend(toggleSecret, multiline, primary, reveal);
+      generate=vaultButton(t('vault.generate'),()=>{
+        closeGenerator();
+        const view=renderVaultGenerator({
+          signal,
+          needsConfirmation:()=>!!get()?.value,
+          onFill:generated=>{
+            if(!isSecretField(get())||!patch(current=>{current.value=generated;}))return false;
+            closeGenerator();
+            revealing=false;
+            value.focus();
+            syncValue();
+            return true;
+          },
+          onCancel:()=>{closeGenerator();generate.focus();},
+        });
+        openGenerator=view.form;
+        row.append(openGenerator);
+        view.focus();
+      });
+      generate.dataset.vaultGenerate='';
+      controls.prepend(toggleSecret, multiline, primary, reveal, generate);
       row.append(fieldLabel);
       secretCleanups.add(scrubValue);
       value.addEventListener('focus', syncValue);
@@ -232,7 +257,13 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     return row;
   }
 
+  function closeGenerator() {
+    openGenerator?.remove();
+    openGenerator=null;
+  }
+
   function drawBlocks() {
+    closeGenerator();
     scrubSecrets();
     secretCleanups.clear();
     blocks.replaceChildren(...draft.blocks.map(renderBlock));
@@ -275,6 +306,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     ...session, id:item.id, mask,
     applyFields(fields) { Object.assign(draft, fields); syncPin(); },
     cleanup() {
+      closeGenerator();
       scrubSecrets();
       for (const input of panel.querySelectorAll('input,textarea')) input.value = '';
       preset.clear();

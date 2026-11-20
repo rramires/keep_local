@@ -1,4 +1,4 @@
-import {create} from './harness.mjs';
+import {create,unlock} from './harness.mjs';
 import {fillVaultInput,mockVaultTimers,vaultFixture} from './vault-core.mjs';
 
 export async function pressVaultKey(page,key,code,number,modifiers=0) {
@@ -139,6 +139,54 @@ export async function run({browser,check,assert}) {
       await p.eval("document.querySelector('[data-view=trash]').click()");
       await p.until("!!document.querySelector('.vault-card')");
       assert.equal(await p.eval("document.querySelectorAll('[data-vault-quick-copy]').length"),0);
+      assert.deepEqual(p.errors,[]);
+    }finally{await p.close();}
+  });
+
+  await check('E3 the generator fills a masked field, confirms replacement and keeps options session-local',async()=>{
+    const p=await browser.page();
+    const value='[data-vault-block=field]:last-child [data-vault-value]';
+    const open=async()=>{
+      await p.eval("document.querySelector('[data-vault-open]').click();document.querySelector('[data-vault-edit]').click()");
+      await p.until("!!document.querySelector('.vault-editor')");
+    };
+    try{
+      await create(p);
+      await openVaultSection(p);
+      await chooseVaultTemplate(p,'api');
+      await fillVaultInput(p,'[data-vault-title]','Fictitious generated credential');
+      await p.eval("document.querySelector('[data-vault-block=field]:last-child [data-vault-generate]')?.click()");
+      await p.until("!!document.querySelector('[data-vault-generator]')",2500);
+      assert.equal(await p.eval("document.querySelector('[data-generator-length]').value"),'24');
+      await p.eval("document.querySelector('[data-generator-length]').value='28';document.querySelector('[data-generator-option=avoidSimilar]').checked=true;document.querySelector('[data-generator-submit]').click()");
+      await p.until("!document.querySelector('[data-vault-generator]')");
+      const generated=await p.eval(`document.querySelector(${JSON.stringify(value)}).value`);
+      assert.equal(generated.length,28);
+      assert.doesNotMatch(generated,/[0Oo1lI|]/);
+      for(const group of [/[A-Z]/,/[a-z]/,/[0-9]/,/[^A-Za-z0-9]/])assert.match(generated,group);
+      assert.equal(await p.eval(`document.activeElement===document.querySelector(${JSON.stringify(value)})&&document.activeElement.classList.contains('vault-edit-secret')`),true);
+      assert.equal(await p.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(generated)})||document.documentElement.innerText.includes(${JSON.stringify(generated)})`),false);
+      await p.eval("document.querySelector('[data-vault-block=field]:last-child [data-vault-generate]').click()");
+      assert.equal(await p.eval("document.querySelector('[data-generator-length]').value"),'28');
+      await p.eval("document.querySelector('[data-generator-submit]').click()");
+      await p.until("!!document.querySelector('.app-dialog [data-dialog-action=cancel]')");
+      await p.eval("document.querySelector('.app-dialog [data-dialog-action=cancel]').click();document.querySelector('[data-generator-cancel]').click()");
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      const persisted=await p.eval(`(async()=>{
+        const a=await import('./js/app.js'),d=await import('./js/db.js'),f=await import('./js/backup-format.js');
+        const {notes,meta}=await d.readVault();
+        return {value:(await f.decryptRecords(notes,a.getCryptoKey()))[0].blocks.at(-1).value,meta};
+      })()`);
+      assert.equal(persisted.value,generated);
+      assert.ok(!JSON.stringify(persisted.meta).includes(generated));
+      assert.ok(!Object.keys(persisted.meta).some(key=>/generator/i.test(key)));
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await unlock(p);
+      await openVaultSection(p);
+      await open();
+      await p.eval("document.querySelector('[data-vault-block=field]:last-child [data-vault-generate]').click()");
+      assert.equal(await p.eval("document.querySelector('[data-generator-length]').value"),'24');
       assert.deepEqual(p.errors,[]);
     }finally{await p.close();}
   });

@@ -110,6 +110,7 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `js/vault-model.js`, `js/vault-view.js`, `js/vault-editor.js`, `js/secret-ui.js`,
   `css/vault.css`: Passwords and Keys models, lists, editor, secret controls and styles.
 - `js/vault-templates.js`: templates and translated block creation.
+- `js/password-generator.js`, `js/vault-generator.js`: password generation and editor controls.
 - `js/folder-*.js`, `css/folder.css`: extension vault folder (handle and
   permission, read deadlines, candidates, write/verify, reconciliation,
   preservation, status and screens).

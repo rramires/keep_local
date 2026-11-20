@@ -135,3 +135,41 @@ test('E2 principal fields use their own secrecy class and legacy order',async()=
   toggleVaultPrimary(blocks,blocks[0].id);
   assert.equal(principalField(blocks,true),blocks[3]);
 });
+
+test('E3 generated passwords enforce limits, chosen classes and similar-character exclusions',async()=>{
+  const {generatePassword}=await import('../../js/password-generator.js');
+  for(const length of [7,129,8.5,'24',NaN])assert.throws(()=>generatePassword({length}),RangeError);
+  assert.throws(()=>generatePassword({upper:false,lower:false,digits:false,symbols:false}),RangeError);
+  assert.equal(generatePassword().length,24);
+  for(const options of [null,42,[],{upper:'true'}])assert.throws(()=>generatePassword(options),TypeError);
+  const symbols='!#$%&()*+,-./:;<=>?@[]^_{|}~';
+  for(const length of [8,128]){
+    const value=generatePassword({length,avoidSimilar:true});
+    assert.equal(value.length,length);
+    for(const group of [/[A-Z]/,/[a-z]/,/[0-9]/])assert.match(value,group);
+    assert.ok([...value].some(c=>symbols.includes(c)));
+    assert.ok([...value].every(c=>/[a-z0-9]/i.test(c)||symbols.includes(c)));
+    assert.doesNotMatch(value,/[0Oo1lI|]/);
+  }
+  assert.match(generatePassword({upper:false,lower:false,symbols:false}),/^\d{24}$/);
+});
+
+test('E3 sampling rejects the nonuniform tail and shuffle consumes bounded uniform draws',async()=>{
+  const {uniformIndex,generatePassword}=await import('../../js/password-generator.js');
+  let cursor=0;
+  const walk=bytes=>{assert.equal(bytes.constructor,Uint8Array);bytes[0]=cursor++%256;return bytes;};
+  for(const size of [3,26,90,128]){
+    cursor=0;
+    const counts=Array(size).fill(0),usable=256-(256%size);
+    for(let i=0;i<usable;i++)counts[uniformIndex(size,walk)]++;
+    assert.deepEqual(counts,Array(size).fill(usable/size));
+    assert.equal(uniformIndex(size,walk),0);
+    assert.equal(cursor,257);
+  }
+  let draws=0;
+  const bytes=[0,1,2,3,4,5,6,7,0,255,0,0,0,0,0,0];
+  const sequence=target=>{assert.ok(draws<bytes.length);target[0]=bytes[draws++];return target;};
+  const value=generatePassword({length:8,upper:false,lower:false,symbols:false},sequence);
+  assert.equal(value,'12345670');
+  assert.equal(draws,16);
+});
