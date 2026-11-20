@@ -93,8 +93,10 @@ export async function fillVaultInput(p,selector,value) {
 
 const testSentinel=()=> 'SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
 
-async function makeVaultScanner(browser,p,assert,values) {
-  const markers=values.flatMap(value=>[value,value.slice(13,21)]).map(value=>value.toLowerCase());
+export async function makeVaultScanner(browser,p,assert,values) {
+  const markers=[];
+  const watch=value=>markers.push(value.toLowerCase(),value.slice(13,21).toLowerCase());
+  for(const value of values)watch(value);
   const alerts=[];
   const listener=message=>{
     if(['Runtime.consoleAPICalled','Runtime.exceptionThrown','Log.entryAdded'].includes(message.method)) {
@@ -146,6 +148,7 @@ async function makeVaultScanner(browser,p,assert,values) {
         local:Object.entries(localStorage),
         session:Object.entries(sessionStorage),
         meta:await db.getAllMetaRecords(),
+        records:await db.getAllNoteRecords(),
         console:window.vaultConsoleEntries,
       };
       return Object.entries(channels).filter(([,value])=>{
@@ -158,7 +161,7 @@ async function makeVaultScanner(browser,p,assert,values) {
     assert.deepEqual(readout,[],label);
   };
   return {
-    scan,
+    scan,watch,
     dispose() { browser.cdp.listeners.splice(browser.cdp.listeners.indexOf(listener),1); },
   };
 }

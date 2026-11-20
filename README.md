@@ -179,6 +179,25 @@ imported payload's exact hash as the next parent. Manual exports and vault-folde
 writes share this lineage, so gaps in `rev` are normal. Manual import performs no
 merge or rollback protection.
 
+## Passwords & Keys
+
+- **New item** offers a blank item and templates for servers, databases, API keys,
+  SSH, web logins and Cloudflare R2 / S3. Template labels use the current language.
+  Add content or edit the labels before saving an item.
+- Use the editor's stars to pick one primary field for each class, public or
+  secret. Cards use the primary public value as their subtitle and offer quick
+  copy for each class. KeepLocal attempts to clear the clipboard after 20 seconds.
+  Clipboard history and cross-device sync may retain copied values.
+- **Generate** in a secret field offers 24 characters by default, adjustable
+  from 8 to 128. Select character classes and optionally exclude similar
+  characters. Replacing a populated field requires confirmation.
+- The editor supports 50 in-memory undo steps. Use the buttons or Ctrl/Cmd+Z
+  and Ctrl/Cmd+Shift+Z where the cursor is outside a text field. Text fields use
+  browser undo. Closing the editor or locking clears the history.
+- **Section lock** can use the five-minute default, two minutes or one minute
+  of inactivity while this section or a vault item is open. The preference
+  stays on this browser and the five-minute default applies elsewhere.
+
 ## Vault folder (extension only)
 
 Only the extension (`chrome-extension://`) offers a vault folder; the HTTP app

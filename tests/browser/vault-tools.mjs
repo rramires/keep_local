@@ -1,5 +1,5 @@
 import {create,unlock} from './harness.mjs';
-import {fillVaultInput,mockVaultTimers,vaultFixture} from './vault-core.mjs';
+import {fillVaultInput,makeVaultScanner,mockVaultTimers,vaultFixture} from './vault-core.mjs';
 
 export async function pressVaultKey(page,key,code,number,modifiers=0) {
   const event={key,code,windowsVirtualKeyCode:number,modifiers};
@@ -309,5 +309,64 @@ export async function run({browser,check,assert}) {
       await p.until("!!document.querySelector('#login-form:not(.hidden)')");
       assert.deepEqual(p.errors,[]);
     }finally{await p.close();}
+  });
+
+  await check('E6 new vault tools keep secrets out of DOM, search, toasts, logs and unencrypted storage',async()=>{
+    const p=await browser.page();
+    const sentinel='SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
+    const scanner=await makeVaultScanner(browser,p,assert,[sentinel]);
+    const keyRow='.vault-block:nth-child(4)',passRow='.vault-block:nth-child(5)';
+    try{
+      await create(p);
+      await openVaultSection(p);
+      await p.eval("document.querySelector('#vault-new-item').click()");
+      await p.until("!!document.querySelector('[data-dialog-choice=ssh]')");
+      await scanner.scan('template dialog');
+      await p.eval("document.querySelector('[data-dialog-choice=ssh]').click()");
+      await fillVaultInput(p,'[data-vault-title]','Fictitious SSH tool test');
+      await fillVaultInput(p,keyRow+' [data-vault-value]',sentinel);
+      await scanner.scan('private key in its focused field only',{selector:keyRow+' [data-vault-value]',property:'value'});
+      await p.eval(`document.querySelector('${keyRow} [data-vault-primary]').click()`);
+      await scanner.scan('star redraw scrubs the input');
+      await p.eval(`document.querySelector('${passRow} [data-vault-generate]').click()`);
+      await scanner.scan('generator panel');
+      await p.eval("document.querySelector('[data-generator-submit]').click()");
+      await p.until("!document.querySelector('[data-vault-generator]')");
+      const generated=await p.eval(`document.querySelector('${passRow} [data-vault-value]').value`);
+      assert.equal(generated.length,24);
+      scanner.watch(generated);
+      await scanner.scan('generated value in its focused field only',{selector:passRow+' [data-vault-value]',property:'value'});
+      await p.eval(`document.querySelector('${keyRow} [data-vault-remove]').click();document.querySelector('[data-vault-undo]').click()`);
+      assert.equal(await p.eval("document.querySelectorAll('.vault-block').length"),5);
+      await scanner.scan('undo restores masked private key');
+      await p.eval("document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')&&!!document.querySelector('.vault-card')");
+      await scanner.scan('card and quick copy controls');
+      await mockVaultTimers(p);
+      await p.eval(`(()=>{
+        window.toolClipboard=[];
+        Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>toolClipboard.push(value)}});
+        document.hasFocus=()=>true;
+        document.querySelector('[data-vault-quick-copy=secret]').click();
+      })()`);
+      await p.until(`toolClipboard.at(-1)===${JSON.stringify(sentinel)}&&vaultTimers.has(20000)`);
+      await scanner.scan('quick copy toast');
+      await p.eval("vaultTimers.fire(20000)");
+      await p.until("toolClipboard.at(-1)===''");
+      for(const query of [sentinel,generated]){
+        await p.eval(`const search=document.querySelector('#search-input');search.value=${JSON.stringify(query)};search.dispatchEvent(new Event('input',{bubbles:true}))`);
+        await p.until("document.querySelector('.vault-section')?.dataset.vaultSearchActive==='true'&&!document.querySelector('.vault-card')");
+        await scanner.scan('secret search settles without results or leaked query');
+        await p.eval("document.querySelector('#search-clear').click()");
+        await p.until("!!document.querySelector('.vault-card')");
+      }
+      await p.eval("const lock=document.querySelector('[data-vault-lock]');lock.value='1';lock.dispatchEvent(new Event('change',{bubbles:true}));");
+      await p.until("(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===1)");
+      await scanner.scan('idle preference and encrypted records');
+      await p.eval("document.querySelector('#lock-btn').click()");
+      await p.until("!!document.querySelector('#login-form:not(.hidden)')");
+      await scanner.scan('locked screen');
+      assert.deepEqual(p.errors,[]);
+    }finally{scanner.dispose();await p.close();}
   });
 }
