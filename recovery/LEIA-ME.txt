@@ -19,9 +19,10 @@ mestra separadamente do pen-drive.
    a pasta descompactada que contém manifest.json.
    O ID fixo da extensão é dplgmdpgehkbgphaimafofojbjhlkphm
 
-   Alternativa: abra um terminal na pasta descompactada, execute
+   Se o Python estiver instalado, abra um terminal na pasta
+   descompactada e execute este comando.
    python3 -m http.server --bind 127.0.0.1 8000
-   e abra http://127.0.0.1:8000 no navegador.
+   Em seguida, abra http://127.0.0.1:8000 no navegador.
 
 3. Voltar a usar
    Importe o .keeplocal pelo app. Na extensão, também é possível
@@ -51,9 +52,10 @@ separate from the drive.
    contains manifest.json.
    The fixed extension ID is dplgmdpgehkbgphaimafofojbjhlkphm
 
-   Alternatively, open a terminal in the unzipped folder, run
+   If Python is installed, open a terminal in the unzipped folder
+   and run this command.
    python3 -m http.server --bind 127.0.0.1 8000
-   and open http://127.0.0.1:8000 in the browser.
+   Then open http://127.0.0.1:8000 in the browser.
 
 3. Resume use
    Import the .keeplocal file in the app. In the extension, you can
