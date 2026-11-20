@@ -102,3 +102,18 @@ test('D1.1 field privacy defaults to secret and honors explicit overrides',()=>{
   assert.equal(isSecretField(field({label:'Host',secret:true})),true);
   assert.equal(isSecretField({kind:'text',label:'Senha'}),false);
 });
+
+test('E1 vault templates use valid fresh blocks and infer secrecy',async()=>{
+  const {createVaultTemplate,VAULT_TEMPLATE_IDS}=await import('../../js/vault-templates.js');
+  const {validVaultBlocks,isSecretField}=await import('../../js/vault-model.js');
+  const {UUID}=await import('../../js/note-model.js');
+  for(const id of VAULT_TEMPLATE_IDS){
+    const first=createVaultTemplate(id),second=createVaultTemplate(id);
+    assert.ok(validVaultBlocks(first,UUID));
+    assert.deepEqual(first.map(({id,...block})=>block),second.map(({id,...block})=>block));
+    assert.equal(new Set([...first,...second].map(block=>block.id)).size,first.length+second.length);
+    assert.ok(first.every(block=>!Object.hasOwn(block,'secret')));
+  }
+  assert.equal(createVaultTemplate('ssh').find(block=>block.multiline).label,'Private key');
+  assert.ok(isSecretField(createVaultTemplate('ssh').find(block=>block.multiline)));
+});

@@ -22,10 +22,10 @@ function newBlock(kind) {
   return base;
 }
 
-export function newVaultItem(order) {
+export function newVaultItem(order,blocks=[newBlock('field')]) {
   const now = Date.now();
   return {
-    id:crypto.randomUUID(), type:'vault', title:'', blocks:[newBlock('field')],
+    id:crypto.randomUUID(), type:'vault', title:'', blocks,
     color:'default', pinned:false, labels:[], createdAt:now, updatedAt:now,
     deletedAt:null, archivedAt:null, order,
   };
@@ -33,6 +33,7 @@ export function newVaultItem(order) {
 
 export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, onDirty, onPin}) {
   let draft = structuredClone(item);
+  const preset = new Map(isNew?item.blocks.map(block=>[block.id,block]):[]);
   const secretCleanups = new Set();
   const panel = element('section', 'panel-form vault-editor');
   panel.setAttribute('translate', 'no');
@@ -58,10 +59,15 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     capture, onDirty,
     save: async snapshot => {
       if (isNew && !snapshot.title.trim() &&
-          !snapshot.blocks.some(block => block.value || block.label?.trim())) return true;
+          !snapshot.blocks.some(block => {
+            const initial=preset.get(block.id);
+            return (block.value&&block.value!==initial?.value) ||
+              (block.label?.trim()&&block.label.trim()!==initial?.label?.trim());
+          })) return true;
       const saved = await onSave(snapshot);
       if (saved && !signal.aborted) {
         isNew = false;
+        preset.clear();
         syncPin();
       }
       return saved;
@@ -261,6 +267,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     cleanup() {
       scrubSecrets();
       for (const input of panel.querySelectorAll('input,textarea')) input.value = '';
+      preset.clear();
       draft.blocks = [];
       draft.title = '';
       secretCleanups.clear();

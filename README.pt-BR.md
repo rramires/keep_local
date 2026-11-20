@@ -110,6 +110,7 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: utilitários da UI.
 - `js/vault-model.js`, `js/vault-view.js`, `js/vault-editor.js`, `js/secret-ui.js`,
   `css/vault.css`: Modelos de dados, lista, editor, controles de segredos e estilos de Senhas e Chaves.
+- `js/vault-templates.js`: modelos prontos e criação de blocos traduzidos.
 - `js/folder-*.js`, `css/folder.css`: pasta do cofre da extensão (handle e
   permissão, prazos de leitura, candidatos, gravação/conferência, reconciliação,
   preservação, estado e telas).

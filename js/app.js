@@ -1,8 +1,9 @@
+import {createVaultTemplate,VAULT_TEMPLATE_IDS} from './vault-templates.js';
 import {newVaultItem, renderVaultEditor} from './vault-editor.js';
 import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
 import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
-import {confirmDialog,closeDialogs} from './dialogs.js';
+import {choiceDialog,confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
@@ -644,7 +645,7 @@ function renderCurrentView() {
         query: vaultSearch,
         selectedLabel: vaultLabel, onLabel: label => { vaultLabel=label; renderCurrentView(); },
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
-        onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
+        onNew: chooseNewVaultItem,
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
       });
       break;
@@ -1129,6 +1130,16 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
     initial: editor ? '[data-vault-title]' : '#modal-close',
   });
   document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function chooseNewVaultItem() {
+  if(isReadOnly())return;
+  const signal=scope.signal;
+  const choices=VAULT_TEMPLATE_IDS.map(value=>({value,label:t('vault.template.'+value)}));
+  const selected=await choiceDialog(t('vault.templatePrompt'),choices,{title:t('vault.new'),signal});
+  if(!selected||signal.aborted)return;
+  const item=newVaultItem(Math.min(0,...notes.map(note=>note.order))-1,createVaultTemplate(selected));
+  await openVaultEditor(item,true);
 }
 
 async function openVaultEditor(item, isNew = false) {
