@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-DSB6S9aOsEEERJ2hfOMbFp74ITQic++JUwCTIyjLmr8='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-zM7uYxb7UXI88eAk93kw0JG27CG6Wsou0XZZ2cI01RQ='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -254,6 +254,7 @@
   let file = null;
   let archive = null;
   let generation = 0;
+  let pendingPassword = null;
   let opening = false;
   let error = null;
   let revealed = null;
@@ -358,12 +359,13 @@
   }
 
   // Independent profile 2 reader. File bytes never select the cost or the AAD shape.
-  async function openEnvelope(bytes, passwordBytes) {
+  async function openEnvelope(bytes, passwordBytes, startedIn) {
     const salt = bytes.subarray(0, 16);
     const iv = bytes.subarray(16, 28);
     const ciphertext = bytes.subarray(28);
     const material = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, ['deriveKey']);
     passwordBytes.fill(0);
+    if (generation !== startedIn) return null;
 
     for (const profile of PROFILES) {
       if (!Number.isSafeInteger(profile.iterations) || profile.iterations < 600_000 || profile.iterations > 5_000_000) continue;
@@ -371,6 +373,7 @@
         { name: 'PBKDF2', salt, iterations: profile.iterations, hash: 'SHA-256' },
         material, { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
       );
+      if (generation !== startedIn) return null;
       const aad = new Uint8Array(29);
       aad[0] = profile.id;
       aad.set(salt, 1);
@@ -379,6 +382,7 @@
         const plaintext = await crypto.subtle.decrypt(
           { name: 'AES-GCM', iv, tagLength: 128, additionalData: aad }, key, ciphertext,
         );
+        if (generation !== startedIn) return null;
         const payload = JSON.parse(decoder.decode(plaintext));
         if (isPayload(payload, profile)) return { payload, key };
       } catch {
@@ -488,6 +492,7 @@
     for (const record of payload.notes) {
       if (generation !== startedIn) return null;
       const note = seen.has(record?.id) ? null : await readRecord(record, key);
+      if (generation !== startedIn) return null;
       if (note) seen.add(note.id);
       else unreadable++;
       entries.push({ id: isId(record?.id) ? record.id : null, note });
@@ -613,6 +618,8 @@
 
   function reset() {
     generation++;
+    pendingPassword?.fill(0);
+    pendingPassword = null;
     opening = false;
     hideField();
     archive = file = error = null;
@@ -642,6 +649,7 @@
 
     const startedIn = ++generation;
     const password = encoder.encode(passwordInput.value);
+    pendingPassword = password;
     passwordInput.value = '';
     opening = true;
     error = null;
@@ -649,7 +657,9 @@
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (generation !== startedIn) return;
-      const opened = await readNotes(await openEnvelope(bytes, password), startedIn);
+      const envelope = await openEnvelope(bytes, password, startedIn);
+      if (!envelope) return;
+      const opened = await readNotes(envelope, startedIn);
       if (generation !== startedIn) return;
       archive = opened;
       renderResults();
@@ -660,6 +670,7 @@
       if (generation === startedIn) error = 'badBackup';
     } finally {
       password.fill(0);
+      if (pendingPassword === password) pendingPassword = null;
       if (generation === startedIn) {
         opening = false;
         refreshForm();

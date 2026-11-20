@@ -1,8 +1,13 @@
-import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ROOT } from './harness.mjs';
+import { createHash } from 'node:crypto';
+import { ROOT, PASSWORD, create, add, launchExtension, note } from './harness.mjs';
+import { backupFixture } from './backup-fixture.mjs';
+import { folderFixtureSource } from './folder-fixture.mjs';
+import { readFolderFixture } from './folder-transfer.mjs';
+import { submitExtensionLogin } from './extension.mjs';
 
 const GOLDEN_PASSWORD = 'Fictitious Rescue Cafe\u0301 42! 🔑';
 const GOLDEN = join(ROOT, 'tests/fixtures/profile2-golden.keeplocal');
@@ -47,6 +52,85 @@ async function openGolden(page, directory) {
   return path;
 }
 
+const instrumentFilePage = `(() => {
+  if (location.protocol !== 'file:') return;
+  Object.defineProperty(navigator, 'language', { value: 'en-US' });
+  window.fixtureClipboard = [];
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => fixtureClipboard.push(text) } });
+  window.fixtureDeriveCalls = 0;
+  const derive = crypto.subtle.deriveKey.bind(crypto.subtle);
+  crypto.subtle.deriveKey = (...args) => {
+    fixtureDeriveCalls++;
+    return derive(...args);
+  };
+
+  const set = setTimeout.bind(window), clear = clearTimeout.bind(window);
+  const pending = new Map();
+  let next = -1;
+  window.setTimeout = (callback, delay, ...args) => {
+    if (delay !== 15000 && delay !== 20000) return set(callback, delay, ...args);
+    const id = next--;
+    pending.set(id, { delay, fire: () => callback(...args) });
+    return id;
+  };
+  window.clearTimeout = id => id < 0 ? pending.delete(id) : clear(id);
+  window.fixtureTimers = {
+    has: delay => [...pending.values()].some(timer => timer.delay === delay),
+    fire(delay) {
+      const entry = [...pending].find(([, timer]) => timer.delay === delay);
+      if (!entry) throw new Error('Expected timer');
+      pending.delete(entry[0]);
+      entry[1].fire();
+    },
+  };
+
+  window.browserWrites = [];
+  function watch(object, method) {
+    const original = object[method];
+    object[method] = function (...args) {
+      browserWrites.push(method);
+      return original.apply(this, args);
+    };
+  }
+  watch(Storage.prototype, 'setItem');
+  watch(IDBFactory.prototype, 'open');
+  watch(HTMLAnchorElement.prototype, 'click');
+  const cookie = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+  if (cookie?.configurable) Object.defineProperty(Document.prototype, 'cookie', {
+    ...cookie,
+    set(value) { browserWrites.push('cookie'); cookie.set.call(this, value); },
+  });
+})()`;
+
+async function expectClosed(page, assert) {
+  assert.deepEqual(await page.eval(`[
+    document.querySelector('#results').hidden,
+    document.querySelector('#unlock').hidden,
+    document.querySelector('#notes').childElementCount,
+    document.querySelector('#summary').childElementCount,
+    document.querySelector('#password').value,
+    document.querySelector('#filter').value,
+    document.querySelector('#backup-file').files.length,
+    document.querySelector('#file-name').textContent,
+  ]`), [true, false, 0, 0, '', '', 0, '']);
+}
+
+async function assertReadsCopy({ browser, assert, name, base64, title, content }) {
+  await withRecovery(browser, async ({ page, directory, url }) => {
+    const path = join(directory, name);
+    await writeFile(path, Buffer.from(base64, 'base64'));
+    await selectFile(page, path);
+    await submit(page, PASSWORD);
+    await page.until("!document.querySelector('#results').hidden");
+    assert.equal(await page.eval("document.querySelector('.note-title').textContent"), title);
+    await page.eval("document.querySelector('#notes details').open = true");
+    await page.until("!!document.querySelector('.note-content')");
+    assert.equal(await page.eval("document.querySelector('.note-content').textContent"), content);
+    assert.deepEqual(page.errors, []);
+    assert.ok(page.requests.every(request => request === url), page.requests.join('\n'));
+  });
+}
+
 export async function run({ browser, check, assert }) {
   await check('H1.1 standalone file opens the golden backup and renders plaintext safely', async () => {
     await withRecovery(browser, async ({ page, directory, url }) => {
@@ -63,4 +147,291 @@ export async function run({ browser, check, assert }) {
       assert.deepEqual(page.errors, []);
     });
   });
+  await check('H1.2 file lifecycle cancels an in-flight decrypt after pagehide', async () => {
+    const hold = `(() => {
+      if (location.protocol !== 'file:') return;
+      window.cryptoCalls = { derive: 0, decrypt: 0 };
+      const derive = crypto.subtle.deriveKey.bind(crypto.subtle);
+      const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+      crypto.subtle.deriveKey = (...args) => {
+        cryptoCalls.derive++;
+        return new Promise(resolve => {
+          window.resumeDerive = () => derive(...args).then(resolve);
+        });
+      };
+      crypto.subtle.decrypt = (...args) => { cryptoCalls.decrypt++; return decrypt(...args); };
+    })()`;
+    await withRecovery(browser, async ({ page, directory }) => {
+      const path = join(directory, 'paused.keeplocal');
+      await copyFile(GOLDEN, path);
+      await selectFile(page, path);
+      await submit(page, GOLDEN_PASSWORD);
+      await page.until("typeof resumeDerive === 'function'");
+      assert.deepEqual(await page.eval(`[
+        document.querySelector('#open-backup').disabled,
+        !document.querySelector('#progress').hidden,
+        document.querySelector('#password').value
+      ]`), [true, true, '']);
+      await page.eval(`(async () => {
+        window.dispatchEvent(new PageTransitionEvent('pagehide'));
+        await resumeDerive();
+        // The derive promise resumes the tool before the next browser task.
+        await new Promise(resolve => setTimeout(resolve, 0));
+      })()`);
+      assert.deepEqual(await page.eval('cryptoCalls'), { derive: 1, decrypt: 0 });
+      await expectClosed(page, assert);
+    }, hold);
+  });
+
+  await check('H1.2 golden contents, safe filter, one-field reveal and clipboard cleanup', async () => {
+    const expected = JSON.parse(await readFile(EXPECTED, 'utf8'));
+    const fields = expected.find(note => note.type === 'vault').blocks.filter(block => block.kind === 'field');
+    await withRecovery(browser, async ({ page, directory, url }) => {
+      const path = await openGolden(page, directory);
+      const beforeHash = createHash('sha256').update(await readFile(path)).digest('hex');
+      await page.eval(`for (const details of document.querySelectorAll('#notes details')) details.open = true`);
+      await page.until("document.querySelectorAll('.note-body').length === 5");
+      const view = await page.eval(`[...document.querySelectorAll('#notes details')].map(note => ({
+        title: note.querySelector('.note-title').textContent,
+        metadata: [...note.querySelectorAll('.note-meta span')].map(span => span.textContent),
+        text: note.querySelector('.note-content')?.textContent ?? null,
+        tasks: [...note.querySelectorAll('.task')].map(task => [task.textContent, task.classList.contains('subtask')]),
+        fields: [...note.querySelectorAll('.field-label')].map(label => label.textContent),
+        vaultText: note.querySelector('.vault-text')?.textContent ?? null,
+        dividers: note.querySelectorAll('.vault-divider').length,
+      }))`);
+      assert.deepEqual(view.map(note => note.title), expected.map(note => note.title));
+      assert.equal(view[0].text, expected[0].content);
+      assert.deepEqual(view[1].tasks, expected[1].tasks.map(task => [
+        (task.done ? '[x] ' : '[ ] ') + task.text, task.parentId !== null,
+      ]));
+      assert.deepEqual(view[2].fields, fields.map(block => block.label));
+      assert.equal(view[2].vaultText, expected[2].blocks.find(block => block.kind === 'text').value);
+      assert.equal(view[2].dividers, 1);
+      assert.deepEqual(view[0].metadata, ['Text', 'Labels: viagem, pessoal', 'Color: Mint']);
+      assert.deepEqual(view[2].metadata, ['Passwords & Keys', 'Labels: fictício', 'Color: Coral']);
+      assert.ok(view[3].metadata.includes('Trash'));
+      assert.ok(view[4].metadata.includes('Archived'));
+      assert.deepEqual(await page.eval(`[...document.querySelectorAll('#summary dd')].map(node => node.textContent)`),
+        ['1', '2026-01-02T03:04:05.000Z', '5', '0']);
+
+      const scan = async expectedIndex => {
+        const masks = fields.map((block, index) => index === expectedIndex ? block.value : '••••••••');
+        assert.deepEqual(await page.eval(`[...document.querySelectorAll('.field-value')].map(field => field.textContent)`), masks);
+        const channels = await page.eval(`(() => {
+          const values = ${JSON.stringify(fields.map(block => block.value))};
+          const attrs = [...document.querySelectorAll('*')].flatMap(node => [...node.attributes].map(attr => attr.value));
+          return values.map(value => ({
+            dom: document.documentElement.textContent.includes(value),
+            html: document.documentElement.outerHTML.includes(value),
+            visible: document.body.innerText.includes(value),
+            attr: attrs.some(attr => attr.includes(value)),
+          }));
+        })()`);
+        for (const [index, channel] of channels.entries()) {
+          const visible = index === expectedIndex;
+          assert.deepEqual(channel, { dom: visible, html: visible, visible, attr: false });
+        }
+      };
+      const press = (index, button) => page.eval(`document.querySelectorAll('.vault-field')[${index}].querySelectorAll('button')[${button}].click()`);
+      await scan(-1);
+      await press(0, 0);
+      await scan(0);
+      await press(1, 0);
+      await scan(1);
+      assert.equal(await page.eval('fixtureTimers.has(15000)'), true);
+      await page.eval('fixtureTimers.fire(15000)');
+      await scan(-1);
+      await press(2, 0);
+      await scan(2);
+      await page.eval("window.dispatchEvent(new Event('blur'))");
+      await scan(-1);
+      await press(1, 0);
+      await page.eval("document.querySelector('#filter').focus()");
+      await scan(-1);
+      await press(1, 1);
+      await page.until('fixtureTimers.has(20000)');
+      assert.equal(await page.eval('fixtureClipboard.length'), 1);
+      assert.equal(await page.eval(`fixtureClipboard[0] === ${JSON.stringify(fields[1].value)}`), true);
+      await page.eval('fixtureTimers.fire(20000)');
+      await page.until("fixtureClipboard.length === 2 && fixtureClipboard.at(-1) === ''");
+      await scan(-1);
+
+      const applyFilter = query => page.eval(`(() => {
+        const input = document.querySelector('#filter');
+        input.value = ${JSON.stringify(query)};
+        input.dispatchEvent(new Event('input'));
+        return [...document.querySelectorAll('.note-title')].map(node => node.textContent);
+      })()`);
+      for (const block of fields) assert.deepEqual(await applyFilter(block.value), []);
+      for (const [query, title] of [
+        ['cafe', expected[0].title], ['viagem', expected[0].title], ['PLANO FICTICIO', expected[0].title],
+        ['Subtarefa com acao', expected[1].title], ['Chave de teste', expected[2].title],
+      ]) assert.deepEqual(await applyFilter(query), [title]);
+      await applyFilter('');
+      await page.eval(`document.querySelectorAll('#notes details')[2].open = true`);
+      await page.until("!!document.querySelector('.field-value')");
+      await press(1, 0);
+      await scan(1);
+      await page.eval("document.querySelector('#close-backup').click()");
+      await expectClosed(page, assert);
+      assert.deepEqual(await page.eval(`(async () => ({
+        local: Object.keys(localStorage), session: Object.keys(sessionStorage),
+        databases: await indexedDB.databases(), cookie: document.cookie,
+        writes: browserWrites,
+      }))()`), { local: [], session: [], databases: [], cookie: '', writes: [] });
+      assert.equal(createHash('sha256').update(await readFile(path)).digest('hex'), beforeHash);
+      assert.deepEqual(page.errors, []);
+      assert.ok(page.requests.every(request => request === url), page.requests.join('\n'));
+      assert.equal(await page.eval("document.querySelectorAll('a[download]').length"), 0);
+    }, instrumentFilePage);
+  });
+
+  await check('H1.2 manual HTTP export opens in the detached file reader', async () => {
+    const spa = await browser.page();
+    const title = 'Cópia do aplicativo 🧪';
+    const content = 'Maçã, ação e maré 🚀';
+    let base64;
+    try {
+      await create(spa);
+      await add(spa, title, content);
+      base64 = await spa.eval(`(async () => {
+        let snapshot;
+        URL.createObjectURL = blob => { snapshot = blob; return 'blob:fixture'; };
+        URL.revokeObjectURL = () => {};
+        HTMLAnchorElement.prototype.click = () => {};
+        await (await import('./js/backup.js')).exportBackup();
+        return new Uint8Array(await snapshot.arrayBuffer()).toBase64();
+      })()`);
+    } finally { await spa.close(); }
+    await assertReadsCopy({ browser, assert, base64, name: 'manual.keeplocal', title, content });
+  });
+
+  await check('H1.2 extension OPFS writes open in the detached file reader', async () => {
+    const extension = await launchExtension();
+    assert.ok(extension);
+    const title = 'Cópia da extensão 🧪';
+    const content = 'Conteúdo gravado na pasta fictícia ✅';
+    const name = 'keeplocal-vault.keeplocal';
+    let base64;
+    try {
+      const page = await extension.page(undefined, folderFixtureSource('KL-TEST-RECOVERY-H1'));
+      await create(page);
+      await add(page, title, content);
+      await page.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
+      await page.reload();
+      await page.eval("folderTest.permission = 'granted'");
+      await submitExtensionLogin(page);
+      await page.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev => rev > 0)");
+      base64 = await readFolderFixture(page, name);
+      assert.deepEqual(page.errors, []);
+    } finally { await extension.close(); }
+    await assertReadsCopy({ browser, assert, base64, name, title, content });
+  });
+
+  await check('H1.2 wrong passphrase, truncation and a changed byte share one error; oversized files never derive', async () => {
+    await withRecovery(browser, async ({ page, directory }) => {
+      const golden = await readFile(GOLDEN);
+      const altered = Buffer.from(golden);
+      altered[altered.length - 1] ^= 1;
+      const errors = [];
+      for (const [name, bytes, passphrase] of [
+        ['wrong', golden, 'Fictitious wrong passphrase!'],
+        ['short', golden.subarray(0, 30), GOLDEN_PASSWORD],
+        ['truncated', golden.subarray(0, -1), GOLDEN_PASSWORD],
+        ['tampered', altered, GOLDEN_PASSWORD],
+      ]) {
+        const path = join(directory, name + '.keeplocal');
+        await writeFile(path, bytes);
+        await selectFile(page, path);
+        await submit(page, passphrase);
+        await page.until("!document.querySelector('#error').hidden && !document.querySelector('#open-backup').disabled");
+        errors.push(await page.eval("document.querySelector('#error').textContent"));
+        assert.deepEqual(await page.eval(`[document.querySelector('#results').hidden,
+          document.querySelector('#notes').childElementCount, document.querySelector('#password').value]`), [true, 0, '']);
+      }
+      assert.equal(new Set(errors).size, 1);
+      assert.match(errors[0], /passphrase.*damaged/);
+      assert.equal(await page.eval('fixtureDeriveCalls'), 3);
+
+      const oversized = join(directory, 'oversized.keeplocal');
+      await writeFile(oversized, '');
+      await truncate(oversized, 64 * 1024 * 1024 + 1);
+      await selectFile(page, oversized);
+      await submit(page, GOLDEN_PASSWORD);
+      assert.match(await page.eval("document.querySelector('#error:not([hidden])').textContent"), /64 MiB/);
+      assert.equal(await page.eval('fixtureDeriveCalls'), 3);
+      assert.equal(await page.eval("document.querySelector('#results').hidden"), true);
+      assert.deepEqual(page.errors, []);
+    }, instrumentFilePage);
+  });
+
+  await check('H1.2 a damaged inner record and invalid manifest do not block the other notes', async () => {
+    const fixtures = [
+      note({ title: 'Preserved fictitious Á' }),
+      note({ title: 'Damaged fictitious B' }),
+      note({ title: 'Preserved fictitious C' }),
+    ];
+    const { payload, seal } = await backupFixture(fixtures);
+    const record = payload.notes[1];
+    const invalidBytes = Buffer.from(record.ciphertext, 'base64');
+    invalidBytes[invalidBytes.length - 1] ^= 1;
+    const sealed = await seal({
+      ...payload,
+      notes: [payload.notes[0], { ...record, ciphertext: invalidBytes.toString('base64') }, payload.notes[2]],
+      manifest: { count: 3, ids: payload.manifest.ids.toReversed() },
+    });
+    await withRecovery(browser, async ({ page, directory }) => {
+      const path = join(directory, 'partial.keeplocal');
+      await writeFile(path, Buffer.from(sealed, 'base64'));
+      await selectFile(page, path);
+      await submit(page, PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.deepEqual(await page.eval(`[...document.querySelectorAll('.note-title')].map(node => node.textContent)`),
+        [fixtures[0].title, fixtures[2].title]);
+      assert.equal(await page.eval("document.querySelector('.unreadable').textContent"), 'Unreadable record · ' + record.id);
+      assert.equal(await page.eval("document.querySelector('[data-stat=unreadableCount] dd').textContent"), '1');
+      assert.equal(await page.eval("document.querySelector('#manifest-warning').hidden"), false);
+      await page.eval("window.dispatchEvent(new PageTransitionEvent('pagehide'))");
+      await expectClosed(page, assert);
+      assert.deepEqual(page.errors, []);
+    });
+  });
+
+  await check('H1.2 the standalone interface handles drag and drop, languages and the loopback HTTP reader', async () => {
+    const expected = JSON.parse(await readFile(EXPECTED, 'utf8'));
+    await withRecovery(browser, async ({ page, directory }) => {
+      const path = join(directory, 'drop.keeplocal');
+      await copyFile(GOLDEN, path);
+      await selectFile(page, path);
+      await page.eval(`(() => {
+        const file = document.querySelector('#backup-file').files[0];
+        const files = new DataTransfer();
+        files.items.add(file);
+        document.querySelector('#drop-zone').dispatchEvent(new DragEvent('drop', { dataTransfer: files, bubbles: true, cancelable: true }));
+        const language = document.querySelector('#language');
+        language.value = 'pt-BR';
+        language.dispatchEvent(new Event('change'));
+      })()`);
+      assert.equal(await page.eval('document.documentElement.lang'), 'pt-BR');
+      assert.equal(await page.eval("document.querySelector('#backup-file').files.length"), 0);
+      assert.equal(await page.eval("document.querySelector('#file-name').textContent"), 'drop.keeplocal');
+      await submit(page, GOLDEN_PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.equal(await page.eval("document.querySelector('#results-title').textContent"), 'Backup aberto');
+      assert.equal(await page.eval("document.querySelector('.note-title').textContent"), expected[0].title);
+      assert.deepEqual(page.errors, []);
+
+      const url = browser.origin + '/recovery/keeplocal-recovery.html';
+      page.requests.length = 0;
+      await page.waitForNavigation(() => page.send('Page.navigate', { url }));
+      await selectFile(page, path);
+      await submit(page, GOLDEN_PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.equal(await page.eval("document.querySelector('.note-title').textContent"), expected[0].title);
+      assert.deepEqual(page.errors, []);
+      assert.ok(page.requests.every(request => request === url), page.requests.join('\n'));
+    });
+  });
+
 }
