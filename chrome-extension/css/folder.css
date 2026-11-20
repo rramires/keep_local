@@ -11,7 +11,7 @@
 .folder-task-list .folder-task-list { margin-inline-start: 22px; }
 [data-vault-read-only] :is(
   #change-password-btn, #edit-labels-btn, #empty-trash-btn, .new-note-bar,
-  .card-action, .vault-card > .vault-card-actions, #vault-new-item,
+  .card-action, .vault-card > .vault-card-actions:not(.vault-quick-copy), #vault-new-item,
   #recovery-copy, .recovery-step
 ) { display: none; }
 

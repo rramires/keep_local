@@ -687,6 +687,7 @@ function renderCurrentView() {
 
 const vaultCardActions = {
   open: openNoteModal,
+  copyField: value=>secretUI.copy(value,sessionController?.signal),
   async change(item, intent) {
     if (await changeFromUI(item, intent)) renderCurrentView();
   },

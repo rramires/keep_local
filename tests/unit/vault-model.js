@@ -117,3 +117,21 @@ test('E1 vault templates use valid fresh blocks and infer secrecy',async()=>{
   assert.equal(createVaultTemplate('ssh').find(block=>block.multiline).label,'Private key');
   assert.ok(isSecretField(createVaultTemplate('ssh').find(block=>block.multiline)));
 });
+
+test('E2 principal fields use their own secrecy class and legacy order',async()=>{
+  const {principalField,toggleVaultPrimary,vaultSubtitle}=await import('../../js/vault-model.js');
+  const blocks=[field({label:'Host',value:'first'}),field({label:'User',value:'second',primary:true}),
+    field({label:'Password',value:'redacted'}),field({label:'Token',value:'other secret',primary:true})];
+  assert.equal(principalField(blocks,false),blocks[1]);
+  assert.equal(principalField(blocks,true),blocks[3]);
+  assert.equal(vaultSubtitle({blocks}),'second');
+  toggleVaultPrimary(blocks,blocks[0].id);
+  assert.equal(blocks[1].primary,undefined);
+  assert.equal(blocks[3].primary,true);
+  blocks[0].secret=true;
+  assert.equal(principalField(blocks,true),blocks[0]);
+  assert.equal(vaultSubtitle({blocks}),'second');
+  assert.equal(principalField(blocks.slice(2,3),true),blocks[2]);
+  toggleVaultPrimary(blocks,blocks[0].id);
+  assert.equal(principalField(blocks,true),blocks[3]);
+});

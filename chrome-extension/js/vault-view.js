@@ -1,7 +1,7 @@
 import {SECRET_MASK} from './secret-ui.js';
 import {t, tp} from './i18n.js';
 import {COLORS} from './note-model.js';
-import {isSecretField, vaultMatches, vaultSubtitle} from './vault-model.js';
+import {isSecretField, principalField, vaultMatches, vaultSubtitle} from './vault-model.js';
 
 export function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -68,7 +68,7 @@ function cardLabels(item, change, labels) {
   return panel;
 }
 
-export function renderVaultCard(item, {open, change, remove, labelOptions = [], trash = false}) {
+export function renderVaultCard(item, {open, change, remove, labelOptions = [], trash = false, copyField}) {
   const card = element('article', 'vault-card');
   card.dataset.color = item.color;
   card.setAttribute('translate', 'no');
@@ -106,6 +106,17 @@ export function renderVaultCard(item, {open, change, remove, labelOptions = [], 
     const trash = vaultButton(t('card.delete'), () => change(item, next => { next.deletedAt = Date.now(); }));
     trash.dataset.vaultAction = 'trash';
     actions.append(pin, cardColor(item, change), cardLabels(item, change, labelOptions), trash);
+  }
+  if(!trash&&copyField){
+    const quick=element('div','vault-card-actions vault-quick-copy');
+    for(const [kind,secret] of [['public',false],['secret',true]]){
+      const block=principalField(item.blocks,secret);
+      if(!block)continue;
+      const button=vaultButton(t('vault.copyField',{label:block.label||t('vault.field')}),()=>copyField(block.value));
+      button.dataset.vaultQuickCopy=kind;
+      quick.append(button);
+    }
+    if(quick.childElementCount)card.append(quick);
   }
   card.append(actions);
   return card;
@@ -169,7 +180,14 @@ function readingBlock(block, {controls, signal}) {
   if (block.kind === 'text') return element('p', 'vault-text', block.value);
   const secret = isSecretField(block);
   const row = element('div', 'vault-read-field');
-  row.append(element('span', 'vault-field-label', block.label || t('vault.field')));
+  const label=element('span','vault-field-label',block.label||t('vault.field'));
+  if(block.primary){
+    const star=element('span','vault-primary-indicator','★');
+    star.setAttribute('aria-label',t('vault.primary'));
+    star.dataset.vaultPrimaryIndicator='';
+    label.append(star);
+  }
+  row.append(label);
   const style = block.multiline ? ' vault-multiline' : '';
   const value = element('span', 'vault-read-value' + style + (secret ? ' vault-secret-value' : ''), secret ? SECRET_MASK : block.value);
   row.append(value);

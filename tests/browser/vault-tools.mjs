@@ -1,5 +1,5 @@
 import {create} from './harness.mjs';
-import {fillVaultInput} from './vault-core.mjs';
+import {fillVaultInput,mockVaultTimers,vaultFixture} from './vault-core.mjs';
 
 export async function pressVaultKey(page,key,code,number,modifiers=0) {
   const event={key,code,windowsVirtualKeyCode:number,modifiers};
@@ -89,6 +89,57 @@ export async function run({browser,check,assert}) {
         })()`);
         assert.deepEqual(result,lang==='en'?expected:expected.map(fields=>fields.map(([label,secret])=>[translations[label]??label,secret])));
       }
+    }finally{await p.close();}
+  });
+
+  await check('E2 quick copy and primary stars preserve secret values outside the card DOM',async()=>{
+    const p=await browser.page();
+    const publicValue='fictitious-host.invalid', secret='FICTITIOUS-copy-sentinel-4829';
+    const blocks=[['Host',publicValue],['User','Fictitious user',true],['Password','Fictitious pass'],['Token',secret,true]]
+      .map(([label,value,primary])=>({id:crypto.randomUUID(),kind:'field',label,value,...(primary?{primary}:{})}));
+    const item=vaultFixture({blocks});
+    try{
+      await create(p);
+      await p.eval(`await(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      await openVaultSection(p);
+      await mockVaultTimers(p);
+      await p.eval(`(()=>{
+        window.quickClipboard=[];
+        Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>quickClipboard.push(value)}});
+        document.hasFocus=()=>true;
+      })()`);
+      for(const layout of ['grid','list']){
+        await p.eval(`document.querySelector('[data-vault-layout=${layout}]').click()`);
+        await p.until(`document.querySelector('.vault-cards')?.dataset.layout===${JSON.stringify(layout)}`);
+        assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-vault-quick-copy]')].map(button=>button.textContent)"),['Copy User','Copy Token']);
+        assert.ok(!(await p.eval("document.querySelector('.vault-card').outerHTML")).includes(secret));
+        assert.equal(await p.eval("document.querySelector('.vault-card-subtitle').textContent"),'Fictitious user');
+      }
+      await p.eval("document.querySelector('[data-vault-quick-copy=public]').click()");
+      await p.until("quickClipboard.at(-1)==='Fictitious user'");
+      await p.eval("document.querySelector('[data-vault-quick-copy=secret]').click()");
+      await p.until(`quickClipboard.at(-1)===${JSON.stringify(secret)}&&vaultTimers.has(20000)`);
+      await p.eval("vaultTimers.fire(20000)");
+      await p.until("quickClipboard.at(-1)===''");
+      assert.ok(!(await p.eval("document.querySelector('#toast-container').textContent")).includes(secret));
+      await p.eval("document.querySelector('[data-vault-open]').click()");
+      assert.equal(await p.eval("document.querySelectorAll('.vault-detail [data-vault-primary-indicator]').length"),2);
+      await p.eval("document.querySelector('[data-vault-edit]').click()");
+      await p.until("!!document.querySelector('.vault-editor [data-vault-primary]')");
+      await p.eval("document.querySelector('[data-vault-primary]').click()");
+      assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-vault-primary]')].map(button=>button.getAttribute('aria-pressed'))"),['true','false','false','true']);
+      await p.eval("document.querySelector('[data-vault-toggle-secret]').click();document.querySelector('#modal-close').click()");
+      await p.until("!document.querySelector('.vault-editor')");
+      const card=await p.eval("document.querySelector('.vault-card').outerHTML");
+      assert.ok(!card.includes(secret)&&!card.includes(publicValue));
+      assert.ok(card.includes('Fictitious user'));
+      assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-vault-quick-copy]')].map(button=>button.textContent)"),['Copy User','Copy Host']);
+      await p.eval("document.querySelector('[data-vault-action=trash]').click()");
+      await p.until("!document.querySelector('.vault-card')");
+      await p.eval("document.querySelector('[data-view=trash]').click()");
+      await p.until("!!document.querySelector('.vault-card')");
+      assert.equal(await p.eval("document.querySelectorAll('[data-vault-quick-copy]').length"),0);
+      assert.deepEqual(p.errors,[]);
     }finally{await p.close();}
   });
 }

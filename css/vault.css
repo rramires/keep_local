@@ -60,3 +60,5 @@
 .vault-label-filters button, .vault-card-options button { max-width: 100%; overflow-wrap: anywhere; }
 
 .dialog-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); }
+
+.vault-primary-indicator { margin-inline-start: .4em; color: var(--accent-color); }

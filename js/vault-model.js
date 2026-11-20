@@ -62,8 +62,27 @@ export function isSecretField(block) {
   return block.kind === 'field' && (block.secret ?? autoSecret(block.label));
 }
 
+export function principalField(blocks, secret) {
+  const fields=blocks.filter(block=>block.kind==='field'&&isSecretField(block)===secret);
+  return fields.find(block=>block.primary)??fields[0];
+}
+
+export function toggleVaultPrimary(blocks,id) {
+  const selected=blocks.find(block=>block.id===id&&block.kind==='field');
+  if(!selected)return;
+  if(selected.primary){
+    delete selected.primary;
+    return;
+  }
+  const secret=isSecretField(selected);
+  for(const block of blocks){
+    if(block.kind==='field'&&isSecretField(block)===secret)delete block.primary;
+  }
+  selected.primary=true;
+}
+
 export function vaultSubtitle(item) {
-  return item.blocks.find(block => block.kind === 'field' && !isSecretField(block))?.value ?? '';
+  return principalField(item.blocks,false)?.value??'';
 }
 
 export function vaultMatches(item, query) {
