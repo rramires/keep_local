@@ -128,3 +128,26 @@ unencrypted metadata and browser storage. An editor value is allowed only
 while its own input is focused. The session test advances a disposable
 browser's clock through CDP, with no change to the production clock. Run the
 complete browser suite three consecutive times at closing with CPU affinity 0–3.
+
+## Standalone recovery and emergency kit
+
+`tests/fixtures/profile2-golden.keeplocal` freezes a real profile 2 export with
+a fictional passphrase and known plaintext. The unit test checks its SHA-256
+and reads it through the app's normal import readers. The generator documents
+how it was made. To inspect the generator, run it from the repository root
+with an empty `mkdtemp` directory as its argument. Keep the committed fixture
+frozen.
+
+`tests/unit/recovery-tool.js` verifies the inline CSP hashes and the absence
+of dependencies, persistence and download paths. The browser runner copies
+the standalone HTML and encrypted inputs to a temporary directory and selects
+them through CDP, including outputs captured from the HTTP app and the
+extension's OPFS folder. In disposable profiles, the suite checks failed
+authentication, the pre-KDF size limit, partial recovery, masked output,
+filtering, clipboard timers, pagehide and absence of network or stored data.
+The clipboard stub observes writes without accessing the system clipboard.
+
+The build places the HTML, bilingual guide and SHA-256 manifest beside the ZIP.
+The build test checks their exact bytes and excludes them from the ZIP. Run
+the full gate with CPU affinity 0–3 and four unit-test workers. At closing,
+run the browser suite three consecutive times.
