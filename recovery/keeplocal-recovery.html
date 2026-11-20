@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-DSB6S9aOsEEERJ2hfOMbFp74ITQic++JUwCTIyjLmr8='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="color-scheme" content="light dark">
+<title>KeepLocal · Recovery</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f3ee;
+    --surface: #fffdf9;
+    --ink: #202825;
+    --muted: #4d5b55;
+    --line: #aebbb2;
+    --accent: #125e4a;
+    --on-accent: #fff;
+    --notice: #f7efdb;
+    --notice-ink: #573b0d;
+    --error: #f9e6e5;
+    --error-ink: #841d2b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #131c18;
+      --surface: #1e2923;
+      --ink: #e6eee9;
+      --muted: #b4c5ba;
+      --line: #53675b;
+      --accent: #91e2c4;
+      --on-accent: #112e24;
+      --notice: #372e1d;
+      --notice-ink: #f0daa6;
+      --error: #3a2224;
+      --error-ink: #ffb5bf;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 1rem/1.5 system-ui, sans-serif; }
+  main { max-width: 58rem; margin: auto; padding: 24px clamp(16px, 5vw, 52px) 56px; }
+  .masthead, .result-header, .actions, .language {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 10px; justify-content: space-between;
+  }
+  .masthead { border-bottom: 1px solid var(--line); padding-block-end: 14px; }
+  .brand { margin: 0; font-weight: 750; color: var(--accent); }
+  h1 { margin: 22px 0 2px; font-size: clamp(1.8rem, 5vw, 2.6rem); line-height: 1.15; }
+  h2 { font-size: 1.25rem; margin: 0; }
+  .intro { margin: 8px 0 20px; color: var(--muted); }
+  .panel, .note { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+  .panel { padding: clamp(14px, 4vw, 26px); }
+  label { font-weight: 650; }
+  small { display: block; margin-top: 5px; color: var(--muted); }
+  #drop-zone { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  #drop-zone.drag-over { border-color: var(--accent); outline: 2px solid var(--accent); }
+  #file-name { margin: 8px 0 0; overflow-wrap: anywhere; }
+  button, select, input { font: inherit; color: inherit; min-width: 0; }
+  button, select, input:not([type="file"]) {
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; background: var(--surface);
+  }
+  button, summary { cursor: pointer; }
+  button:not(:disabled):hover, summary:hover { color: var(--accent); }
+  button:disabled { opacity: 0.65; cursor: wait; }
+  button.primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+  button.primary:not(:disabled):hover { color: var(--on-accent); filter: brightness(0.91); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  input { display: block; margin-top: 6px; width: 100%; }
+  input::file-selector-button { color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; margin-inline-end: 8px; }
+  .actions { margin-top: 16px; justify-content: flex-start; }
+  .notice { background: var(--notice); color: var(--notice-ink); padding: 9px 12px; border-radius: 6px; margin: 12px 0; }
+  .error { background: var(--error); color: var(--error-ink); }
+  .clipboard-notice { position: sticky; bottom: 8px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 6px 14px; }
+  .summary dt, .note-meta { color: var(--muted); }
+  .summary dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+  #notes { display: grid; gap: 8px; margin-top: 14px; }
+  .note { padding: 10px 14px; min-width: 0; overflow-wrap: anywhere; }
+  .note-title { font-weight: 700; }
+  .note-meta { display: flex; flex-wrap: wrap; gap: 3px 14px; padding-inline-start: 18px; font-size: 0.9rem; }
+  .note-body { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .note-content, .task, .field-value, .vault-text { white-space: pre-wrap; }
+  .task.subtask { padding-inline-start: 24px; }
+  .vault-field { border-bottom: 1px solid var(--line); padding: 8px 0; }
+  .vault-field .actions { margin: 5px 0 0; }
+  .field-label { font-weight: 650; }
+  .field-value { font-family: ui-monospace, monospace; margin: 3px 0; }
+  .vault-divider { border: 0; border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <header class="masthead">
+    <p class="brand">KeepLocal</p>
+    <label class="language">
+      <span data-i18n="language">Language</span>
+      <select id="language">
+        <option value="en" lang="en">English</option>
+        <option value="pt-BR" lang="pt-BR">Português (Brasil)</option>
+      </select>
+    </label>
+  </header>
+  <h1 data-i18n="heading">Backup recovery</h1>
+  <p class="intro" data-i18n="intro">Open an encrypted backup to read its notes on this device.</p>
+  <form id="unlock" class="panel" autocomplete="off">
+    <div id="drop-zone">
+      <label for="backup-file" data-i18n="file">Encrypted backup</label>
+      <input id="backup-file" type="file" accept=".keeplocal,application/octet-stream" aria-describedby="file-hint">
+      <small id="file-hint" data-i18n="fileHint">Choose or drop one .keeplocal file up to 64 MiB.</small>
+      <p id="file-name" role="status" hidden></p>
+    </div>
+    <label for="password" data-i18n="password">Backup passphrase</label>
+    <input id="password" type="password" required autocomplete="off" autocapitalize="none" spellcheck="false">
+    <div class="actions">
+      <button type="submit" id="open-backup" class="primary" data-i18n="open">Open</button>
+    </div>
+    <p id="progress" role="status" hidden></p>
+    <p id="error" class="notice error" role="alert" hidden></p>
+  </form>
+  <section id="results" aria-labelledby="results-title" hidden>
+    <div class="panel">
+      <div class="result-header">
+        <h2 id="results-title" data-i18n="opened">Opened backup</h2>
+        <button type="button" id="close-backup" data-i18n="close">Close</button>
+      </div>
+      <dl id="summary" class="summary"></dl>
+      <p id="manifest-warning" class="notice" role="status" data-i18n="manifestWarning" hidden></p>
+      <p class="notice" data-i18n="clipboardWarning"></p>
+      <label for="filter" data-i18n="filter">Filter notes</label>
+      <input type="search" id="filter" autocomplete="off" spellcheck="false">
+    </div>
+    <div id="notes"></div>
+    <p id="empty" role="status" data-i18n="empty" hidden>No matching notes.</p>
+  </section>
+  <div id="clipboard-notice" class="notice clipboard-notice" hidden>
+    <span id="clipboard-message" role="status"></span>
+    <button type="button" id="clear-clipboard" data-i18n="clearClipboard" hidden></button>
+  </div>
+</main>
+<script>
+  'use strict';
+
+  const MAX_FILE_BYTES = 64 * 1024 * 1024;
+  const MAX_NOTE_BYTES = 2 * 1024 * 1024;
+  const MAX_NOTES = 10_000;
+  const PROFILES = [Object.freeze({ id: 2, iterations: 600_000 })];
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const COLORS = new Set(['default', 'coral', 'peach', 'sand', 'mint', 'sage', 'fog', 'storm', 'blossom', 'clay', 'chalk']);
+  const MASK = '••••••••';
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  const encoder = new TextEncoder();
+
+  const messages = {
+    en: {
+      heading: 'Backup recovery',
+      intro: 'Open an encrypted backup to read its notes on this device.',
+      language: 'Language',
+      file: 'Encrypted backup',
+      fileHint: 'Choose or drop one .keeplocal file up to 64 MiB.',
+      password: 'Backup passphrase',
+      open: 'Open',
+      opening: 'Opening…',
+      chooseFile: 'Choose one .keeplocal file.',
+      tooLarge: 'This backup exceeds 64 MiB.',
+      badBackup: 'Could not open this backup. Check the passphrase and whether the file is damaged or unsupported.',
+      opened: 'Opened backup',
+      close: 'Close',
+      revision: 'Revision',
+      exported: 'Exported (UTC)',
+      total: 'Notes',
+      unreadableCount: 'Unreadable',
+      manifestWarning: 'The backup manifest does not match the record list. Check another copy if possible.',
+      clipboardWarning: 'Windows clipboard history (Win+V) and sync across devices can retain copied values after clearing.',
+      clearClipboard: 'Clear clipboard',
+      copied: 'Field copied. The tool will try to clear the clipboard in 20 seconds.',
+      copyFailed: 'Could not copy. This browser may restrict clipboard access.',
+      clearFailed: 'Could not clear the clipboard automatically.',
+      cleared: 'Clipboard cleared.',
+      filter: 'Filter notes',
+      empty: 'No matching notes.',
+      unreadable: 'Unreadable record',
+      text: 'Text',
+      todo: 'Checklist',
+      vault: 'Passwords & Keys',
+      color: 'Color',
+      tags: 'Labels',
+      trash: 'Trash',
+      archived: 'Archived',
+      untitled: 'Untitled',
+      field: 'Field',
+      reveal: 'Show',
+      hide: 'Hide',
+      copy: 'Copy',
+      colors: ['Default', 'Coral', 'Peach', 'Sand', 'Mint', 'Sage', 'Fog', 'Storm', 'Blossom', 'Clay', 'Chalk'],
+    },
+    'pt-BR': {
+      heading: 'Recuperação de backup',
+      intro: 'Abra um backup cifrado para ler as notas neste dispositivo.',
+      language: 'Idioma',
+      file: 'Backup cifrado',
+      fileHint: 'Escolha ou arraste um arquivo .keeplocal de até 64 MiB.',
+      password: 'Senha do backup',
+      open: 'Abrir',
+      opening: 'Abrindo…',
+      chooseFile: 'Escolha um arquivo .keeplocal.',
+      tooLarge: 'Este backup ultrapassa 64 MiB.',
+      badBackup: 'Não foi possível abrir o backup. Confira a senha e se o arquivo está danificado ou é incompatível.',
+      opened: 'Backup aberto',
+      close: 'Fechar',
+      revision: 'Revisão',
+      exported: 'Exportado (UTC)',
+      total: 'Notas',
+      unreadableCount: 'Ilegíveis',
+      manifestWarning: 'O manifesto do backup diverge da lista de registros. Confira outra cópia se possível.',
+      clipboardWarning: 'O histórico da área de transferência do Windows (Win+V) e a sincronização entre dispositivos podem conservar valores copiados mesmo após a limpeza.',
+      clearClipboard: 'Limpar área de transferência',
+      copied: 'Campo copiado. A ferramenta tentará limpar a área de transferência em 20 segundos.',
+      copyFailed: 'Não foi possível copiar. O navegador pode restringir o acesso à área de transferência.',
+      clearFailed: 'Não foi possível limpar a área de transferência automaticamente.',
+      cleared: 'Área de transferência limpa.',
+      filter: 'Filtrar notas',
+      empty: 'Nenhuma nota correspondente.',
+      unreadable: 'Registro ilegível',
+      text: 'Texto',
+      todo: 'Lista de tarefas',
+      vault: 'Senhas e Chaves',
+      color: 'Cor',
+      tags: 'Rótulos',
+      trash: 'Lixeira',
+      archived: 'Arquivada',
+      untitled: 'Sem título',
+      field: 'Campo',
+      reveal: 'Mostrar',
+      hide: 'Ocultar',
+      copy: 'Copiar',
+      colors: ['Padrão', 'Coral', 'Pêssego', 'Areia', 'Menta', 'Sálvia', 'Névoa', 'Tempestade', 'Flor', 'Argila', 'Giz'],
+    },
+  };
+
+  const byId = id => document.getElementById(id);
+  const form = byId('unlock');
+  const fileInput = byId('backup-file');
+  const passwordInput = byId('password');
+  const dropZone = byId('drop-zone');
+  const openButton = byId('open-backup');
+  const results = byId('results');
+  const notes = byId('notes');
+  const filter = byId('filter');
+  const language = byId('language');
+  let locale = navigator.language.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en';
+  const t = key => messages[locale][key];
+
+  let file = null;
+  let archive = null;
+  let generation = 0;
+  let opening = false;
+  let error = null;
+  let revealed = null;
+  let clipboardTimer;
+  let clipboardPending = false;
+  let clipboardBusy = false;
+  let clipboardMessage = null;
+
+  function element(tag, value, className) {
+    const node = document.createElement(tag);
+    if (value !== undefined) node.textContent = value;
+    if (className) node.className = className;
+    return node;
+  }
+
+  function button(key, action) {
+    const control = element('button', t(key));
+    control.type = 'button';
+    control.addEventListener('click', action);
+    return control;
+  }
+
+  function refreshForm() {
+    openButton.disabled = fileInput.disabled = passwordInput.disabled = opening;
+    openButton.textContent = t(opening ? 'opening' : 'open');
+    byId('progress').hidden = !opening;
+    byId('progress').textContent = opening ? t('opening') : '';
+    byId('error').hidden = !error;
+    byId('error').textContent = error ? t(error) : '';
+    byId('file-name').hidden = !file;
+    byId('file-name').textContent = file?.name ?? '';
+  }
+
+  function renderClipboard() {
+    byId('clipboard-notice').hidden = !clipboardMessage;
+    byId('clipboard-message').textContent = clipboardMessage ? t(clipboardMessage) : '';
+    byId('clear-clipboard').hidden = clipboardMessage !== 'clearFailed' || !clipboardPending;
+  }
+
+  function hideField() {
+    if (!revealed) return;
+    const { output, control, timer } = revealed;
+    revealed = null;
+    clearTimeout(timer);
+    output.textContent = MASK;
+    control.textContent = t('reveal');
+    control.setAttribute('aria-pressed', 'false');
+  }
+
+  function toggleField(output, control, value) {
+    const alreadyVisible = revealed?.output === output;
+    hideField();
+    if (alreadyVisible || document.hidden) return;
+    control.focus();
+    output.textContent = value;
+    control.textContent = t('hide');
+    control.setAttribute('aria-pressed', 'true');
+    revealed = { output, control, timer: setTimeout(hideField, 15_000) };
+  }
+
+  async function clearClipboard() {
+    if (!clipboardPending || clipboardBusy) return;
+    clipboardBusy = true;
+    clearTimeout(clipboardTimer);
+    try {
+      await navigator.clipboard.writeText('');
+      clipboardPending = false;
+      clipboardMessage = archive ? 'cleared' : null;
+    } catch {
+      clipboardMessage = 'clearFailed';
+    } finally {
+      clipboardBusy = false;
+      renderClipboard();
+    }
+  }
+
+  async function copyField(value) {
+    hideField();
+    if (clipboardBusy) return;
+    const startedIn = generation;
+    clipboardBusy = true;
+    clearTimeout(clipboardTimer);
+    try {
+      const write = navigator.clipboard.writeText(value);
+      value = '';
+      await write;
+      clipboardPending = true;
+      clipboardMessage = 'copied';
+    } catch {
+      clipboardMessage = clipboardPending ? 'clearFailed' : 'copyFailed';
+    } finally {
+      clipboardBusy = false;
+    }
+    if (startedIn !== generation) {
+      clipboardMessage = null;
+      renderClipboard();
+      await clearClipboard();
+      return;
+    }
+    if (clipboardPending) clipboardTimer = setTimeout(clearClipboard, 20_000);
+    renderClipboard();
+  }
+
+  // Independent profile 2 reader. File bytes never select the cost or the AAD shape.
+  async function openEnvelope(bytes, passwordBytes) {
+    const salt = bytes.subarray(0, 16);
+    const iv = bytes.subarray(16, 28);
+    const ciphertext = bytes.subarray(28);
+    const material = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, ['deriveKey']);
+    passwordBytes.fill(0);
+
+    for (const profile of PROFILES) {
+      if (!Number.isSafeInteger(profile.iterations) || profile.iterations < 600_000 || profile.iterations > 5_000_000) continue;
+      const key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: profile.iterations, hash: 'SHA-256' },
+        material, { name: 'AES-GCM', length: 256 }, false, ['decrypt'],
+      );
+      const aad = new Uint8Array(29);
+      aad[0] = profile.id;
+      aad.set(salt, 1);
+      aad.set(iv, 17);
+      try {
+        const plaintext = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv, tagLength: 128, additionalData: aad }, key, ciphertext,
+        );
+        const payload = JSON.parse(decoder.decode(plaintext));
+        if (isPayload(payload, profile)) return { payload, key };
+      } catch {
+        // An unauthenticated file and a wrong passphrase have the same outcome.
+      }
+    }
+    throw new Error('Invalid backup');
+  }
+
+  const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const isString = (value, max) => typeof value === 'string' && value.length <= max;
+  const isId = value => typeof value === 'string' && UUID.test(value);
+  const isTime = value => Number.isSafeInteger(value) && value >= 0;
+  const isOptionalTime = value => value === null || isTime(value);
+
+  function isPayload(payload, profile) {
+    return isObject(payload) && payload.v === 2 && payload.profile === profile.id &&
+      isTime(payload.rev) && (payload.parent === null || (typeof payload.parent === 'string' && /^[a-f0-9]{64}$/.test(payload.parent))) &&
+      isString(payload.exportedAt, 80) && Number.isFinite(Date.parse(payload.exportedAt)) &&
+      isObject(payload.preferences) && Object.keys(payload.preferences).every(key => key === 'theme' || key === 'lang') &&
+      (payload.preferences.theme === undefined || ['light', 'dark'].includes(payload.preferences.theme)) &&
+      (payload.preferences.lang === undefined || ['en', 'pt-BR'].includes(payload.preferences.lang)) &&
+      Array.isArray(payload.notes) && payload.notes.length <= MAX_NOTES;
+  }
+
+  function manifestMatches(manifest, records) {
+    return isObject(manifest) && manifest.count === records.length && Array.isArray(manifest.ids) &&
+      manifest.ids.length === records.length && manifest.ids.every((id, i) => isId(id) && id === records[i]?.id);
+  }
+
+  function decodeBase64(value, min, max = min) {
+    if (!isString(value, Math.ceil(max / 3) * 4) || value.length % 4 !== 0 ||
+        /[^A-Za-z0-9+/]/.test(value.replace(/={1,2}$/, ''))) {
+      throw new Error('Invalid record encoding');
+    }
+    const decoded = atob(value);
+    if (decoded.length < min || decoded.length > max) throw new Error('Invalid record size');
+    return Uint8Array.from(decoded, character => character.charCodeAt(0));
+  }
+
+  function validTasks(tasks) {
+    if (!Array.isArray(tasks) || tasks.length > 10_000) return false;
+    const ids = new Map();
+    for (const task of tasks) {
+      if (!isObject(task) || !isId(task.id) || ids.has(task.id) || !isString(task.text, 65_536) ||
+          typeof task.done !== 'boolean' || !Number.isSafeInteger(task.order) ||
+          !(task.parentId === null || isId(task.parentId))) return false;
+      ids.set(task.id, task);
+    }
+    return tasks.every(task => task.parentId === null || ids.get(task.parentId)?.parentId === null);
+  }
+
+  function validBlocks(blocks) {
+    if (!Array.isArray(blocks) || blocks.length > 200) return false;
+    const ids = new Set();
+    const flags = ['secret', 'multiline', 'primary'];
+    for (const block of blocks) {
+      if (!isObject(block) || !isId(block.id)) return false;
+      const id = block.id.toLowerCase();
+      if (ids.has(id)) return false;
+      ids.add(id);
+      const allowed = ['id', 'kind'];
+      if (block.kind === 'field') {
+        allowed.push('label', 'value', ...flags);
+        if (!isString(block.label, 200) || !isString(block.value, 65_536) ||
+            flags.some(flag => Object.hasOwn(block, flag) && typeof block[flag] !== 'boolean')) return false;
+      } else if (block.kind === 'text') {
+        allowed.push('value');
+        if (!isString(block.value, 65_536)) return false;
+      } else if (block.kind !== 'divider') {
+        return false;
+      }
+      if (Object.keys(block).some(key => !allowed.includes(key))) return false;
+    }
+    return true;
+  }
+
+  function validNote(note, record) {
+    if (!isObject(note) || note.id !== record.id || note.updatedAt !== record.updatedAt ||
+        !isString(note.title, 4096) || typeof note.pinned !== 'boolean' || !COLORS.has(note.color) ||
+        !Array.isArray(note.labels) || note.labels.length > 100 || !note.labels.every(label => isString(label, 200)) ||
+        !isTime(note.createdAt) || !Number.isSafeInteger(note.order) ||
+        !isOptionalTime(note.deletedAt) || !isOptionalTime(note.archivedAt)) return false;
+    if (note.type === 'text') return isString(note.content, MAX_NOTE_BYTES);
+    if (note.type === 'todo') return validTasks(note.tasks);
+    return note.type === 'vault' && !Object.hasOwn(note, 'content') && !Object.hasOwn(note, 'tasks') && validBlocks(note.blocks);
+  }
+
+  // Internal records share the derived key and were sealed without additional data.
+  async function readRecord(record, key) {
+    if (!isObject(record) || !isId(record.id) || !isTime(record.updatedAt)) return null;
+    try {
+      const iv = decodeBase64(record.iv, 12);
+      const ciphertext = decodeBase64(record.ciphertext, 16, MAX_NOTE_BYTES + 16);
+      const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, key, ciphertext);
+      const note = JSON.parse(decoder.decode(plaintext));
+      return validNote(note, record) ? note : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function readNotes({ payload, key }, startedIn) {
+    const entries = [];
+    const seen = new Set();
+    let unreadable = 0;
+    for (const record of payload.notes) {
+      if (generation !== startedIn) return null;
+      const note = seen.has(record?.id) ? null : await readRecord(record, key);
+      if (note) seen.add(note.id);
+      else unreadable++;
+      entries.push({ id: isId(record?.id) ? record.id : null, note });
+    }
+    return {
+      entries, unreadable, revision: payload.rev,
+      exportedAt: new Date(payload.exportedAt).toISOString(),
+      manifestOK: manifestMatches(payload.manifest, payload.notes),
+    };
+  }
+
+  function searchable(value) {
+    return value.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  }
+
+  function matches({ note, id }, term) {
+    if (!term) return true;
+    const contains = value => searchable(value).includes(term);
+    if (!note) return Boolean(id && contains(id));
+    if (contains(note.title) || note.labels.some(contains)) return true;
+    if (note.type === 'text') return contains(note.content);
+    if (note.type === 'todo') return note.tasks.some(task => contains(task.text));
+    return note.blocks.some(block => block.kind === 'field' && contains(block.label));
+  }
+
+  function renderTasks(body, tasks) {
+    const sorted = tasks.toSorted((a, b) => a.order - b.order);
+    const parents = new Map();
+    for (const task of sorted) {
+      if (task.parentId === null) continue;
+      if (!parents.has(task.parentId)) parents.set(task.parentId, []);
+      parents.get(task.parentId).push(task);
+    }
+    const renderTask = (task, className) => element('div', (task.done ? '[x] ' : '[ ] ') + task.text, className);
+    for (const task of sorted) {
+      if (task.parentId !== null) continue;
+      body.append(renderTask(task, 'task'));
+      for (const child of parents.get(task.id) ?? []) body.append(renderTask(child, 'task subtask'));
+    }
+  }
+
+  function renderBlocks(body, blocks) {
+    for (const block of blocks) {
+      if (block.kind === 'divider') {
+        body.append(element('hr', undefined, 'vault-divider'));
+      } else if (block.kind === 'text') {
+        body.append(element('p', block.value, 'vault-text'));
+      } else {
+        const group = element('div', undefined, 'vault-field');
+        const output = element('p', MASK, 'field-value');
+        const controls = element('div', undefined, 'actions');
+        const show = button('reveal', () => toggleField(output, show, block.value));
+        show.setAttribute('aria-pressed', 'false');
+        show.addEventListener('blur', hideField);
+        controls.append(show, button('copy', () => void copyField(block.value)));
+        group.append(element('div', block.label || t('field'), 'field-label'), output, controls);
+        body.append(group);
+      }
+    }
+  }
+
+  function renderEntry({ note, id }) {
+    if (!note) return element('p', t('unreadable') + ' · ' + (id ?? '—'), 'note unreadable');
+    const card = element('details', undefined, 'note');
+    const summary = element('summary');
+    summary.append(element('span', note.title || t('untitled'), 'note-title'));
+    const meta = element('div', undefined, 'note-meta');
+    meta.append(element('span', t(note.type)));
+    if (note.labels.length) meta.append(element('span', t('tags') + ': ' + note.labels.join(', ')));
+    const color = [...COLORS].indexOf(note.color);
+    meta.append(element('span', t('color') + ': ' + t('colors')[color]));
+    if (note.deletedAt !== null) meta.append(element('span', t('trash')));
+    if (note.archivedAt !== null) meta.append(element('span', t('archived')));
+    card.append(summary, meta);
+
+    // Build bodies only when expanded so a large backup doesn't build every task at once.
+    card.addEventListener('toggle', () => {
+      const previous = card.lastElementChild;
+      if (!card.open) {
+        if (card.contains(revealed?.output)) hideField();
+        if (previous.classList.contains('note-body')) previous.remove();
+        return;
+      }
+      if (previous.classList.contains('note-body')) return;
+      const body = element('div', undefined, 'note-body');
+      if (note.type === 'text') body.append(element('div', note.content, 'note-content'));
+      if (note.type === 'todo') renderTasks(body, note.tasks);
+      if (note.type === 'vault') renderBlocks(body, note.blocks);
+      card.append(body);
+    });
+    return card;
+  }
+
+  function renderNotes() {
+    hideField();
+    const term = searchable(filter.value.trim());
+    const entries = archive.entries.filter(entry => matches(entry, term));
+    notes.replaceChildren(...entries.map(renderEntry));
+    byId('empty').hidden = entries.length > 0;
+  }
+
+  function renderResults() {
+    const stats = [
+      ['revision', archive.revision], ['exported', archive.exportedAt],
+      ['total', archive.entries.length], ['unreadableCount', archive.unreadable],
+    ];
+    byId('summary').replaceChildren(...stats.map(([key, value]) => {
+      const item = element('div');
+      item.append(element('dt', t(key)), element('dd', String(value)));
+      item.dataset.stat = key;
+      return item;
+    }));
+    byId('manifest-warning').hidden = archive.manifestOK;
+    renderNotes();
+  }
+
+  function chooseFile(candidate) {
+    if (opening) return;
+    file = candidate ?? null;
+    error = file && file.size > MAX_FILE_BYTES ? 'tooLarge' : null;
+    refreshForm();
+  }
+
+  function reset() {
+    generation++;
+    opening = false;
+    hideField();
+    archive = file = error = null;
+    form.reset();
+    filter.value = '';
+    byId('summary').replaceChildren();
+    notes.replaceChildren();
+    byId('manifest-warning').hidden = true;
+    byId('empty').hidden = true;
+    results.hidden = true;
+    form.hidden = false;
+    clipboardMessage = null;
+    renderClipboard();
+    refreshForm();
+    void clearClipboard();
+  }
+
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (opening) return;
+    if (!file || file.size > MAX_FILE_BYTES || file.size < 44) {
+      error = !file ? 'chooseFile' : file.size > MAX_FILE_BYTES ? 'tooLarge' : 'badBackup';
+      passwordInput.value = '';
+      refreshForm();
+      return;
+    }
+
+    const startedIn = ++generation;
+    const password = encoder.encode(passwordInput.value);
+    passwordInput.value = '';
+    opening = true;
+    error = null;
+    refreshForm();
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (generation !== startedIn) return;
+      const opened = await readNotes(await openEnvelope(bytes, password), startedIn);
+      if (generation !== startedIn) return;
+      archive = opened;
+      renderResults();
+      form.hidden = true;
+      results.hidden = false;
+      filter.focus();
+    } catch {
+      if (generation === startedIn) error = 'badBackup';
+    } finally {
+      password.fill(0);
+      if (generation === startedIn) {
+        opening = false;
+        refreshForm();
+      }
+    }
+  });
+
+  function updateLanguage() {
+    hideField();
+    document.documentElement.lang = locale;
+    document.title = 'KeepLocal · ' + t('heading');
+    language.value = locale;
+    for (const node of document.querySelectorAll('[data-i18n]')) node.textContent = t(node.dataset.i18n);
+    refreshForm();
+    renderClipboard();
+    if (archive) renderResults();
+  }
+
+  language.addEventListener('change', () => {
+    locale = language.value === 'pt-BR' ? 'pt-BR' : 'en';
+    updateLanguage();
+  });
+  fileInput.addEventListener('change', () => chooseFile(fileInput.files[0]));
+  document.addEventListener('dragover', event => event.preventDefault());
+  document.addEventListener('drop', event => event.preventDefault());
+  dropZone.addEventListener('dragover', () => {
+    if (!opening) dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', event => {
+    dropZone.classList.remove('drag-over');
+    if (opening) return;
+    fileInput.value = '';
+    chooseFile(event.dataTransfer.files.length === 1 ? event.dataTransfer.files[0] : null);
+  });
+  filter.addEventListener('input', () => { if (archive) renderNotes(); });
+  byId('close-backup').addEventListener('click', () => { reset(); fileInput.focus(); });
+  byId('clear-clipboard').addEventListener('click', () => void clearClipboard());
+  window.addEventListener('blur', hideField);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) hideField(); });
+  window.addEventListener('pagehide', reset);
+  updateLanguage();
+</script>
+</body>
+</html>
