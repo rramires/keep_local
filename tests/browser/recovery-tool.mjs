@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { COLORS } from '../../js/note-model.js';
 import { ROOT, PASSWORD, create, add, launchExtension, note } from './harness.mjs';
 import { backupFixture } from './backup-fixture.mjs';
 import { folderFixtureSource } from './folder-fixture.mjs';
@@ -41,6 +42,25 @@ async function selectFile(page, path) {
 async function submit(page, password) {
   await page.eval(`document.querySelector('#password').value = ${JSON.stringify(password)};
     document.querySelector('#open-backup').click()`);
+}
+
+function exportFromApp(page) {
+  return page.eval(`(async () => {
+    let snapshot;
+    URL.createObjectURL = blob => { snapshot = blob; return 'blob:fixture'; };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = () => {};
+    await (await import('./js/backup.js')).exportBackup();
+    return new Uint8Array(await snapshot.arrayBuffer()).toBase64();
+  })()`);
+}
+
+function setLanguage(page, locale) {
+  return page.eval(`(() => {
+    const language = document.querySelector('#language');
+    language.value = ${JSON.stringify(locale)};
+    language.dispatchEvent(new Event('change'));
+  })()`);
 }
 
 async function openGolden(page, directory) {
@@ -295,16 +315,52 @@ export async function run({ browser, check, assert }) {
     try {
       await create(spa);
       await add(spa, title, content);
-      base64 = await spa.eval(`(async () => {
-        let snapshot;
-        URL.createObjectURL = blob => { snapshot = blob; return 'blob:fixture'; };
-        URL.revokeObjectURL = () => {};
-        HTMLAnchorElement.prototype.click = () => {};
-        await (await import('./js/backup.js')).exportBackup();
-        return new Uint8Array(await snapshot.arrayBuffer()).toBase64();
-      })()`);
+      base64 = await exportFromApp(spa);
     } finally { await spa.close(); }
     await assertReadsCopy({ browser, assert, base64, name: 'manual.keeplocal', title, content });
+  });
+
+  await check('H1.5 app export recovers all 12 colors and a Dusk vault item in both languages', async () => {
+    const fixtures = COLORS.map(color => note({ title: `Fictitious ${color}`, color }));
+    fixtures.push(note({ title: 'Fictitious vault', type: 'vault', color: 'dusk', blocks: [] }));
+    delete fixtures.at(-1).content;
+    const spa = await browser.page();
+    let base64;
+    try {
+      await create(spa);
+      await spa.eval(`(async () => {
+        const { saveNote } = await import('./js/app.js');
+        for (const item of ${JSON.stringify(fixtures)}) await saveNote(item);
+      })()`);
+      base64 = await exportFromApp(spa);
+      assert.deepEqual(spa.errors, []);
+    } finally { await spa.close(); }
+
+    await withRecovery(browser, async ({ page, directory }) => {
+      const path = join(directory, 'all-colors.keeplocal');
+      await writeFile(path, Buffer.from(base64, 'base64'));
+      await selectFile(page, path);
+      await submit(page, PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.equal(await page.eval("document.querySelector('[data-stat=unreadableCount] dd').textContent"), '0');
+
+      for (const [locale, label, vault, names] of [
+        ['en', 'Color', 'Passwords & Keys', ['Default', 'Coral', 'Peach', 'Sand', 'Mint', 'Sage', 'Fog', 'Storm', 'Dusk', 'Blossom', 'Clay', 'Chalk']],
+        ['pt-BR', 'Cor', 'Senhas e Chaves', ['Padrão', 'Coral', 'Pêssego', 'Areia', 'Menta', 'Sálvia', 'Névoa', 'Tempestade', 'Crepúsculo', 'Flor', 'Argila', 'Giz']],
+      ]) {
+        await setLanguage(page, locale);
+        const rows = await page.eval(`Object.fromEntries([...document.querySelectorAll('#notes details')].map(card => [
+          card.querySelector('.note-title').textContent,
+          [...card.querySelectorAll('.note-meta span')].map(span => span.textContent),
+        ]))`);
+        assert.deepEqual(Object.keys(rows).sort(), fixtures.map(item => item.title).sort());
+        for (const [index, item] of fixtures.slice(0, -1).entries()) {
+          assert.ok(rows[item.title].includes(`${label}: ${names[index]}`), item.color);
+        }
+        assert.deepEqual(rows['Fictitious vault'], [vault, `${label}: ${names[COLORS.indexOf('dusk')]}`]);
+      }
+      assert.deepEqual(page.errors, []);
+    });
   });
 
   await check('H1.2 extension OPFS writes open in the detached file reader', async () => {

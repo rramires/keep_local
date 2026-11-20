@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-zM7uYxb7UXI88eAk93kw0JG27CG6Wsou0XZZ2cI01RQ='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Y5DeljjGe7fNJR7CmrDvoSyhO0PG+GjWETB3b9CJdNU='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -146,7 +146,7 @@
   const MAX_NOTES = 10_000;
   const PROFILES = [Object.freeze({ id: 2, iterations: 600_000 })];
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const COLORS = new Set(['default', 'coral', 'peach', 'sand', 'mint', 'sage', 'fog', 'storm', 'blossom', 'clay', 'chalk']);
+  const COLORS = new Set(['default', 'coral', 'peach', 'sand', 'mint', 'sage', 'fog', 'storm', 'dusk', 'blossom', 'clay', 'chalk']);
   const MASK = '••••••••';
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const encoder = new TextEncoder();
@@ -192,7 +192,7 @@
       reveal: 'Show',
       hide: 'Hide',
       copy: 'Copy',
-      colors: ['Default', 'Coral', 'Peach', 'Sand', 'Mint', 'Sage', 'Fog', 'Storm', 'Blossom', 'Clay', 'Chalk'],
+      colors: ['Default', 'Coral', 'Peach', 'Sand', 'Mint', 'Sage', 'Fog', 'Storm', 'Dusk', 'Blossom', 'Clay', 'Chalk'],
     },
     'pt-BR': {
       heading: 'Recuperação de backup',
@@ -234,7 +234,7 @@
       reveal: 'Mostrar',
       hide: 'Ocultar',
       copy: 'Copiar',
-      colors: ['Padrão', 'Coral', 'Pêssego', 'Areia', 'Menta', 'Sálvia', 'Névoa', 'Tempestade', 'Flor', 'Argila', 'Giz'],
+      colors: ['Padrão', 'Coral', 'Pêssego', 'Areia', 'Menta', 'Sálvia', 'Névoa', 'Tempestade', 'Crepúsculo', 'Flor', 'Argila', 'Giz'],
     },
   };
 

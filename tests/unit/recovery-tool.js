@@ -2,6 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { COLORS } from '../../js/note-model.js';
+
+test('H1.5 recovery uses all app colors in the same order', async () => {
+  const html = await readFile(new URL('../../recovery/keeplocal-recovery.html', import.meta.url), 'utf8');
+  const colors = html.match(/const COLORS = new Set\((\[[^\]]*\])\);/)?.[1];
+  assert.ok(colors, 'Expected the standalone color list');
+  assert.deepEqual(JSON.parse(colors.replaceAll("'", '"')), COLORS);
+});
 
 test('H1.2 recovery has only hashed inline code and no network or persistence', async () => {
   const html = await readFile(new URL('../../recovery/keeplocal-recovery.html', import.meta.url), 'utf8');
