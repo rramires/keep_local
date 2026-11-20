@@ -42,6 +42,12 @@ export async function mockVaultTimers(p) {
   })()`);
 }
 
+async function chooseBlankVaultItem(p) {
+  await p.eval("document.querySelector('#vault-new-item').click()");
+  await p.until("!!document.querySelector('[data-dialog-choice=blank]')");
+  await p.eval("document.querySelector('[data-dialog-choice=blank]').click()");
+}
+
 async function openVaultFirst(p) {
   await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('[data-vault-open]').click()");
   await p.until("!!document.querySelector('.vault-detail')");
@@ -87,8 +93,10 @@ export async function fillVaultInput(p,selector,value) {
 
 const testSentinel=()=> 'SENTINEL-'+crypto.randomUUID().replaceAll('-','').slice(0,24);
 
-async function makeVaultScanner(browser,p,assert,values) {
-  const markers=values.flatMap(value=>[value,value.slice(13,21)]).map(value=>value.toLowerCase());
+export async function makeVaultScanner(browser,p,assert,values) {
+  const markers=[];
+  const watch=value=>markers.push(value.toLowerCase(),value.slice(13,21).toLowerCase());
+  for(const value of values)watch(value);
   const alerts=[];
   const listener=message=>{
     if(['Runtime.consoleAPICalled','Runtime.exceptionThrown','Log.entryAdded'].includes(message.method)) {
@@ -140,6 +148,7 @@ async function makeVaultScanner(browser,p,assert,values) {
         local:Object.entries(localStorage),
         session:Object.entries(sessionStorage),
         meta:await db.getAllMetaRecords(),
+        records:await db.getAllNoteRecords(),
         console:window.vaultConsoleEntries,
       };
       return Object.entries(channels).filter(([,value])=>{
@@ -152,7 +161,7 @@ async function makeVaultScanner(browser,p,assert,values) {
     assert.deepEqual(readout,[],label);
   };
   return {
-    scan,
+    scan,watch,
     dispose() { browser.cdp.listeners.splice(browser.cdp.listeners.indexOf(listener),1); },
   };
 }
@@ -359,13 +368,13 @@ export async function run({browser,check,assert}) {
       await create(p);
       await p.eval("document.querySelector('[data-view=vault]').click()");
       assert.equal(await p.eval("document.querySelector('#vault-new-item').disabled"),false);
-      await p.eval("document.querySelector('#vault-new-item').click()");
+      await chooseBlankVaultItem(p);
       await p.until("!!document.querySelector('.vault-editor')");
       assert.equal(await p.eval("document.querySelectorAll('[data-vault-block=field]').length"),1);
       await p.eval("document.querySelector('#modal-close').click()");
       await p.until("!document.querySelector('.vault-editor')");
       assert.equal(await p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length"),0);
-      await p.eval("document.querySelector('#vault-new-item').click()");
+      await chooseBlankVaultItem(p);
       await p.until("!!document.querySelector('.vault-editor')");
       await fillVaultInput(p,'[data-vault-title]','Fictional Login');
       await fillVaultInput(p,'[data-vault-label]','Senha');
@@ -690,7 +699,8 @@ export async function run({browser,check,assert}) {
     const {scan,dispose}=await makeVaultScanner(browser,p,assert,[sentinel]);
     try {
       await create(p);
-      await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('#vault-new-item').click()");
+      await p.eval("document.querySelector('[data-view=vault]').click()");
+      await chooseBlankVaultItem(p);
       await fillVaultInput(p,'[data-vault-title]','An unlabeled fictional credential');
       await fillVaultInput(p,'[data-vault-value]',sentinel);
       await p.eval("document.querySelector('#modal-close').click()");
@@ -768,7 +778,7 @@ export async function run({browser,check,assert}) {
       await close();
       assert.equal((await savedBlock()).secret,true);
 
-      await p.eval("document.querySelector('#vault-new-item').click()");
+      await chooseBlankVaultItem(p);
       await fillVaultInput(p,'[data-vault-title]','Explicitly public fictional entry');
       assert.equal(await locked(),true);
       await toggle();
@@ -826,7 +836,7 @@ export async function run({browser,check,assert}) {
       await p.eval("document.querySelector('[data-view=vault]').click()");
       const records=()=>p.eval("(await(await import('./js/db.js')).getAllNoteRecords()).length");
       const createWithLabel=async label=>{
-        await p.eval("document.querySelector('#vault-new-item').click()");
+        await chooseBlankVaultItem(p);
         await p.until("!!document.querySelector('.vault-editor')");
         if(label!==null) await fillVaultInput(p,'[data-vault-label]',label);
         await p.eval("document.querySelector('#modal-close').click()");

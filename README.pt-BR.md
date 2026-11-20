@@ -108,6 +108,11 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 - `js/account.js`, `vault-events.js`, `trash.js`, `storage.js`: troca/reset,
   comunicação entre abas, retenção e persistência.
 - `js/i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: utilitários da UI.
+- `js/vault-model.js`, `js/vault-view.js`, `js/vault-editor.js`, `js/secret-ui.js`,
+  `css/vault.css`: Modelos de dados, lista, editor, controles de segredos e estilos de Senhas e Chaves.
+- `js/vault-templates.js`: modelos prontos e criação de blocos traduzidos.
+- `js/password-generator.js`, `js/vault-generator.js`: geração de senhas e controles do editor.
+- `js/vault-history.js`: desfazer e refazer em memória no editor de senhas.
 - `js/folder-*.js`, `css/folder.css`: pasta do cofre da extensão (handle e
   permissão, prazos de leitura, candidatos, gravação/conferência, reconciliação,
   preservação, estado e telas).
@@ -154,6 +159,26 @@ concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
 importado como próximo pai. Exportações manuais e gravações na pasta do cofre
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação
 manual não faz merge nem protege contra rollback.
+
+## Senhas e Chaves
+
+- **Novo item** oferece um item em branco e modelos para servidor, banco de
+  dados, chave de API, SSH, login web e Cloudflare R2 / S3. Os rótulos usam o
+  idioma atual. Adicione conteúdo ou edite os rótulos para salvar o item.
+- Use as estrelas do editor para escolher um campo principal em cada classe,
+  pública ou secreta. O principal público aparece no subtítulo, e o card oferece
+  cópia rápida para cada classe. O KeepLocal tenta limpar a área de transferência
+  após 20 segundos. Histórico e sincronização entre dispositivos podem reter
+  valores copiados.
+- **Gerar** num campo secreto começa em 24 caracteres, ajustável entre 8 e 128.
+  Selecione as classes e escolha se quer evitar caracteres parecidos.
+  Substituir um valor existente requer confirmação.
+- O editor guarda 50 passos de desfazer em memória. Use os botões ou Ctrl/Cmd+Z
+  e Ctrl/Cmd+Shift+Z fora de campos de texto. Nos campos, o navegador controla
+  o desfazer. Fechar o editor ou bloquear apaga o histórico.
+- **Bloqueio da seção** oferece o padrão de cinco minutos, dois minutos ou um
+  minuto de inatividade enquanto a seção ou um item está aberto. A preferência
+  fica neste navegador. Nas demais telas, o prazo é de cinco minutos.
 
 ## Pasta do cofre (só na extensão)
 

@@ -102,3 +102,94 @@ test('D1.1 field privacy defaults to secret and honors explicit overrides',()=>{
   assert.equal(isSecretField(field({label:'Host',secret:true})),true);
   assert.equal(isSecretField({kind:'text',label:'Senha'}),false);
 });
+
+test('E1 vault templates use valid fresh blocks and infer secrecy',async()=>{
+  const {createVaultTemplate,VAULT_TEMPLATE_IDS}=await import('../../js/vault-templates.js');
+  const {validVaultBlocks,isSecretField}=await import('../../js/vault-model.js');
+  const {UUID}=await import('../../js/note-model.js');
+  for(const id of VAULT_TEMPLATE_IDS){
+    const first=createVaultTemplate(id),second=createVaultTemplate(id);
+    assert.ok(validVaultBlocks(first,UUID));
+    assert.deepEqual(first.map(({id,...block})=>block),second.map(({id,...block})=>block));
+    assert.equal(new Set([...first,...second].map(block=>block.id)).size,first.length+second.length);
+    assert.ok(first.every(block=>!Object.hasOwn(block,'secret')));
+  }
+  assert.equal(createVaultTemplate('ssh').find(block=>block.multiline).label,'Private key');
+  assert.ok(isSecretField(createVaultTemplate('ssh').find(block=>block.multiline)));
+});
+
+test('E2 principal fields use their own secrecy class and legacy order',async()=>{
+  const {principalField,toggleVaultPrimary,vaultSubtitle}=await import('../../js/vault-model.js');
+  const blocks=[field({label:'Host',value:'first'}),field({label:'User',value:'second',primary:true}),
+    field({label:'Password',value:'redacted'}),field({label:'Token',value:'other secret',primary:true})];
+  assert.equal(principalField(blocks,false),blocks[1]);
+  assert.equal(principalField(blocks,true),blocks[3]);
+  assert.equal(vaultSubtitle({blocks}),'second');
+  toggleVaultPrimary(blocks,blocks[0].id);
+  assert.equal(blocks[1].primary,undefined);
+  assert.equal(blocks[3].primary,true);
+  blocks[0].secret=true;
+  assert.equal(principalField(blocks,true),blocks[0]);
+  assert.equal(vaultSubtitle({blocks}),'second');
+  assert.equal(principalField(blocks.slice(2,3),true),blocks[2]);
+  toggleVaultPrimary(blocks,blocks[0].id);
+  assert.equal(principalField(blocks,true),blocks[3]);
+});
+
+test('E3 generated passwords enforce limits, chosen classes and similar-character exclusions',async()=>{
+  const {generatePassword}=await import('../../js/password-generator.js');
+  for(const length of [7,129,8.5,'24',NaN])assert.throws(()=>generatePassword({length}),RangeError);
+  assert.throws(()=>generatePassword({upper:false,lower:false,digits:false,symbols:false}),RangeError);
+  assert.equal(generatePassword().length,24);
+  for(const options of [null,42,[],{upper:'true'}])assert.throws(()=>generatePassword(options),TypeError);
+  const symbols='!#$%&()*+,-./:;<=>?@[]^_{|}~';
+  for(const length of [8,128]){
+    const value=generatePassword({length,avoidSimilar:true});
+    assert.equal(value.length,length);
+    for(const group of [/[A-Z]/,/[a-z]/,/[0-9]/])assert.match(value,group);
+    assert.ok([...value].some(c=>symbols.includes(c)));
+    assert.ok([...value].every(c=>/[a-z0-9]/i.test(c)||symbols.includes(c)));
+    assert.doesNotMatch(value,/[0Oo1lI|]/);
+  }
+  assert.match(generatePassword({upper:false,lower:false,symbols:false}),/^\d{24}$/);
+});
+
+test('E3 sampling rejects the nonuniform tail and shuffle consumes bounded uniform draws',async()=>{
+  const {uniformIndex,generatePassword}=await import('../../js/password-generator.js');
+  let cursor=0;
+  const walk=bytes=>{assert.equal(bytes.constructor,Uint8Array);bytes[0]=cursor++%256;return bytes;};
+  for(const size of [3,26,90,128]){
+    cursor=0;
+    const counts=Array(size).fill(0),usable=256-(256%size);
+    for(let i=0;i<usable;i++)counts[uniformIndex(size,walk)]++;
+    assert.deepEqual(counts,Array(size).fill(usable/size));
+    assert.equal(uniformIndex(size,walk),0);
+    assert.equal(cursor,257);
+  }
+  let draws=0;
+  const bytes=[0,1,2,3,4,5,6,7,0,255,0,0,0,0,0,0];
+  const sequence=target=>{assert.ok(draws<bytes.length);target[0]=bytes[draws++];return target;};
+  const value=generatePassword({length:8,upper:false,lower:false,symbols:false},sequence);
+  assert.equal(value,'12345670');
+  assert.equal(draws,16);
+});
+
+test('E4 vault history keeps 50 steps, truncates redo and clears private snapshots',async()=>{
+  const {createVaultHistory}=await import('../../js/vault-history.js');
+  const initial={title:'0',blocks:[field({label:'Password',value:'fictional-history'})]};
+  const history=createVaultHistory(initial);
+  for(let index=1;index<=51;index++)history.record({...initial,title:String(index)});
+  let count=0,last;
+  while(history.canUndo()){last=history.undo();count++;}
+  assert.equal(count,50);
+  assert.equal(last.title,'1');
+  last.blocks[0].value='mutated';
+  assert.equal(history.redo().blocks[0].value,'fictional-history');
+  history.record({...initial,title:'branch',pinned:true});
+  assert.equal(history.canRedo(),false);
+  assert.ok(!Object.hasOwn(history.undo(),'pinned'));
+  history.clear();
+  assert.equal(history.canUndo(),false);
+  assert.equal(history.canRedo(),false);
+  assert.equal(history.undo(),null);
+});

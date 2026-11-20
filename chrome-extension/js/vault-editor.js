@@ -2,8 +2,11 @@ import {createEditSession} from './edit-session.js';
 import {validateNote} from './note-model.js';
 import {t} from './i18n.js';
 import {element, vaultButton} from './vault-view.js';
-import {isSecretField, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
+import {isSecretField, toggleVaultPrimary, MAX_VAULT_BLOCKS, MAX_VAULT_LABEL, MAX_VAULT_VALUE} from './vault-model.js';
 import {SECRET_MASK} from './secret-ui.js';
+import {renderVaultGenerator} from './vault-generator.js';
+import {createVaultHistory} from './vault-history.js';
+import {createVaultTemplate} from './vault-templates.js';
 
 function privateInput(tag, label, maxLength) {
   const input = element(tag);
@@ -22,18 +25,23 @@ function newBlock(kind) {
   return base;
 }
 
-export function newVaultItem(order) {
+export function newVaultItem(order,blocks=[newBlock('field')]) {
   const now = Date.now();
   return {
-    id:crypto.randomUUID(), type:'vault', title:'', blocks:[newBlock('field')],
+    id:crypto.randomUUID(), type:'vault', title:'', blocks,
     color:'default', pinned:false, labels:[], createdAt:now, updatedAt:now,
     deletedAt:null, archivedAt:null, order,
   };
 }
 
-export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, onDirty, onPin}) {
+export function renderVaultEditor(modal, item, {signal, isNew, template, onClose, onSave, onDirty, onPin}) {
   let draft = structuredClone(item);
+  const history=createVaultHistory(template?{title:'',blocks:createVaultTemplate('blank')}:item);
+  if(template)history.record(item);
+  signal.addEventListener('abort',history.clear,{once:true});
+  const preset = new Map(isNew?item.blocks.map(block=>[block.id,block]):[]);
   const secretCleanups = new Set();
+  let openGenerator=null;
   const panel = element('section', 'panel-form vault-editor');
   panel.setAttribute('translate', 'no');
   const header = element('header', 'panel-header');
@@ -52,16 +60,25 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
   const blocks = element('div', 'vault-editor-blocks');
   const toolbar = element('div', 'vault-card-actions');
   const addButtons = new Map();
+  const undo=vaultButton(t('toast.undo'),()=>applyHistory('undo'));
+  undo.dataset.vaultUndo='';
+  const redo=vaultButton(t('vault.redo'),()=>applyHistory('redo'));
+  redo.dataset.vaultRedo='';
 
   const capture = () => structuredClone(draft);
   const session = createEditSession({
     capture, onDirty,
     save: async snapshot => {
       if (isNew && !snapshot.title.trim() &&
-          !snapshot.blocks.some(block => block.value || block.label?.trim())) return true;
+          !snapshot.blocks.some(block => {
+            const initial=preset.get(block.id);
+            return (block.value&&block.value!==initial?.value) ||
+              (block.label?.trim()&&block.label.trim()!==initial?.label?.trim());
+          })) return true;
       const saved = await onSave(snapshot);
       if (saved && !signal.aborted) {
         isNew = false;
+        preset.clear();
         syncPin();
       }
       return saved;
@@ -76,7 +93,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     pin.setAttribute('aria-pressed', String(draft.pinned));
   }
 
-  function update(change) {
+  function update(change,{typing=false,replaying=false}={}) {
     if (signal.aborted) return false;
     const next = capture();
     change(next);
@@ -86,10 +103,36 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
       status.textContent = t(error.code === 'note.tooLarge' ? 'note.tooLarge' : 'note.invalid');
       return false;
     }
+    if(!typing&&!replaying)history.record(draft);
     draft = next;
+    if(!typing&&!replaying)recordHistory();
     status.textContent = '';
     session.schedule();
     return true;
+  }
+
+  function syncHistoryButtons() {
+    undo.disabled=!history.canUndo();
+    redo.disabled=!history.canRedo();
+  }
+
+  function recordHistory() {
+    if(signal.aborted)return;
+    history.record(draft);
+    syncHistoryButtons();
+  }
+
+  function applyHistory(direction) {
+    if(signal.aborted)return;
+    recordHistory();
+    const state=history[direction]();
+    if(state&&update(next=>Object.assign(next,state),{replaying:true})){
+      title.value=draft.title;
+      drawBlocks();
+      syncHistoryButtons();
+      if(document.activeElement===undo&&undo.disabled)redo.focus();
+      if(document.activeElement===redo&&redo.disabled)undo.focus();
+    }
   }
 
   function scrubSecrets() {
@@ -101,7 +144,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     const row = element('div', 'vault-block');
     row.dataset.vaultBlock = block.kind;
     const get = () => draft.blocks.find(current => current.id === id);
-    const patch = change => update(next => change(next.blocks.find(current => current.id === id)));
+    const patch = (change,options) => update(next => change(next.blocks.find(current => current.id === id)),options);
     const controls = element('div', 'vault-card-actions');
     const move = (direction, distance) => {
       const button = vaultButton(t('vault.move' + direction), () => {
@@ -139,6 +182,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     let revealing = false;
     let reveal;
     let toggleSecret;
+    let generate;
 
     function syncValue() {
       const current = get();
@@ -152,6 +196,8 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
         toggleSecret.textContent = (secret ? '🔒 ' : '🔓 ') + t('vault.secret');
         toggleSecret.setAttribute('aria-pressed', String(secret));
         reveal.hidden = !secret;
+        generate.hidden = !secret;
+        if(!secret&&row.contains(openGenerator))closeGenerator();
         reveal.textContent = t(revealing ? 'vault.hide' : 'vault.reveal');
         reveal.setAttribute('aria-pressed', String(revealing));
       }
@@ -173,9 +219,10 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
       const fieldLabel = element('label', 'vault-form-field', t('vault.fieldLabel'));
       fieldLabel.append(label);
       label.addEventListener('input', () => {
-        if (!patch(current => { current.label = label.value; })) label.value = get().label;
+        if (!patch(current => { current.label = label.value; },{typing:true})) label.value = get().label;
         syncValue();
       });
+      label.addEventListener('blur',recordHistory);
       toggleSecret = vaultButton(t('vault.secret'), () => {
         patch(current => { current.secret = !isSecretField(current); });
         syncValue();
@@ -198,7 +245,37 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
       reveal.addEventListener('pointerdown', event => {
         if (document.activeElement === value) event.preventDefault();
       });
-      controls.prepend(toggleSecret, multiline, reveal);
+      const primary=vaultButton(t('vault.primary'),()=>{
+        if(update(next=>toggleVaultPrimary(next.blocks,id))){
+          drawBlocks();
+          blocks.children[index]?.querySelector('[data-vault-primary]')?.focus();
+        }
+      });
+      primary.dataset.vaultPrimary='';
+      primary.textContent=block.primary?'★':'☆';
+      primary.setAttribute('aria-label',t('vault.primary'));
+      primary.setAttribute('aria-pressed',String(!!block.primary));
+      generate=vaultButton(t('vault.generate'),()=>{
+        closeGenerator();
+        const view=renderVaultGenerator({
+          signal,
+          needsConfirmation:()=>!!get()?.value,
+          onFill:generated=>{
+            if(!isSecretField(get())||!patch(current=>{current.value=generated;}))return false;
+            closeGenerator();
+            revealing=false;
+            value.focus();
+            syncValue();
+            return true;
+          },
+          onCancel:()=>{closeGenerator();generate.focus();},
+        });
+        openGenerator=view.form;
+        row.append(openGenerator);
+        view.focus();
+      });
+      generate.dataset.vaultGenerate='';
+      controls.prepend(toggleSecret, multiline, primary, reveal, generate);
       row.append(fieldLabel);
       secretCleanups.add(scrubValue);
       value.addEventListener('focus', syncValue);
@@ -209,14 +286,21 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
         scrubValue();
         return;
       }
-      if (!patch(current => { current.value = value.value; })) syncValue();
+      if (!patch(current => { current.value = value.value; },{typing:true})) syncValue();
     });
+    value.addEventListener('blur',recordHistory);
     syncValue();
     row.append(valueLabel, controls);
     return row;
   }
 
+  function closeGenerator() {
+    openGenerator?.remove();
+    openGenerator=null;
+  }
+
   function drawBlocks() {
+    closeGenerator();
     scrubSecrets();
     secretCleanups.clear();
     blocks.replaceChildren(...draft.blocks.map(renderBlock));
@@ -224,8 +308,16 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
   }
 
   title.addEventListener('input', () => {
-    if (!update(next => { next.title = title.value; })) title.value = draft.title;
+    if (!update(next => { next.title = title.value; },{typing:true})) title.value = draft.title;
   });
+  title.addEventListener('blur',recordHistory);
+  panel.addEventListener('keydown',event=>{
+    if(!(event.ctrlKey||event.metaKey)||event.altKey||event.target.closest('input,textarea,select,[contenteditable]'))return;
+    const key=event.key.toLowerCase();
+    if(key!=='z'&&key!=='y')return;
+    event.preventDefault();
+    applyHistory(key==='y'||event.shiftKey?'redo':'undo');
+  },{signal});
   for (const [kind, key] of [['field', 'addField'], ['text', 'addText'], ['divider', 'addDivider']]) {
     const button = vaultButton(t('vault.' + key), () => {
       if (update(next => { next.blocks.push(newBlock(kind)); })) {
@@ -237,12 +329,13 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     addButtons.set(kind, button);
     toolbar.append(button);
   }
-  toolbar.append(pin);
+  toolbar.append(pin,undo,redo);
   body.append(titleLabel, status, blocks, toolbar);
   header.append(heading, close);
   panel.append(header, body);
   modal.replaceChildren(panel);
   syncPin();
+  syncHistoryButtons();
   drawBlocks();
 
   function mask() {
@@ -259,8 +352,11 @@ export function renderVaultEditor(modal, item, {signal, isNew, onClose, onSave, 
     ...session, id:item.id, mask,
     applyFields(fields) { Object.assign(draft, fields); syncPin(); },
     cleanup() {
+      history.clear();
+      closeGenerator();
       scrubSecrets();
       for (const input of panel.querySelectorAll('input,textarea')) input.value = '';
+      preset.clear();
       draft.blocks = [];
       draft.title = '';
       secretCleanups.clear();

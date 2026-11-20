@@ -1,8 +1,9 @@
+import {createVaultTemplate,VAULT_TEMPLATE_IDS} from './vault-templates.js';
 import {newVaultItem, renderVaultEditor} from './vault-editor.js';
 import {createSecretUI} from './secret-ui.js';
 import {focusPanel} from './form-ui.js';
 import {renderVaultCard, renderVaultSection, renderVaultDetail} from './vault-view.js';
-import {confirmDialog,closeDialogs} from './dialogs.js';
+import {choiceDialog,confirmDialog,closeDialogs} from './dialogs.js';
 import { createNoteWriteQueue,editorFields,metadataFields } from './note-write-queue.js';
 import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-actions.js';
 import { requestPersistence } from './storage.js';
@@ -14,7 +15,7 @@ import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
-import { getSessionVaultId, setSessionVaultId, setSessionSignal } from './session.js';
+import { getSessionVaultId, setSessionVaultId, setSessionSignal, setIdleTimeout } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
@@ -52,6 +53,7 @@ let cryptoKey = null;
 let currentView = 'notes'; // notes | archive | trash | label
 let currentLabel = null;
 let vaultLayout = 'grid';
+let vaultLockMinutes=null;
 let vaultLabel = null;
 let vaultClipboardWarningDismissed = false;
 let sidebarCollapsed = false;
@@ -162,10 +164,13 @@ async function showApp({reload=true}={}) {
   if(generation!==sessionGeneration)return;
   await refreshBackupState();
   if(reload || !isReadOnly()){
-    const [layout, warningDismissed] = await Promise.all([getMeta('vaultLayout'), getMeta('vaultClipboardWarningDismissed')]);
+    const [layout, warningDismissed, lockMinutes] = await Promise.all([
+      getMeta('vaultLayout'),getMeta('vaultClipboardWarningDismissed'),getMeta('vaultLockMinutes'),
+    ]);
     if(generation!==sessionGeneration)return;
     vaultLayout = layout === 'list' ? 'list' : 'grid';
     vaultClipboardWarningDismissed = warningDismissed === true;
+    vaultLockMinutes=lockMinutes===1||lockMinutes===2?lockMinutes:null;
   }
   renderCurrentView();
   if(folderLoaded){
@@ -223,7 +228,7 @@ async function configureFolderSync({admit=false,selected}={}) {
           const {preserved,replacedEmptyMain}=await sync.resolve(review,choice,name);
           await showApp();
           if(!signal.aborted){
-            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}));
+            if(preserved.length)showToast(t('folder.preserved',{files:preserved.join(', ')}),undefined,undefined,12000);
             if(replacedEmptyMain)showToast(t('folder.emptyMainReplaced'));
           }
         },
@@ -644,7 +649,8 @@ function renderCurrentView() {
         query: vaultSearch,
         selectedLabel: vaultLabel, onLabel: label => { vaultLabel=label; renderCurrentView(); },
         layout: vaultLayout, onLayout: setVaultLayout, ...vaultCardActions,
-        onNew: () => openVaultEditor(newVaultItem(Math.min(0,...notes.map(note=>note.order))-1),true),
+        lockMinutes:vaultLockMinutes,onLockMinutes:isReadOnly()?null:setVaultLockMinutes,
+        onNew: chooseNewVaultItem,
         onDismissWarning: vaultClipboardWarningDismissed ? null : dismissVaultClipboardWarning,
       });
       break;
@@ -682,10 +688,12 @@ function renderCurrentView() {
     warning.append(recover);document.getElementById('main-inner').prepend(warning);
   }
   updateSidebarLabels();
+  applyVaultIdleTimeout();
 }
 
 const vaultCardActions = {
   open: openNoteModal,
+  copyField: value=>secretUI.copy(value,sessionController?.signal),
   async change(item, intent) {
     if (await changeFromUI(item, intent)) renderCurrentView();
   },
@@ -721,6 +729,27 @@ async function setVaultLayout(layout) {
     }
   } catch {
     if (!signal.aborted) showToast(t('note.saveFailed'));
+  }
+}
+
+function applyVaultIdleTimeout() {
+  const inside=currentView==='vault'||document.querySelector('#modal-overlay.open :is(.vault-detail,.vault-editor)');
+  setIdleTimeout(inside&&vaultLockMinutes?vaultLockMinutes*60_000:undefined);
+}
+
+async function setVaultLockMinutes(minutes) {
+  const signal=scope?.signal;
+  if(!signal||signal.aborted||isReadOnly()||![null,1,2].includes(minutes))return;
+  try {
+    await saveMeta('vaultLockMinutes',minutes);
+    if(signal.aborted)return;
+    vaultLockMinutes=minutes;
+    applyVaultIdleTimeout();
+  } catch {
+    if(!signal.aborted){
+      renderCurrentView();
+      showToast(t('note.saveFailed'));
+    }
   }
 }
 
@@ -1104,7 +1133,7 @@ async function openNoteModal(note) {
   return note;
 }
 
-function showVaultModal(item, {editor = false, isNew = false} = {}) {
+function showVaultModal(item, {editor = false, isNew = false, template = false} = {}) {
   const modal = document.getElementById('modal-card');
   const controller = new AbortController();
   modalController = controller;
@@ -1112,7 +1141,7 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
   const trigger = () => document.querySelector(`[data-vault-open="${item.id}"]`) || document.getElementById('vault-new-item');
   if (editor) {
     activeEdit = renderVaultEditor(modal, item, {
-      signal, isNew, onClose: closeModal,
+      signal, isNew, template, onClose: closeModal,
       onSave: draft => saveFromUI(draft, {mergeDraft:false}),
       onDirty: dirty => setDraftDirty('editor',dirty),
       onPin: draft => changeFromUI(draft, next => { next.pinned = !next.pinned; }),
@@ -1129,11 +1158,22 @@ function showVaultModal(item, {editor = false, isNew = false} = {}) {
     initial: editor ? '[data-vault-title]' : '#modal-close',
   });
   document.getElementById('modal-overlay').classList.add('open');
+  applyVaultIdleTimeout();
 }
 
-async function openVaultEditor(item, isNew = false) {
+async function chooseNewVaultItem() {
+  if(isReadOnly())return;
+  const signal=scope.signal;
+  const choices=VAULT_TEMPLATE_IDS.map(value=>({value,label:t('vault.template.'+value)}));
+  const selected=await choiceDialog(t('vault.templatePrompt'),choices,{title:t('vault.new'),signal});
+  if(!selected||signal.aborted)return;
+  const item=newVaultItem(Math.min(0,...notes.map(note=>note.order))-1,createVaultTemplate(selected));
+  await openVaultEditor(item,true,selected!=='blank');
+}
+
+async function openVaultEditor(item, isNew = false, template = false) {
   if (!await closeModal() || !cryptoKey) return;
-  showVaultModal(item, {editor:true, isNew});
+  showVaultModal(item, {editor:true, isNew, template});
 }
 
 function openTextModal(note) {
@@ -2228,7 +2268,7 @@ function initTaskDragDrop(note) {
 
 // --- Toast ---
 
-function showToast(message, actionText, onAction) {
+function showToast(message, actionText, onAction, duration=5000) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
@@ -2251,7 +2291,7 @@ function showToast(message, actionText, onAction) {
   scope.later(() => {
     toast.classList.add('toast-out');
     scope.later(() => toast.remove(), 200);
-  }, 5000);
+  }, duration);
 }
 
 // --- Confirm Dialog ---

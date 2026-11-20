@@ -114,3 +114,17 @@ typed word, and invalidate the receipt on record, preference or unrelated-record
 changes. The last check injects a change after hashing the old snapshot and proves
 that the deletion transaction checks all records again. Todo metadata failures
 are covered separately from the task draft/retry model documented in the README.
+
+## Passwords & Keys tools
+
+The HTTP browser checks exercise template selection by keyboard, primary fields,
+quick copy, the generator, undo and a shorter section lock. The extension
+runner checks the preservation toast duration and keeps the local idle
+preference out of manual and folder backups. The read-only test counts
+IndexedDB transactions and folder writes.
+
+The final scan observes DOM text and attributes, search, toasts, console and
+unencrypted metadata and browser storage. An editor value is allowed only
+while its own input is focused. The session test advances a disposable
+browser's clock through CDP, with no change to the production clock. Run the
+complete browser suite three consecutive times at closing with CPU affinity 0–3.

@@ -4,7 +4,7 @@ import { deepClone } from './utils.js';
 
 const MAX_HISTORY = 50;
 
-export function createHistory(initialState) {
+export function createHistory(initialState,maxStates=MAX_HISTORY) {
   const states = [deepClone(initialState)];
   let pointer = 0;
 
@@ -15,7 +15,7 @@ export function createHistory(initialState) {
       // Remove any redo states beyond current pointer
       states.splice(pointer + 1);
       states.push(deepClone(state));
-      if (states.length > MAX_HISTORY) states.shift();
+      if (states.length > maxStates) states.shift();
       else pointer++;
     },
 
