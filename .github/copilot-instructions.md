@@ -14,12 +14,15 @@ and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`
 preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
 attempt), `exportRev` and `exportParent` (export lineage). The extension vault folder adds
 `syncFolder` (directory handle), `folderConnectionId`, `folderSyncedHash`,
-`folderSyncedRevision`, `folderSeenRev` and `folderWrittenAt`. An existing salt without an encrypted
+`folderSyncedRevision`, `folderSeenRev` and `folderWrittenAt`. Local-only vault preferences
+(`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
 Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
 5-minute deadline is checked on intervals, focus and visibility, with activity
-throttled to 1 second. Never persist a key or password. A typed reset is explicit.
+throttled to 1 second. While the vault section or a vault item is open, the local
+`vaultLockMinutes` preference (1 or 2) shortens it through `setIdleTimeout`, which never
+moves the last activity. Never persist a key or password. A typed reset is explicit.
 New passphrases require 14 characters, no composition rules, an embedded denylist and sequence/pattern checks; recommend 5+ randomly chosen words.
 
 Backup v2 is raw `[salt16][iv12][ciphertext+tag]`, no plaintext magic/header.
@@ -67,6 +70,12 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   never reach card/list/search/toast/console DOM, storage or meta. Vault items are
   excluded from note views, archive and the label manager; `meta.vaultLayout`
   stays local and is not exported.
+- `vault-templates.js`, `password-generator.js`, `vault-generator.js`, `vault-history.js`:
+  translated item templates that never write `secret`; primary field per secrecy
+  class (`principalField`/`toggleVaultPrimary` in `vault-model.js`) with card quick
+  copy (label only in the DOM); generator (default 24, 8–128, rejection sampling,
+  Fisher–Yates, options kept per session in memory); 50-step in-memory undo/redo
+  applied through the note queue and cleared on close, lock or item switch.
 - Vault folder, **extension only** (`chrome-extension://`; the HTTP SPA keeps manual
   backup and shows no folder UI; fixed ID via manifest `key`):
   - `folder-store.js`: support, picker, handle in meta, permission (first call of
@@ -89,7 +98,7 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     scheduling, status text (never "synced"/"cloud"), blocking screen, read-only
     banner and settings. Read-only mode is enforced in `db.js` (0 writes).
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
-- `dialogs.js`, `form-ui.js`: themed promise dialogs, keyboard/focus and shared form presentation.
+- `dialogs.js`, `form-ui.js`: themed promise dialogs (confirm, typed word, choices), keyboard/focus and shared form presentation.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
 
 All new app user strings go through `t()/tp()` with EN and pt-BR keys. Editor
@@ -130,8 +139,9 @@ Mega account or synchronized data folder in tests. The runner also loads the rea
 unpacked MV3 extension in a fresh profile; folder tests use OPFS directories and
 CDP-installed picker/permission substitutes.
 
-Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H (per-note merge
-and tombstones, rotating copies, other-salt folders, read-only recovery from
-another folder, photos, recovery tool/kit) waits for explicit owner authorization.
-Phase 4 core (Etapa D) is merged; Etapa E (templates, quick copy/star, generator,
-section undo/timeout) waits for an owner request.
+Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the owner's
+roadmap, one sub-stage per owner request: H1 (standalone recovery tool and
+emergency kit), H2 (per-note merge and tombstones, other-salt folders, rotating
+copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
+E (templates, primary fields and quick copy, generator, editor undo, section lock)
+are merged.

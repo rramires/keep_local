@@ -6,7 +6,7 @@ O arquivo importado acima é o **contrato técnico** (formato dos dados, módulo
 
 ## Contexto
 
-Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. **Na extensão**, a pasta do cofre (Fase 3, Etapas F–G3, mesclada) grava uma cópia cifrada numa pasta sincronizada (Mega) e confere a pasta ao entrar; o SPA servido por HTTP tem só o **backup manual** (`.keeplocal`). A Etapa H da Fase 3 (merge por nota e o resto) **está bloqueada**. A seção "Senhas e Chaves" (Fase 4) tem o **núcleo mesclado** (Etapa D) e o restante (Etapa E) aguarda pedido do dono (ver "Decisões aprovadas").
+Cópia do Google Keep, 100% no navegador (SPA e extensão Chrome MV3), notas cifradas (AES-256-GCM, PBKDF2) no IndexedDB. O dono quer usá-la para guardar senhas e chaves de servidores. **Na extensão**, a pasta do cofre (Fase 3, Etapas F–G3, mesclada) grava uma cópia cifrada numa pasta sincronizada (Mega) e confere a pasta ao entrar; o SPA servido por HTTP tem só o **backup manual** (`.keeplocal`). A Etapa H da Fase 3 segue o roteiro do dono (H1 → H2 → H3, uma por vez, cada uma com pedido dele). A seção "Senhas e Chaves" (Fase 4) está **mesclada**: núcleo (Etapa D) e ferramentas (Etapa E) (ver "Decisões aprovadas").
 
 O dono escreve em **português (pt-BR)**. Respostas e relatórios em português; **código, commits e identificadores em inglês**; todo texto de interface com chaves **EN e pt-BR** (`t()`/`tp()`).
 
@@ -52,10 +52,11 @@ O dono escreve em **português (pt-BR)**. Respostas e relatórios em português;
    - **Onde nunca aparece:** DOM de card/lista/grade/busca/toast/console, armazenamento e meta. Aparece só no campo revelado (com auto-ocultar) e no `value` do campo em edição.
    - **Campo nasce secreto:** `isSecretField = secret ?? (secretLabel || !publicLabel)`. Só fica público, automaticamente, um rótulo claramente público (palavra inteira).
    - **Quem grava a flag:** só o cadeado grava `secret`, e a escolha manual vence o rótulo.
+   - **Ferramentas:** a cópia rápida do card leva só o rótulo ao DOM; o gerador guarda só as opções (memória da sessão); o desfazer do editor fica só em memória e some ao fechar, bloquear ou trocar de item.
 10. **Resolver conflito da pasta nunca destrói a única cópia de uma versão:** o lado que perde vai antes para `keeplocal-preserved/` (relido e conferido); se a preservação falhar, nada é substituído. O app nunca limpa essa subpasta e a leitura olha só a raiz.
 11. **Pasta do cofre:** somente leitura = **0 escritas** (pasta e IndexedDB) fora de uma escolha explícita; toda leitura da pasta tem prazo (`folder-timeout.js`) e uma pasta que não responde leva à tela de bloqueio, nunca a um login travado; a decisão usa o `rev` cifrado, nunca a data do arquivo.
 
-## Decisões aprovadas (Fase 3: F–G3 mescladas, H bloqueada; Fase 4: D mesclada, E aguarda)
+## Decisões aprovadas (Fase 3: F–G3 mescladas, H em andamento pelo roteiro; Fase 4: D e E mescladas)
 
 Detalhe completo no plano (Fases 3 e 4). Resumo:
 
@@ -66,15 +67,16 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 - Cabeça = cópia válida de maior **`rev` dentro do payload cifrado** (nunca a data do arquivo); lacunas de `rev` são normais. Decisão por cofre inteiro (push/pull/adopt; conflito, rollback, outra senha e cópia ilegível **param e perguntam**). Primeira conexão: 0 registros locais → pull; conjunto idêntico → adopt; o resto → conflito.
 - **Pasta indisponível bloqueia** com: tentar de novo / escolher outra pasta / **abrir só leitura** / começar do zero / sair. Pasta que não responde (R5) → tela `unresponsive` (prazos de 15 s metadados, 60 s por arquivo); gravações ainda sem prazo.
 - Sincronização só ativa com **0 registros ilegíveis**. Gravar na pasta não marca "backup feito".
-- **Etapa H (bloqueada):** merge por nota e *tombstones*, cópias rotativas, salt diferente (senha trocada em outro PC), abrir de outra pasta como **recuperação somente leitura**, fotos com trailer (T3.8, opcional) e kit/ferramenta de recuperação independente (T3.9).
+- **Etapa H (roteiro do dono, 2026-11-19; uma subetapa por vez, cada uma com pedido dele):** H1 = ferramenta de recuperação independente e kit de emergência (T3.9); H2 = merge por nota e *tombstones*, salt diferente (senha trocada em outro PC) e cópias rotativas; H3 = fotos com trailer (T3.8; só **cópias dedicadas**, nunca as fotos originais; testes nunca usam a pasta real de fotos do dono).
 
-**Fase 4 — "Senhas e Chaves"** (núcleo = Etapa D, mesclado; Etapa E = T4.7 modelos, T4.8 cópia rápida/estrela, T4.9 gerador, T4.11 desfazer/timeout, aguarda pedido do dono)
+**Fase 4 — "Senhas e Chaves"** (núcleo = Etapa D e ferramentas = Etapa E, mescladas)
 - Nota `type: 'vault'` com **blocos** livres (texto, campo, divisor); campo com flag `secret` e `multiline`. O campo **nasce secreto** (decisão do dono, 2026-11-18, opção A do D-B1). Fica público automaticamente só com rótulo claramente público (host, usuário, url, e-mail, porta, banco, bucket, região, ip, conta…). Termo sensível vence termo público. O cadeado manual vence o rótulo.
 - Itens `vault` não têm "arquivar"; usam a Lixeira comum. `meta.vaultLayout` (lista/grade) é **só local** e não entra no export. Blocos de texto ficam fora da busca.
 - Segredo **nunca** no DOM de card/lista/busca/toast; revelar com auto-ocultar; copiar com limpeza do clipboard; busca só em título, tags, rótulos e campos **não secretos**; tags isoladas por seção.
-- Visões lista ⇄ grade guardada por seção; modo leitura por padrão; modelos (Servidor, Banco, API key, SSH, Login web, Cloudflare R2/S3); gerador de senha.
+- Visões lista ⇄ grade guardada por seção; modo leitura por padrão.
+- **Etapa E:** modelos (Em branco, Servidor, Banco, API key, SSH, Login web, Cloudflare R2/S3) com rótulos traduzidos e **sem gravar `secret`**; estrela = campo principal por classe (público/secreto), subtítulo nunca secreto e cópia rápida no card; gerador (padrão 24, 8–128, amostragem por rejeição, sem espaço/aspas/crase/barra invertida); desfazer/refazer do editor (50 passos, em memória, aplicado pela fila); bloqueio da seção em 1 ou 2 min (`meta.vaultLockMinutes`, só local, não gravado em somente leitura) via `setIdleTimeout`, que nunca move a última atividade.
 
-## Estado (2026-11-19)
+## Estado (2026-11-20)
 
 - Fases 0–2c **mescladas na `master`** (merge `--no-ff`, `4c8391b`), revisadas de forma independente a cada etapa. Branch e worktree dessa etapa já foram removidos.
 - **Ainda não há dados reais.** A versão antiga só foi usada em testes (informado pelo dono em 2026-11-17); o dono **avisa quando for usar de verdade**. Até lá, **não** exigir migração com cópia, troca de senha por causa do verificador antigo nem limpeza de backups antigos do Mega.
@@ -83,7 +85,8 @@ Detalhe completo no plano (Fases 3 e 4). Resumo:
 - **Compatibilidade removida por autorização do dono:** não há importação JSON v1 nem migração de login antigo. Cofre com salt e sem `keyCheck` é recusado com instrução de reset explícito, sem apagar dados automaticamente. O gate usa somente dados v2 fabricados, sem checkout-base. O perfil 2 binário continua imutável.
 - **Etapa D (Fase 4, núcleo) + D1 mesclada na `master`** (merge `--no-ff` `3ac58c8`), revisada de forma independente: modelo `vault`, seção lista/grade, detalhe em leitura, editor de blocos pela fila, revelar/copiar com limpeza do clipboard, busca só em campos públicos, labels isoladas e campo que nasce secreto. Pareceres: `_temp/parecer-revisao-etapa-d-claude.md` e `_temp/parecer-revisao-etapa-d1-claude.md`. Teste manual na extensão instalada feito no roteiro final da Fase 3.
 - **Fase 3, Etapas F+G+G1+G2+G3 mescladas na `master`** (merge `--no-ff` `a6fe87b`), revisadas de forma independente a cada etapa (`_temp/parecer-revisao-etapa-{f,g,g1,g2,g3}-claude.md`) e no roteiro manual do Windows. Gate do merge: 37 unitários, 3×129 navegador. **Pendência baixa G3-L1:** escolher a mesma pasta só troca o handle guardado se o `isSameEntry` estourar o prazo; contorno: Configurações → Desconectar → Escolher pasta.
-- A Etapa H da Fase 3 e a Etapa E da Fase 4 só começam com pedido do dono.
+- **Etapa E (Fase 4, ferramentas) mesclada na `master`** (merge `--no-ff` `7ef2201`), revisada de forma independente (`_temp/parecer-revisao-etapa-e-claude.md`; o código da `master` anterior lê o export da branch byte a byte). Gate do merge: 43 unitários, 3×139 navegador. **Detalhes pendentes para o pacote final antes do release** (decisão do dono, 2026-11-20): E-N1 ("Observações" do modelo Servidor gravado como conteúdo, deveria ser dica), E-N2 (cópia rápida aparece com valor vazio), E-N3 (seletor de bloqueio largo demais), E-O1 (com `capture:true`, rolagem interna conta como atividade).
+- **Roteiro do dono (2026-11-19):** fazer tudo antes de dados reais: H1 → H2 → H3 → revisão final + roteiro manual único (2 PCs, pen-drive, Mega) → release `v1.0.0` (tag + GitHub release com o ZIP; o dono faz o push da tag e cria o release). Cada subetapa começa com pedido do dono e termina em parada.
 
 ## Armadilhas de ferramenta
 
