@@ -1,0 +1,64 @@
+KeepLocal — Kit de emergência
+=============================
+
+Guarde num pen-drive criptografado as cópias .keeplocal mais recentes
+(arquivo da pasta do cofre e backups manuais), o ZIP da versão em uso,
+keeplocal-recovery.html, este LEIA-ME.txt e SHA256SUMS. Guarde a senha
+mestra separadamente do pen-drive.
+
+1. Ver uma cópia
+   Dê duplo clique em keeplocal-recovery.html para abrir no Chrome.
+   Escolha o .keeplocal mais recente, digite a senha daquela cópia e
+   clique em Abrir. A ferramenta só lê o arquivo e permite ler as notas
+   e revelar ou copiar um campo por vez. O histórico da área de
+   transferência (Win+V) pode reter valores copiados.
+
+2. Reinstalar o app
+   Descompacte o ZIP numa pasta local. Abra chrome://extensions, ative
+   Modo do desenvolvedor e clique em Carregar sem compactação. Escolha
+   a pasta descompactada que contém manifest.json.
+   O ID fixo da extensão é dplgmdpgehkbgphaimafofojbjhlkphm
+
+   Alternativa: abra um terminal na pasta descompactada, execute
+   python3 -m http.server --bind 127.0.0.1 8000
+   e abra http://127.0.0.1:8000 no navegador.
+
+3. Voltar a usar
+   Importe o .keeplocal pelo app. Na extensão, também é possível
+   escolher a pasta do cofre nas Configurações.
+
+Confira SHA256SUMS usando certutil -hashfile <arquivo> SHA256 no Windows
+ou sha256sum -c SHA256SUMS no Linux. Atualize o kit após mudanças
+importantes e teste a abertura de uma cópia periodicamente.
+
+KeepLocal — Emergency kit
+=========================
+
+Keep the latest .keeplocal copies (vault folder file and manual backups),
+the ZIP for the version in use, keeplocal-recovery.html, this LEIA-ME.txt
+and SHA256SUMS on an encrypted USB drive. Keep the master passphrase
+separate from the drive.
+
+1. View a copy
+   Double-click keeplocal-recovery.html to open it in Chrome. Choose the
+   latest .keeplocal file, enter the passphrase for that copy, and click
+   Open. The tool reads the file and lets you read notes and reveal or
+   copy one field at a time. Clipboard history (Win+V) can retain copies.
+
+2. Reinstall the app
+   Unzip the archive to a local folder. Open chrome://extensions, enable
+   Developer mode, and select Load unpacked. Select the folder that
+   contains manifest.json.
+   The fixed extension ID is dplgmdpgehkbgphaimafofojbjhlkphm
+
+   Alternatively, open a terminal in the unzipped folder, run
+   python3 -m http.server --bind 127.0.0.1 8000
+   and open http://127.0.0.1:8000 in the browser.
+
+3. Resume use
+   Import the .keeplocal file in the app. In the extension, you can
+   also choose a vault folder in Settings.
+
+Check SHA256SUMS with certutil -hashfile <file> SHA256 on Windows or
+sha256sum -c SHA256SUMS on Linux. Update the kit after important changes
+and periodically use the tool to open a backup.

@@ -23,3 +23,15 @@ assert.deepEqual(JSON.parse(execFileSync('unzip',['-p',zip,'manifest.json'],{enc
 
 assert.equal(manifest.version,'1.0.0');assert.deepEqual(manifest.permissions,[]);
 console.log('PASS T2.18 extension archive contains runtime assets and excludes vendor support files');
+
+const kitFiles = ['keeplocal-recovery.html', 'LEIA-ME.txt'];
+for (const name of kitFiles) {
+  assert.deepEqual(readFileSync(`dist/${name}`), readFileSync(`recovery/${name}`), `${name} differs from its source`);
+}
+assert.ok(!names.some(name => name.startsWith('recovery/') ||
+  [...kitFiles, 'SHA256SUMS'].includes(name.split('/').at(-1))));
+const expectedSums = [zip.split('/').at(-1), ...kitFiles].map(name =>
+  createHash('sha256').update(readFileSync(`dist/${name}`)).digest('hex') + '  ' + name,
+).join('\n') + '\n';
+assert.equal(readFileSync('dist/SHA256SUMS', 'utf8'), expectedSums);
+console.log('PASS H1.3 emergency kit copies and checksums match outside the extension archive');

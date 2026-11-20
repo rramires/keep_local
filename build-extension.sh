@@ -67,6 +67,13 @@ cd "$EXT_DIR"
 zip -r -q "../$DIST_DIR/$ZIP_NAME" . -x ".*" "lib/VENDOR.md" "lib/SHA256SUMS"
 cd ..
 
+# The emergency reader and guide travel next to the extension ZIP.
+cp recovery/keeplocal-recovery.html recovery/LEIA-ME.txt "$DIST_DIR/"
+(
+  cd "$DIST_DIR"
+  sha256sum "$ZIP_NAME" keeplocal-recovery.html LEIA-ME.txt > SHA256SUMS
+)
+
 echo ""
 echo "✅ Pacote criado: $DIST_DIR/$ZIP_NAME"
 echo ""

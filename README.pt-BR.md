@@ -160,6 +160,28 @@ importado como próximo pai. Exportações manuais e gravações na pasta do cof
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação
 manual não faz merge nem protege contra rollback.
 
+## Kit de emergência
+
+Guarde em um **pen-drive criptografado** (BitLocker To Go ou VeraCrypt):
+
+- As cópias `.keeplocal` mais recentes, incluindo o arquivo da pasta do cofre
+  e os backups manuais.
+- O ZIP da extensão na versão em uso.
+- `keeplocal-recovery.html`, `LEIA-ME.txt` e `SHA256SUMS` de `dist/`.
+
+Guarde a senha mestra separadamente do pen-drive. Atualize o kit após mudanças
+importantes e teste periodicamente a abertura de uma cópia com a ferramenta,
+por exemplo a cada trimestre. No Windows, compare a soma de cada arquivo da
+distribuição com `SHA256SUMS` usando `certutil -hashfile <arquivo> SHA256`.
+No Linux, rode `sha256sum -c SHA256SUMS` dentro da pasta do kit.
+
+Abra o HTML diretamente no Chrome ou Edge para ver as notas e revelar ou
+copiar um campo por vez. A ferramenta preserva o arquivo de backup.
+[Leitor independente](recovery/keeplocal-recovery.html).
+
+O guia explica como reinstalar o KeepLocal e importar a cópia.
+[Guia bilíngue](recovery/LEIA-ME.txt).
+
 ## Senhas e Chaves
 
 - **Novo item** oferece um item em branco e modelos para servidor, banco de
