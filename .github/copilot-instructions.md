@@ -97,6 +97,13 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   - `folder-sync.js`, `folder-status.js`, `folder-ui.js`, `css/folder.css`:
     scheduling, status text (never "synced"/"cloud"), blocking screen, read-only
     banner and settings. Read-only mode is enforced in `db.js` (0 writes).
+- `recovery/keeplocal-recovery.html`, `recovery/LEIA-ME.txt`: standalone offline reader of
+  the documented profile 2 contract (imports nothing from `js/`; hash-based CSP; works
+  from `file://`; no network, storage, download or data-derived HTML; every vault field
+  value masked with one-at-a-time reveal/copy; newer note formats shown without raw
+  content) and the bilingual emergency kit guide. Keep its colors and model checks in
+  step with `note-model.js`. `tests/fixtures/profile2-golden.keeplocal` is a frozen
+  profile 2 export with a pinned SHA-256; never regenerate it.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
 - `dialogs.js`, `form-ui.js`: themed promise dialogs (confirm, typed word, choices), keyboard/focus and shared form presentation.
 - `i18n.js`, `theme.js`, `history.js`, `icons.js`, `utils.js`: UI support.
@@ -133,7 +140,8 @@ fixed-seed schedules cover local and remote writes. Browser navigation awaits a 
 event before querying the new execution context; stress evidence is outside Git.
 
 A browser SKIP is not acceptance. Build reads manifest version, synchronizes the
-tracked copies and writes the matching ZIP. Include copied sources in the same
+tracked copies and writes the matching ZIP, then places the recovery reader,
+`LEIA-ME.txt` and `SHA256SUMS` next to it in `dist/` (never inside the ZIP). Include copied sources in the same
 commit. Verify vendor SHA256SUMS in unit tests. No real vault, browser profile,
 Mega account or synchronized data folder in tests. The runner also loads the real
 unpacked MV3 extension in a fresh profile; folder tests use OPFS directories and
@@ -141,7 +149,7 @@ CDP-installed picker/permission substitutes.
 
 Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the owner's
 roadmap, one sub-stage per owner request: H1 (standalone recovery tool and
-emergency kit), H2 (per-note merge and tombstones, other-salt folders, rotating
+emergency kit, merged), H2 (per-note merge and tombstones, other-salt folders, rotating
 copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
