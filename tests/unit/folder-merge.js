@@ -149,37 +149,109 @@ test('H2a.7b uses only a common snapshot proven by the folder lineage',async()=>
   assert.equal(folderMerge.baseForFolderHead(meta,{parent:remoteHash,payload}),undefined);
 });
 
-test('H2a.2 seeded fuzz retains edited versions, removes permanent deletions and stays valid',async()=>{
-  let seed=0x4b4c2026;
-  const random=bound=>{
-    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
-    return ((seed>>>16)*bound)>>>16;
+function seededRandom(seed){
+  return bound=>{
+    seed^=seed<<13;
+    seed^=seed>>>17;
+    seed^=seed<<5;
+    return Math.floor((seed>>>0)*bound/2**32);
   };
-  for(let round=0;round<5000;round++){
-    const original=fixture({updatedAt:NOW-300_000});
-    const base={[original.id]:original.updatedAt};
-    const commands=['unchanged','edit','trash','delete'];
-    const [left,right]=[commands[random(4)],commands[random(4)]];
-    const version=(command,side)=>command==='delete'?[]:[{
-      ...original,updatedAt:command==='unchanged'?original.updatedAt:NOW-10+side,
-      content:command==='edit'?`Changed by PC ${side} in round ${round}`:original.content,
-      deletedAt:command==='trash'?NOW-10+side:null,
-    }];
-    const local=version(left,0),remote=version(right,1);
-    const markers=command=>command==='delete'?[tombstone(original,NOW-20)]:[];
-    const result=await merge(local,remote,{base,localTombstones:markers(left),remoteTombstones:markers(right)});
-    for(const command of ['edit','trash']){
-      const versions=[...left===command?local:[],...right===command?remote:[]];
-      for(const changed of versions){
-        if(command==='trash'&&versions.some(note=>note.updatedAt>changed.updatedAt))continue;
-        if(command==='trash'&&[left,right].includes('edit'))continue;
-        assert.ok(result.notes.some(note=>note.content===changed.content&&note.deletedAt===changed.deletedAt),
-          `${round} ${left}/${right}`);
+}
+
+test('H2a.7d seeded multi-note merges preserve edits and are symmetric and idempotent',async()=>{
+  const random=seededRandom(0x4b4c2026);
+  const actions=['keep','edit','metadata','trash','delete'];
+  const schedules=new Set(),deletionOrders=new Set(),coveredActions=new Set();
+  for(let round=0;round<6000;round++){
+    const originals=Array.from({length:1+random(6)},(_,i)=>fixture({
+      id:id(i+1),createdAt:NOW-2_000_000,updatedAt:NOW-1_000_000+random(1000),
+    }));
+    const choices=originals.map(note=>[0,1].map(()=>{
+      const action=actions[random(actions.length)];
+      coveredActions.add(action);
+      return [action,action==='keep'?note.updatedAt:note.updatedAt+1+random(500_000)];
+    }));
+    schedules.add(JSON.stringify(choices));
+    const makeSide=side=>{
+      const notes=[],tombstones=[];
+      for(const [index,original] of originals.entries()){
+        const [action,at]=choices[index][side];
+        if(action==='delete'){
+          tombstones.push(tombstone(original,at));
+          continue;
+        }
+        notes.push({...original,updatedAt:at,
+          content:action==='edit'?`PC ${side} revised note ${index}`:original.content,
+          pinned:action==='metadata'||original.pinned,
+          deletedAt:action==='trash'?at:original.deletedAt});
+      }
+      return {notes,tombstones};
+    };
+    const left=makeSide(0),right=makeSide(1);
+    const base=Object.fromEntries(originals.map(note=>[note.id,note.updatedAt]));
+    const combine=(local,remote)=>merge(local.notes,remote.notes,{
+      base,localTombstones:local.tombstones,remoteTombstones:remote.tombstones,
+    });
+    const context=`round ${round}: ${JSON.stringify(choices)}`;
+    const result=await combine(left,right);
+    for(const [index,pair] of choices.entries()){
+      const edit=pair.find(([action])=>action==='edit');
+      const deletion=pair.find(([action])=>action==='delete');
+      if(edit&&deletion)deletionOrders.add(Math.sign(deletion[1]-edit[1]));
+      for(const [side,[action]] of pair.entries()){
+        if(action==='edit'){
+          const content=`PC ${side} revised note ${index}`;
+          assert.ok(result.notes.some(note=>note.content===content),`${context} lost ${content}`);
+        }
+      }
+      if(deletion&&pair.every(([action])=>action==='delete'||action==='keep')){
+        assert.ok(result.notes.every(note=>note.id!==originals[index].id),`${context} kept deleted note`);
       }
     }
-    if([left,right].includes('delete')&&[left,right].every(action=>['delete','unchanged'].includes(action))){
-      assert.equal(result.notes.length,0,`${round} ${left}/${right}`);
-    }
-    for(const note of result.notes) assert.equal(validateNote(note),note);
+    const sameResult=other=>{
+      assert.deepEqual(other.notes,result.notes,context);
+      assert.deepEqual(other.tombstones,result.tombstones,context);
+    };
+    sameResult(await combine(right,left));
+    sameResult(await combine(result,left));
+    sameResult(await combine(result,right));
+    for(const note of result.notes)assert.equal(validateNote(note),note,context);
   }
+  assert.ok(schedules.size>=5000,`${schedules.size} distinct schedules`);
+  assert.ok(deletionOrders.has(-1)&&deletionOrders.has(1));
+  assert.deepEqual(coveredActions,new Set(actions));
+});
+
+test('H2a.7d seeded folder lineages preserve divergent edits',async()=>{
+  const random=seededRandom(0x5eed2026);
+  const hash=value=>value.toString(16).padStart(64,'0');
+  const seen=new Set();
+  for(let round=0;round<512;round++){
+    const original=fixture({updatedAt:NOW-2000});
+    const local=fixture({content:'Edit on this PC',updatedAt:NOW-1000+random(999)});
+    const remote=fixture({content:'Edit on the other PC',updatedAt:NOW-1000+random(999)});
+    const commonHash=hash(round*64+33),localHash=hash(round*64+34);
+    const commonVersions={[original.id]:original.updatedAt};
+    const localVersions={[local.id]:local.updatedAt};
+    const meta={folderSyncedHash:localHash,folderSyncedVersions:localVersions,
+      folderSyncedBase:{hash:commonHash,versions:commonVersions}};
+    const scenario=random(3);
+    seen.add(scenario);
+    const lineage=Array.from({length:1+random(30)},(_,i)=>hash(round*64+i));
+    if(scenario<2)lineage.splice(random(lineage.length+1),0,scenario===0?localHash:commonHash);
+    const head={parent:lineage[0],payload:{ancestors:lineage}};
+    const base=folderMerge.baseForFolderHead(meta,head);
+    assert.equal(base,[localVersions,commonVersions,undefined][scenario],`round ${round}`);
+    if(scenario===0){
+      const descendant={...remote,updatedAt:local.updatedAt+1};
+      const result=await merge([local],[descendant],{base});
+      assert.deepEqual(result.notes,[descendant],`round ${round}`);
+      assert.equal(result.stats.conflicts,0);
+    }else{
+      const result=await merge([local],[remote],{base});
+      assert.deepEqual(result.notes.map(note=>note.content).sort(),[local.content,remote.content].sort(),`round ${round}`);
+      assert.equal(result.stats.conflicts,1);
+    }
+  }
+  assert.deepEqual(seen,new Set([0,1,2]));
 });
