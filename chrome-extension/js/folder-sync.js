@@ -42,7 +42,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(decision==='pull'){
       const reading=isReadOnly();
       setWriteMode('readOnly');
-      try{return await pullFolderHead(handle,state.head,snapshot,key,lifetime);}
+      try{return await pullFolderHead(handle,state.head,snapshot,key,lifetime,{notifyDeletions:true});}
       catch(error){if(!lifetime.aborted&&!reading&&error.name!=='TimeoutError')setWriteMode('readWrite');throw error;}
     }
     if(decision==='adopt'){
@@ -78,7 +78,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();
     }else if(outcome.status==='pulled'){
       onStatus('saved',Date.parse(outcome.head.exportedAt));
-      await onPulled(outcome.head);
+      await onPulled(outcome.head,outcome.stats);
     }else if(outcome.status==='saved'){
       onStatus('saved',outcome.writtenAt);
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as folderMerge from '../../js/folder-merge.js';
+import {translateFor} from '../../js/i18n.js';
 import {validateNote, UUID, MAX_NOTE_BYTES} from '../../js/note-model.js';
 
 const NOW=Date.UTC(2026,10,20,12);
@@ -17,7 +18,7 @@ const merge=(local,remote,options={})=>folderMerge.mergeVaults({
 });
 const tombstone=(note,deletedAt)=>({id:note.id,deletedAt});
 const state=({notes,records,tombstones})=>({notes,records,tombstones});
-const wrap={fromRemote:0,deleted:0,conflicts:0,restored:0};
+const wrap={fromRemote:0,deleted:0,conflicts:0,restored:0,keptEdited:0};
 
 test('H2a.2 applies every per-note decision to the records for that ID',async()=>{
   const original=fixture();
@@ -37,7 +38,7 @@ test('H2a.2 applies every per-note decision to the records for that ID',async()=
     {name:'local edit after remote deletion',local:[newer],remote:[],remoteTombstones:[deleted],expected:[newer],stats:{restored:1}},
     {name:'the only remote note has no deletion marker',local:[],remote:[original],expected:[original],stats:{fromRemote:1}},
     {name:'local deletion blocks reintroduction',local:[],remote:[original],localTombstones:[deleted],expected:[],stats:{}},
-    {name:'remote edit after local deletion',local:[],remote:[newer],localTombstones:[deleted],expected:[newer],stats:{fromRemote:1}},
+    {name:'remote edit after local deletion',local:[],remote:[newer],localTombstones:[deleted],expected:[newer],stats:{fromRemote:1,keptEdited:1}},
     {name:'union keeps latest marker per ID and prunes expired ones',local:[],remote:[],
       localTombstones:[tombstone(original,NOW-42),{id:id(8),deletedAt:NOW-366*86400000}],
       remoteTombstones:[deleted],expected:[],markers:[deleted],stats:{}},
@@ -48,6 +49,35 @@ test('H2a.2 applies every per-note decision to the records for that ID',async()=
     assert.deepEqual(result.records,sides(expected).records,name);
     assert.deepEqual(result.stats,{...wrap,...stats},name);
     assert.deepEqual(result.tombstones,markers??options.localTombstones??options.remoteTombstones??[],name);
+  }
+});
+
+test('H2a.7c kept edits have plural notices in English and Brazilian Portuguese',()=>{
+  const messages=folderMerge.folderMergeMessages({...wrap,keptEdited:2});
+  assert.ok(messages.includes('2 notes you deleted were kept because they were edited on another computer.'));
+  assert.equal(translateFor('pt-BR','folder.mergeKeptEditedPlural',{count:2}),
+    '2 notas que você apagou foram mantidas porque foram editadas em outro computador.');
+});
+
+test('H2a.7c an unseen edit survives a permanent deletion in either direction',async()=>{
+  const original=fixture();
+  const edited=fixture({content:'An edit the deleting PC never saw',updatedAt:NOW-20});
+  for(const base of [{[original.id]:original.updatedAt},{},undefined]){
+    for(const when of [NOW-30,NOW-10]){
+      const marker=tombstone(original,when);
+      const atEditor=await merge([edited],[],{base,remoteTombstones:[marker]});
+      const atDeleter=await merge([],[edited],{base,localTombstones:[marker]});
+      assert.deepEqual(atEditor.notes,[edited]);
+      assert.deepEqual(state(atEditor),state(atDeleter));
+      assert.deepEqual(atEditor.stats,{...wrap,restored:1});
+      assert.deepEqual(atDeleter.stats,{...wrap,fromRemote:1,keptEdited:1});
+    }
+  }
+  const base={[original.id]:original.updatedAt};
+  for(const unedited of [original,{...original,updatedAt:original.updatedAt-1}]){
+    const marker=tombstone(original,NOW-30);
+    assert.deepEqual((await merge([unedited],[],{base,remoteTombstones:[marker]})).notes,[]);
+    assert.deepEqual((await merge([],[unedited],{base,localTombstones:[marker]})).notes,[]);
   }
 });
 

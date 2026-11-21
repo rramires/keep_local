@@ -49,13 +49,40 @@ export function sameTombstones(left = [], right = [], now = Date.now()) {
   return JSON.stringify(pruneTombstones(left,now)) === JSON.stringify(pruneTombstones(right,now));
 }
 
-export function folderMergeMessages({fromRemote,deleted,conflicts,restored}) {
+export function folderMergeMessages({fromRemote,deleted,conflicts,restored,keptEdited}) {
   const details = [tp('folder.mergeUpdated',fromRemote)];
   if (deleted) details.push(tp('folder.mergeDeleted',deleted));
   if (conflicts) details.push(tp('folder.mergeConflicts',conflicts));
   const messages = [t('folder.mergeSummary',{details:details.join(', ')})];
   if (restored) messages.push(tp('folder.mergeRestored',restored));
+  if (keptEdited) messages.push(tp('folder.mergeKeptEdited',keptEdited));
   return messages;
+}
+
+function emptyStats() {
+  return {fromRemote:0,deleted:0,conflicts:0,restored:0,keptEdited:0};
+}
+
+function tombstoneTimes(rows, now) {
+  return new Map(pruneTombstones(rows,now).map(({id,deletedAt})=>[id,deletedAt]));
+}
+
+export function folderPullNotices(snapshot, payload, now = Date.now()) {
+  const before=tombstoneTimes(snapshot.meta.tombstones??[],now);
+  const after=tombstoneTimes(payload.tombstones??[],now);
+  if (!after.size) return undefined;
+  const local=new Map(snapshot.notes.map(record=>[record.id,record]));
+  const stats=emptyStats();
+  for (const record of payload.notes) {
+    const existing=local.get(record.id);
+    const previous=before.get(record.id);
+    const incoming=after.get(record.id);
+    // The merge kept a note alongside its deletion marker.
+    if (!existing && previous!==undefined && incoming>=previous) stats.keptEdited++;
+    if (existing && incoming>(previous??-1) && existing.updatedAt===record.updatedAt &&
+        existing.iv===record.iv && existing.ciphertext===record.ciphertext) stats.restored++;
+  }
+  return stats.keptEdited||stats.restored ? stats : undefined;
 }
 
 function canonicalJSON(value) {
@@ -148,13 +175,13 @@ export async function mergeVaults({
 }) {
   const left = indexVault(local);
   const right = indexVault(remote);
-  const deletedLocally = new Map(pruneTombstones(localTombstones,now).map(row => [row.id,row.deletedAt]));
-  const deletedRemotely = new Map(pruneTombstones(remoteTombstones,now).map(row => [row.id,row.deletedAt]));
+  const deletedLocally = tombstoneTimes(localTombstones,now);
+  const deletedRemotely = tombstoneTimes(remoteTombstones,now);
   const tombstones = pruneTombstones([...localTombstones, ...remoteTombstones],now);
   const ids = new Set([...left.keys(), ...right.keys()]);
   const selected = new Map();
   const pendingConflicts = [];
-  const stats = {fromRemote:0,deleted:0,conflicts:0,restored:0};
+  const stats = emptyStats();
 
   for (const id of [...ids].sort()) {
     const localVersion = left.get(id);
@@ -165,16 +192,19 @@ export async function mergeVaults({
       selected.set(id,winner);
       if (winner === remoteVersion && canonicalJSON(winner.note) !== canonicalJSON(localVersion.note)) stats.fromRemote++;
       if (loser) pendingConflicts.push({loser:loser.note,winner:winner.note});
-    } else if (localVersion) {
-      const marker = deletedRemotely.get(id);
-      if (marker >= localVersion.note.updatedAt && localVersion.note.updatedAt === common) stats.deleted++;
-      else {
-        selected.set(id,localVersion);
-        if (marker < localVersion.note.updatedAt) stats.restored++;
+    } else {
+      const remaining=localVersion??remoteVersion;
+      const marker=(localVersion?deletedRemotely:deletedLocally).get(id);
+      if (marker!==undefined && common!==undefined && remaining.note.updatedAt<=common) {
+        if (localVersion) stats.deleted++;
+        continue;
       }
-    } else if (!(deletedLocally.get(id) >= remoteVersion.note.updatedAt)) {
-      selected.set(id,remoteVersion);
-      stats.fromRemote++;
+      selected.set(id,remaining);
+      if (remoteVersion) stats.fromRemote++;
+      if (marker!==undefined) {
+        if (localVersion) stats.restored++;
+        else stats.keptEdited++;
+      }
     }
   }
 
@@ -207,7 +237,7 @@ export async function reconcileFolderNotes(snapshot, head, otherHeads, key) {
   const local={records:snapshot.notes,notes:await decryptRecords(snapshot.notes,key)};
   const now=Date.now();
   const language=[meta.lang,...otherHeads.map(copy=>copy.payload.preferences.lang)].includes('pt-BR')?'pt-BR':'en';
-  const stats={fromRemote:0,deleted:0,conflicts:0,restored:0};
+  const stats=emptyStats();
   let merged={...local,tombstones:meta.tombstones??[]};
   let headNotes;
   for(const copy of otherHeads){

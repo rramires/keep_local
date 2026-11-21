@@ -686,6 +686,57 @@ async function e2e({check,assert}) {
     });
   });
 
+  for(const [scenario,winningBranch,language] of [['E3','A','en'],['E4','B','pt-BR']]){
+    await check(`H2a.7c ${scenario} keeps the unseen edit and shows both notices when the folder keeps PC ${winningBranch}`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const item=note({title:'Fictitious server login',content:'Original'});
+        const edit='Updated fictional server login';
+        await a.eval(`(await import('./js/i18n.js')).setLang(${JSON.stringify(language)})`);
+        await connectBoth(a,b,[item]);
+        await editNote(b,item.id,{content:edit});
+        await waitForRev(b,2);
+        const editedFile=await readFolderFixture(b,primary);
+
+        await editNote(a,item.id,{deletedAt:Date.now()});
+        await a.eval(`(await import('./js/app.js')).permanentDeleteNote(${JSON.stringify(item.id)})`);
+        await settleFocus(a);
+        await waitForRev(a,2);
+        const deletedFile=await readFolderFixture(a,primary);
+        const {payload:deleted}=await decodedNotes(deletedFile);
+        const {notes:[edited]}=await decodedNotes(editedFile);
+        assert.ok(deleted.tombstones.some(row=>row.id===item.id&&row.deletedAt>edited.updatedAt));
+
+        const [first,second,file]=winningBranch==='A'?[b,a,deletedFile]:[a,b,editedFile];
+        await writeFolderFixture(first,primary,file);
+        await relogin(first);
+        await ready(first);
+        const contents=async page=>(await loaded(page)).map(note=>[note.id,note.content]);
+        assert.deepEqual(await contents(first),[[item.id,edit]]);
+        await waitForRev(first,3);
+        const merged=await readFolderFixture(first,primary);
+        const {payload,notes}=await decodedNotes(merged);
+        assert.deepEqual(notes.map(note=>[note.id,note.content]),[[item.id,edit]]);
+        assert.deepEqual(payload.tombstones,deleted.tombstones);
+
+        await writeFolderFixture(second,primary,merged);
+        await relogin(second);
+        await ready(second);
+        assert.deepEqual(await contents(second),[[item.id,edit]]);
+        await waitForRev(second,3);
+        assert.equal(await second.eval('folderTest.writeAttempts'),0);
+        const messages=await Promise.all([a,b].map(page=>page.eval("document.querySelector('#toast-container').textContent")));
+        const expected=language==='pt-BR'?[
+          'Uma nota que você apagou foi mantida porque foi editada em outro computador.',
+          'Uma nota apagada em outro computador foi mantida porque foi editada aqui.',
+        ]:[
+          'A note you deleted was kept because it was edited on another computer.',
+          'A note deleted on another computer was kept because it was edited here.',
+        ];
+        for(const [index,message] of messages.entries())assert.ok(message.includes(expected[index]),message);
+      });
+    });
+  }
+
   for(const edited of [false,true]){
     await check(`H2a.5 a permanent deletion ${edited?'keeps a later local edit with a notice':'removes the unchanged note'}`,async()=>{
       await withTwoProfiles(async(a,b)=>{
@@ -706,6 +757,10 @@ async function e2e({check,assert}) {
         if(edited){
           assert.equal(copy.notes[0].content,'Edited after deletion');
           await toast(b,'A note deleted on another computer was kept because it was edited here.');
+        }else{
+          assert.deepEqual(await loaded(a),[]);
+          assert.deepEqual(await loaded(b),[]);
+          assert.equal(await readFolderFixture(a,primary),remote);
         }
       });
     });

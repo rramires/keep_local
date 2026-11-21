@@ -3,7 +3,7 @@ import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
-import {folderLineage,folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
+import {folderLineage,folderPullNotices,folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
 import {hasPendingDrafts} from './backup.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
@@ -55,9 +55,10 @@ async function readReviewedCopy(handle,head,key,salt) {
   return {name:head.name,...copy};
 }
 
-export async function pullFolderHead(handle,head,snapshot,key,signal) {
+export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false}={}) {
   const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
-  return applyFolderCopy(copy,snapshot,key,signal);
+  const stats=notifyDeletions?folderPullNotices(snapshot,copy.payload):undefined;
+  return {...await applyFolderCopy(copy,snapshot,key,signal),stats};
 }
 
 async function applyFolderCopy(copy,snapshot,key,signal) {
