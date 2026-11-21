@@ -146,6 +146,24 @@ function editNote(page,id,patch) {
   })()`);
 }
 
+function editFromOtherTab(page,id,content) {
+  return page.eval(`(async()=>{
+    const db=await import('./js/db.js'),crypto=await import('./js/crypto.js');
+    const {notes,meta}=await db.readVault();
+    const id=${JSON.stringify(id)},record=notes.find(note=>note.id===id);
+    const key=await crypto.deriveKey(${JSON.stringify(PASSWORD)},crypto.base64ToArray(meta.salt));
+    const original=JSON.parse(await crypto.decrypt(key,crypto.base64ToArray(record.iv),crypto.base64ToArray(record.ciphertext)));
+    const updatedAt=Math.max(Date.now(),record.updatedAt+1);
+    const {iv,ciphertext}=await crypto.encrypt(key,JSON.stringify({...original,updatedAt,content:${JSON.stringify(content)}}));
+    const mode=db.isReadOnly()?'readOnly':'readWrite';
+    db.setWriteMode('readWrite');
+    try{
+      await db.guardedNoteWrite({id,knownUpdatedAt:record.updatedAt,expectedVaultId:meta.vaultId,
+        record:{id,updatedAt,iv:crypto.arrayToBase64(iv),ciphertext:crypto.arrayBufferToBase64(ciphertext)}});
+    }finally{db.setWriteMode(mode);}
+  })()`);
+}
+
 const loaded=page=>page.eval("(await import('./js/app.js')).getNotes()");
 const ready=page=>page.until("!!document.querySelector('.app-view #main-inner')?.firstElementChild");
 const focus=page=>page.eval("window.dispatchEvent(new Event('focus'))");
@@ -250,6 +268,91 @@ async function integration({check,assert}) {
         return results;
       })()`);
       assert.deepEqual(rollback,[true,true,true]);
+    });
+  });
+
+  for(const writes of [34,100]){
+    await check(`H2a.8b E6 loads ${writes} writes made while the other PC was closed without conflict copies`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const y=note({title:'Fictitious Y',content:'Original'}),z=note({title:'Fictitious Z',content:'Original'});
+        await connectBoth(a,b,[y,z]);
+        await b.reload();
+        await editNote(a,z.id,{content:'PC A edited Z once'});
+        await settleFocus(a);
+        await waitForRev(a,2);
+        for(let index=1;index<writes;index++){
+          await editNote(a,y.id,{content:`PC A edit ${index}`});
+          await settleFocus(a);
+          await waitForRev(a,index+2);
+        }
+        const file=await readFolderFixture(a,primary);
+        const {payload}=await decodedNotes(file);
+        assert.equal(payload.ancestors.length,32);
+        await writeFolderFixture(b,primary,file);
+        await relogin(b);
+        await ready(b);
+        assert.deepEqual((await loaded(b)).map(note=>[note.id,note.content]).sort(),[
+          [y.id,`PC A edit ${writes-1}`],[z.id,'PC A edited Z once'],
+        ].sort());
+        assert.equal(await b.eval("!!document.querySelector('.folder-review')"),false);
+        assert.equal(await b.eval('folderTest.writeAttempts'),0);
+        assert.equal(await readFolderFixture(b,primary),file);
+        assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+        assert.match(await b.eval("document.querySelector('#toast-container').textContent"),new RegExp(`Loaded revision ${writes+1}`));
+      });
+    });
+  }
+
+  await check('H2a.8b reopening after a merged folder write resumes application without a conflict copy',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Fictitious interrupted X'}),y=note({title:'Fictitious interrupted Y'});
+      await connectBoth(a,b,[x,y]);
+      for(const [page,item,content] of [[b,x,'PC B before closing'],[a,y,'PC A before closing']]){
+        await editNote(page,item.id,{content});
+        await settleFocus(page);
+        await waitForRev(page,2);
+      }
+      const {meta:before}=await b.eval("(await import('./js/db.js')).readVault()");
+      await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+      const {identifier}=await b.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
+        const create=FileSystemFileHandle.prototype.createWritable;
+        FileSystemFileHandle.prototype.createWritable=async function(...args){
+          const stream=await create.apply(this,args);
+          if(this.name===${JSON.stringify(primary)}&&!window.interruptedWrite){
+            const close=stream.close.bind(stream);
+            stream.close=async()=>{
+              await close();
+              window.interruptedWrite=true;
+              await new Promise(resolve=>{window.resumeInterruptedWrite=resolve;});
+            };
+          }
+          return stream;
+        };
+      })()`});
+      await relogin(b);
+      await b.until("typeof window.resumeInterruptedWrite==='function'");
+      const merged=await readFolderFixture(b,primary);
+      assert.equal((await decodedNotes(merged)).payload.rev,3);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),2);
+      await editFromOtherTab(b,x.id,'PC B edited after the folder write');
+      await b.send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
+      await relogin(b);
+      await ready(b);
+      await waitForRev(b,4);
+      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),['PC A before closing','PC B edited after the folder write']);
+      const recovered=await decodedNotes(await readFolderFixture(b,primary));
+      assert.deepEqual(recovered.notes.map(note=>note.content).sort(),['PC A before closing','PC B edited after the folder write']);
+      assert.equal(await b.eval('folderTest.writeAttempts'),1);
+      assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+      const {meta:resumed}=await b.eval("(await import('./js/db.js')).readVault()");
+      assert.equal(resumed.writerId,before.writerId);
+      assert.equal(resumed.writerCount,before.writerCount+2);
+      await editNote(b,x.id,{content:'PC B continued after reopening'});
+      await settleFocus(b);
+      await waitForRev(b,5);
+      const continued=await decodedNotes(await readFolderFixture(b,primary));
+      assert.equal(continued.payload.clock[before.writerId],before.writerCount+3);
     });
   });
 
@@ -522,9 +625,9 @@ async function integration({check,assert}) {
       assert.equal(await b.eval("!!document.querySelector('.app-view #main-inner')?.firstElementChild"),true,'Sign-in must retry the changed snapshot');
       await waitForRev(b,4);
       const notes=await loaded(b);
-      assert.deepEqual(notes.map(item=>item.content).sort(),['A before sign-in','B before sign-in','B concurrent tab edit']);
+      assert.deepEqual(notes.map(item=>item.content).sort(),['A before sign-in','B concurrent tab edit']);
       assert.equal(notes.find(item=>item.id===x.id).content,'B concurrent tab edit');
-      assert.match(notes.find(item=>item.content==='B before sign-in').title,/\(conflict /);
+      assert.ok(notes.every(item=>!item.title.includes(' (conflict ')));
     });
   });
 }

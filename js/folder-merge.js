@@ -3,6 +3,7 @@ import {decryptRecords,validateRecords} from './backup-format.js';
 import {encrypt,arrayToBase64,arrayBufferToBase64} from './crypto.js';
 import {editorFields} from './note-write-queue.js';
 import {t,tp,translateFor} from './i18n.js';
+import {descends} from './folder-clock.js';
 
 export const MAX_TOMBSTONES = 10000;
 const TOMBSTONE_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -30,18 +31,16 @@ export function folderLineage(head) {
 }
 
 export function folderVersionState(meta, head) {
-  const lineage=folderLineage(head);
   const {folderSyncedHash:hash,folderSyncedClock:clock={},folderSyncedVersions:versions,folderSyncedBase:base}=meta;
-  const previous=versions&&lineage.includes(hash)
+  const previous=versions&&descends(head,{hash,clock})
     ? {hash,versions,clock}
-    : lineage.includes(base?.hash) ? base : null;
+    : descends(head,base) ? base : null;
   return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous};
 }
 
 export function baseForFolderHead(meta, head) {
-  const lineage=folderLineage(head);
-  if (meta.folderSyncedVersions&&lineage.includes(meta.folderSyncedHash)) return meta.folderSyncedVersions;
-  if (lineage.includes(meta.folderSyncedBase?.hash)) return meta.folderSyncedBase.versions;
+  if (meta.folderSyncedVersions&&descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})) return meta.folderSyncedVersions;
+  if (descends(head,meta.folderSyncedBase)) return meta.folderSyncedBase.versions;
   return undefined;
 }
 

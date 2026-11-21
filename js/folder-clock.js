@@ -39,3 +39,11 @@ export function folderWriterState(meta,payload) {
   if(!meta.writerId)return {};
   return {writerCount:Math.max(meta.writerCount??0,payload.clock?.[meta.writerId]??0)};
 }
+
+export function descends(head,ref) {
+  if(!ref)return false;
+  const lineage=[head.parent,...(head.payload?.ancestors??[])];
+  if(ref.hash&&(head.hash===ref.hash||lineage.includes(ref.hash)))return true;
+  const entries=Object.entries(ref.clock??{});
+  return entries.length>0&&entries.every(([id,count])=>(head.payload?.clock?.[id]??0)>=count);
+}
