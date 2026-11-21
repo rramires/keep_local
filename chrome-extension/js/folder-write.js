@@ -2,6 +2,7 @@ import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
 import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
+import {pruneTombstones} from './folder-merge.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -45,7 +46,8 @@ export function createFolderWriter(handle,key,signal) {
     if(!Number.isSafeInteger(rev))throw folderFailure('backup.invalidFile');
     const parent=selected?.hash??(replace?state.head?.hash??null:meta.exportParent||null);
     const preferences=selected?.payload.preferences??Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
-    const payload=makePayload(notes,preferences,rev,parent);
+    const tombstones=pruneTombstones(selected?.payload.tombstones??meta.tombstones??[]);
+    const payload=makePayload(notes,preferences,rev,parent,tombstones);
     const hash=await payloadHash(JSON.stringify(payload));
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     const expected=folderStamp(state);

@@ -1,4 +1,5 @@
 import {confirmDialog} from './dialogs.js';
+import {pruneTombstones} from './folder-merge.js';
 import {folderUnloadWarning} from './folder-status.js';
 import {withVaultLineage} from './folder-write.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
@@ -68,7 +69,7 @@ async function makeBackupDownload({recovery=false}={}) {
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
-  const payload=makePayload(notes,preferences,rev,meta.exportParent||null);
+  const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]));
   const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
   let receiptMeta=meta;
   if(!readOnly){
@@ -100,7 +101,7 @@ export async function importBackup(file, password) {
   let decoded;
   try{decoded=await decodeV2(bytes,password);}catch(error){throw new Error(t(error.message));}
   const key=decoded.key,backup={notes:decoded.payload.notes};
-  const meta={...decoded.payload.preferences,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
+  const meta={...decoded.payload.preferences,tombstones:decoded.payload.tombstones,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
   try{validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
   catch{throw new Error(t('backup.unreadableRecords'));}
   meta.keyCheck=await createKeyCheck(key);

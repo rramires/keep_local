@@ -58,7 +58,7 @@ export async function pullFolderHead(handle,head,snapshot,key,signal) {
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
-    ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,
+    ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,
     folderSyncedHash:copy.hash,folderSyncedRevision:revision,folderSyncedVersions:recordVersions(copy.payload.notes),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),

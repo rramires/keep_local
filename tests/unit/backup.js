@@ -6,3 +6,16 @@ test('binary v2 envelope authenticates salt, IV, ciphertext and manifest',async(
 test('v2 manifest rejects removed, duplicated and reordered records',()=>{const payload=makePayload(records,{});for(const notes of [payload.notes.slice(1),[payload.notes[0],payload.notes[0]],[...payload.notes].reverse()])assert.throws(()=>validatePayload({...payload,notes},BACKUP_PROFILES[0]));});
 import {validateRecords} from '../../js/backup-format.js';
 test('binary archive preserves unreadable records while import validation remains strict',async()=>{const record={id:crypto.randomUUID(),iv:'AAAA',ciphertext:'AAAA',updatedAt:1};const salt=generateSalt(),key=await deriveKey('archive fixture',salt);const bytes=await encodeV2(key,salt,makePayload([record],{}));assert.deepEqual((await decodeV2(bytes,'archive fixture')).payload.notes,[record]);assert.throws(()=>validateRecords([record]));});
+
+test('H2a.1 the optional deletion list is sorted and validated independently of the manifest',()=>{
+  const [first,second]=records.map(record=>({id:record.id,deletedAt:record.updatedAt})).sort((a,b)=>a.id.localeCompare(b.id));
+  const payload=makePayload(records,{},4,null,[second,first]);
+  assert.deepEqual(payload.tombstones,[first,second]);
+  assert.deepEqual(payload.manifest.ids,records.map(record=>record.id));
+  const {tombstones,...legacy}=payload;
+  assert.deepEqual(validatePayload(legacy,BACKUP_PROFILES[0]).tombstones,[]);
+  for(const invalid of [null,{},'deleted',Array(10001).fill(first),[null],[{id:'bad',deletedAt:1}],
+    [{id:first.id,deletedAt:-1}],[{id:first.id,deletedAt:1.5}],[{id:first.id,deletedAt:'yesterday'}]]){
+    assert.throws(()=>validatePayload({...legacy,tombstones:invalid},BACKUP_PROFILES[0]),/backup.invalidFile/);
+  }
+});

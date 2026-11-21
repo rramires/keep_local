@@ -1,5 +1,7 @@
 import { deriveKey, encrypt, decrypt, base64ToArray } from './crypto.js';
 import { MAX_BACKUP_NOTES, MAX_BACKUP_BYTES } from './backup-format.js';
+import { UUID } from './note-model.js';
+import { MAX_TOMBSTONES } from './folder-merge.js';
 
 export const BACKUP_PROFILES=Object.freeze([Object.freeze({id:2,iterations:600000})]);
 export function validateProfile(profile) {
@@ -14,6 +16,11 @@ export function validatePayload(payload,profile) {
   if(!Array.isArray(payload.notes)||payload.notes.length>MAX_BACKUP_NOTES||payload.notes.some(n=>!n||typeof n!=='object'))throw new Error('backup.invalidFile');
   const manifest=payload.manifest,ids=payload.notes.map(n=>n.id);
   if(!manifest||manifest.count!==ids.length||JSON.stringify(manifest.ids)!==JSON.stringify(ids))throw new Error('backup.manifest');
+  if(!Object.hasOwn(payload,'tombstones'))return {...payload,tombstones:[]};
+  const rows=payload.tombstones;
+  if(!Array.isArray(rows)||rows.length>MAX_TOMBSTONES||Array.from(rows).some(row=>
+    !row||typeof row.id!=='string'||!UUID.test(row.id)||!Number.isSafeInteger(row.deletedAt)||row.deletedAt<0))
+    throw new Error('backup.invalidFile');
   return payload;
 }
 export async function encodeV2(key,salt,payload,profile=BACKUP_PROFILES[0]) {
@@ -45,8 +52,9 @@ export async function decodeV2(bytes,password) {
   }
   throw new Error('backup.wrongPasswordOrCorrupted');
 }
-export function makePayload(notes,preferences,rev=0,parent=null){
-  return {v:2,profile:BACKUP_PROFILES[0].id,rev,parent,exportedAt:new Date().toISOString(),preferences,notes,manifest:{count:notes.length,ids:notes.map(n=>n.id)}};
+export function makePayload(notes,preferences,rev=0,parent=null,tombstones=[]){
+  return {v:2,profile:BACKUP_PROFILES[0].id,rev,parent,exportedAt:new Date().toISOString(),preferences,notes,
+    manifest:{count:notes.length,ids:notes.map(n=>n.id)},tombstones:tombstones.toSorted((left,right)=>left.id.localeCompare(right.id))};
 }
 
 export async function payloadHash(text){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)));return Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');}

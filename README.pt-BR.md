@@ -141,6 +141,10 @@ exportações dele. O comprimento total do arquivo permanece observável.
 Decifre os bytes a partir do offset 28 com o nonce do offset 16. O JSON UTF-8
 cifrado contém `v:2`, `profile:2`, `rev`, `exportedAt`, `preferences`, `notes` e
 `manifest:{count,ids}`. Os IDs devem corresponder à ordem exata do array de notas.
+O campo cifrado opcional `tombstones` contém até 10000 registros de exclusão
+definitiva `{id,deletedAt}`, com UUID e data em milissegundos como inteiro
+seguro não negativo. Campo ausente equivale a uma lista vazia. O leitor de
+recuperação lista os registros de `notes`.
 As notas são registros cifrados originais `{id,iv,ciphertext,updatedAt}`; IV e
 ciphertext internos são Base64, decifrados com a mesma chave, e ID/timestamp
 internos devem coincidir. Isso preserva registros ilegíveis na exportação; será

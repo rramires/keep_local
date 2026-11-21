@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9FIAH5HDFL/568WRZrVyeXti1/Rk30Qd3Q4gDuVwRKw='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UPAsh/6rCd5JTqs4H4CSUZcl2fwwg+SzvkUL3GD0jok='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -494,6 +494,7 @@
     const entries = [];
     const seen = new Set();
     let unreadable = 0;
+    // The optional tombstones list contains deletion markers. Only notes yield recovery entries.
     for (const record of payload.notes) {
       if (generation !== startedIn) return null;
       const note = seen.has(record?.id) ? null : await readRecord(record, key);

@@ -150,7 +150,10 @@ data is exactly **29 bytes**: `[0x02] || salt[16] || iv[12]`. Decrypt bytes `[28
 with nonce `[16,28)`. Decode the authenticated plaintext as UTF-8 JSON.
 The payload contains `v:2`, `profile:2`, `rev`, ISO `exportedAt`, `preferences`
 (`lang`, `theme`), `notes`, and `manifest:{count,ids}`. `ids` must equal note IDs
-in their exact array order. Notes are the original encrypted IndexedDB records
+in their exact array order. The optional encrypted `tombstones` array contains
+up to 10,000 permanent deletion markers `{id,deletedAt}`, with a UUID and a
+nonnegative safe integer timestamp in milliseconds. An absent array means no
+markers. Recovery tools can ignore this field when listing live records. Notes are the original encrypted IndexedDB records
 `{id,iv,ciphertext,updatedAt}` (Base64 inner IV/ciphertext); decrypt each using the
 same derived key and no additional authenticated data. Validate each note
 and its matching ID/timestamp. Keeping

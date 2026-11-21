@@ -2,6 +2,7 @@ import {makePayload,encodeV2} from './backup-v2.js';
 import {base64ToArray} from './crypto.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
 import {decodeV2WithKey} from './folder-vault.js';
+import {pruneTombstones} from './folder-merge.js';
 import {folderFailure} from './folder-write.js';
 
 const PRESERVED='keeplocal-preserved';
@@ -79,7 +80,7 @@ export async function preserveLocalChoice(handle,{notes,meta},key,signal) {
     await decryptRecords(notes,key);
     const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const rev=meta.exportRev||0;
-    const payload=makePayload(notes,preferences,rev,meta.exportParent||null);
+    const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]));
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal);
   } catch(error) {
