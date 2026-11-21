@@ -764,6 +764,8 @@ export async function run({check,assert}) {
       await writeFolderFixture(pa,primary,independentB);
       await writeFolderFixture(pa,'keeplocal-vault (1).keeplocal',independentA);
       await writeFolderFixture(pb,primary,independentA);
+      // Existing installations may know the folder hash without a per-note base.
+      for(const page of [pa,pb]) await page.eval("(await import('./js/db.js')).deleteMeta('folderSyncedVersions')");
       await relogin(pa);await relogin(pb);
       for(const p of [pa,pb]){
         await p.until("!!document.querySelector('[data-folder-status=conflict]')");
@@ -868,6 +870,7 @@ export async function run({check,assert}) {
       await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
       await relogin();
       await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      await p.eval("(await import('./js/db.js')).deleteMeta('folderSyncedVersions')");
       const tiedRev=(await rev())+1;
       const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
       const make=async title=>{
@@ -1121,6 +1124,7 @@ export async function run({check,assert}) {
       await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
       await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
       await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      await p.eval("(await import('./js/db.js')).deleteMeta('folderSyncedVersions')");
       const prior=await readFolderFixture(p,primary);
       const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
       const other=await backupFixture([harness.note({title:'Fictitious folder note'})],harness.PASSWORD,salt);
@@ -1178,6 +1182,7 @@ export async function run({check,assert}) {
       await p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
       await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
       await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
+      await p.eval("(await import('./js/db.js')).deleteMeta('folderSyncedVersions')");
       const salt=Buffer.from(await p.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
       const rev=await p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
       for (const [file,title] of [['keeplocal-vault.keeplocal','Principal fictício'],['keeplocal-vault (1).keeplocal','Cópia fictícia']]){
@@ -1279,9 +1284,9 @@ export async function run({check,assert}) {
         await p.eval("folderTest.permission='granted'");
         await submitExtensionLogin(p);
         await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
-        const {salt,folderSeenRev}=await p.eval("(await(await import('./js/db.js')).readVault()).meta");
+        const {salt,folderSeenRev,folderSyncedHash}=await p.eval("(await(await import('./js/db.js')).readVault()).meta");
         const remote=await backupFixture([harness.note({title:'Fictitious remote note'})],harness.PASSWORD,Buffer.from(salt,'base64'));
-        const remoteBytes=await remote.seal({...remote.payload,rev:folderSeenRev+1});
+        const remoteBytes=await remote.seal({...remote.payload,rev:folderSeenRev+1,parent:folderSyncedHash});
         await writeFolderFixture(p,primary,remoteBytes);
         await p.reload();
         await p.eval(`folderTest.permission='granted';folderTest.stalls.add(${JSON.stringify(operation)})`);

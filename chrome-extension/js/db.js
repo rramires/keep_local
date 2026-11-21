@@ -1,6 +1,6 @@
 // db.js — IndexedDB wrapper for KeepLocal
 
-import {pruneTombstones,recordVersions} from './folder-merge.js';
+import {pruneTombstones,folderVersionState} from './folder-merge.js';
 
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
@@ -247,7 +247,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('syncFolder');
           meta.delete('folderConnectionId');
         }
-        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSyncedVersions','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSyncedVersions','folderSyncedBase','folderSeenRev','folderWrittenAt'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -267,7 +267,7 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,writtenAt,records},{signal,adopt=false}={}) {
+export function recordFolderWrite(expected,{rev,hash,parent,writtenAt,records},{signal,adopt=false}={}) {
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -277,7 +277,7 @@ export function recordFolderWrite(expected,{rev,hash,writtenAt,records},{signal,
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,folderSyncedVersions:recordVersions(records),
+          folderSyncedHash:hash,...folderVersionState(current,records,parent),
           folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
         };
         if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}

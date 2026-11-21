@@ -1,6 +1,8 @@
 import {UUID,MAX_NOTE_BYTES,validateNote} from './note-model.js';
+import {decryptRecords,validateRecords} from './backup-format.js';
+import {encrypt,arrayToBase64,arrayBufferToBase64} from './crypto.js';
 import {editorFields} from './note-write-queue.js';
-import {translateFor} from './i18n.js';
+import {t,tp,translateFor} from './i18n.js';
 
 export const MAX_TOMBSTONES = 10000;
 const TOMBSTONE_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -21,6 +23,34 @@ export function pruneTombstones(rows, now = Date.now()) {
 
 export function recordVersions(records) {
   return Object.fromEntries(records.map(({id, updatedAt}) => [id, updatedAt]));
+}
+
+export function folderVersionState(meta, records, parent) {
+  const versions = meta.folderSyncedVersions;
+  // The parent of a written snapshot can still be the common base of two siblings.
+  const previous = parent && parent === meta.folderSyncedHash && versions
+    ? {hash:parent,versions}
+    : parent && parent === meta.folderSyncedBase?.hash ? meta.folderSyncedBase : null;
+  return {folderSyncedVersions:recordVersions(records), folderSyncedBase:previous};
+}
+
+export function baseForFolderHead(meta, head) {
+  return head.parent && head.parent === meta.folderSyncedBase?.hash
+    ? meta.folderSyncedBase.versions
+    : meta.folderSyncedVersions;
+}
+
+export function sameTombstones(left = [], right = [], now = Date.now()) {
+  return JSON.stringify(pruneTombstones(left,now)) === JSON.stringify(pruneTombstones(right,now));
+}
+
+export function folderMergeMessages({fromRemote,deleted,conflicts,restored}) {
+  const details = [tp('folder.mergeUpdated',fromRemote)];
+  if (deleted) details.push(tp('folder.mergeDeleted',deleted));
+  if (conflicts) details.push(tp('folder.mergeConflicts',conflicts));
+  const messages = [t('folder.mergeSummary',{details:details.join(', ')})];
+  if (restored) messages.push(tp('folder.mergeRestored',restored));
+  return messages;
 }
 
 function canonicalJSON(value) {
@@ -158,5 +188,47 @@ export async function mergeVaults({
     records:versions.flatMap(({record}) => record ? [record] : []),
     tombstones,
     stats,
+  };
+}
+
+function sameNotes(left, right) {
+  if (left.length !== right.length) return false;
+  const byId = new Map(right.map(note => [note.id, note]));
+  return left.every(note => canonicalJSON(note) === canonicalJSON(byId.get(note.id)));
+}
+
+export async function reconcileFolderNotes(snapshot, head, otherHeads, key) {
+  const {meta}=snapshot;
+  const local={records:snapshot.notes,notes:await decryptRecords(snapshot.notes,key)};
+  const now=Date.now();
+  const language=[meta.lang,...otherHeads.map(copy=>copy.payload.preferences.lang)].includes('pt-BR')?'pt-BR':'en';
+  const stats={fromRemote:0,deleted:0,conflicts:0,restored:0};
+  let merged={...local,tombstones:meta.tombstones??[]};
+  let headNotes;
+  for(const copy of otherHeads){
+    const records=copy.payload.notes;
+    const notes=await decryptRecords(records,key);
+    if(copy.hash===head.hash)headNotes=notes;
+    merged=await mergeVaults({
+      local:merged,remote:{notes,records},base:baseForFolderHead(meta,copy),
+      localTombstones:merged.tombstones,remoteTombstones:copy.payload.tombstones,now,language,
+    });
+    for(const name of Object.keys(stats))stats[name]+=merged.stats[name];
+  }
+
+  const byId=new Map(merged.records.map(record=>[record.id,record]));
+  const records=[];
+  for(const note of merged.notes){
+    const existing=byId.get(note.id);
+    if(existing){records.push(existing);continue;}
+    const {iv,ciphertext}=await encrypt(key,JSON.stringify(note));
+    records.push({id:note.id,updatedAt:note.updatedAt,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext)});
+  }
+  validateRecords(records);
+  headNotes??=await decryptRecords(head.payload.notes,key);
+  return {
+    records,tombstones:merged.tombstones,stats,now,
+    sameLocalNotes:sameNotes(merged.notes,local.notes),
+    sameHeadNotes:sameNotes(merged.notes,headNotes),
   };
 }

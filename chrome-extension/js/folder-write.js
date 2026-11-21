@@ -31,11 +31,11 @@ export function unsafeFolder(state) {
 export function createFolderWriter(handle,key,signal) {
   const scan=salt=>readFolderState(handle,key,salt);
 
-  async function writeFile(snapshot,state,{replace,selected}={}) {
+  async function writeFile(snapshot,state,{replace,selected,allowReadOnly=!!selected}={}) {
     const {meta}=snapshot;
     const notes=selected?selected.payload.notes:snapshot.notes;
     const assertCurrent=()=>{
-      if(!selected)assertWritable();
+      if(!allowReadOnly)assertWritable();
       if(signal?.aborted)throw folderFailure('session.ended');
     };
     assertCurrent();
@@ -89,13 +89,13 @@ export function createFolderWriter(handle,key,signal) {
   }
 
   async function write(snapshot,state,options) {
-    const {rev,hash,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
+    const {rev,hash,parent,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
     const writtenAt=Date.parse(exportedAt);
-    await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt,records:snapshot.notes},{signal});
+    await recordFolderWrite(snapshot.meta,{rev,hash,parent,writtenAt,records:snapshot.notes},{signal});
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.
-  const writeChosen=(snapshot,state,selected)=>writeFile(snapshot,state,{replace:true,selected});
+  const writeChosen=(snapshot,state,selected,options)=>writeFile(snapshot,state,{...options,replace:true,selected});
   return {scan,write,writeChosen};
 }

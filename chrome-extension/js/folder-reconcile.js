@@ -1,9 +1,10 @@
-import {readVault,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
+import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
 import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
-import {recordVersions} from './folder-merge.js';
+import {folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
+import {hasPendingDrafts} from './backup.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
@@ -26,13 +27,15 @@ export function decideFolderAction(snapshot,state) {
   if(!head)return 'push';
   if(!state.divergent&&head.hash===meta.folderSyncedHash)return localFolderDirty(meta)?'push':'saved';
   if(head.rev<(meta.folderSeenRev||0))return 'rollback';
-  if(state.divergent)return 'conflict';
+  const canMerge=!!meta.folderSyncedVersions;
   if(!meta.folderSyncedHash){
-    if(notes.length===0)return 'pull';
-    return sameRecords(notes,head.payload.notes)?'adopt':'conflict';
+    if(state.divergent)return 'conflict';
+    if(notes.length===0&&sameTombstones(meta.tombstones))return 'pull';
+    return sameRecords(notes,head.payload.notes)&&sameTombstones(meta.tombstones,head.payload.tombstones)?'adopt':'conflict';
   }
-  if(head.rev===(meta.folderSeenRev||0)||localFolderDirty(meta))return 'conflict';
-  return 'pull';
+  if(!state.divergent&&!localFolderDirty(meta)&&head.rev>(meta.folderSeenRev||0)&&
+      head.parent===meta.folderSyncedHash)return 'pull';
+  return canMerge?'merge':'conflict';
 }
 
 export function folderLocalStamp({meta}) {
@@ -54,13 +57,18 @@ async function readReviewedCopy(handle,head,key,salt) {
 
 export async function pullFolderHead(handle,head,snapshot,key,signal) {
   const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
+  return applyFolderCopy(copy,snapshot,key,signal);
+}
+
+async function applyFolderCopy(copy,snapshot,key,signal) {
   await requireFolderSession(snapshot,key,signal);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
     ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,
-    folderSyncedHash:copy.hash,folderSyncedRevision:revision,folderSyncedVersions:recordVersions(copy.payload.notes),
+    folderSyncedHash:copy.hash,folderSyncedRevision:revision,
+    ...folderVersionState(previous,copy.payload.notes,copy.parent),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
@@ -70,6 +78,60 @@ export async function pullFolderHead(handle,head,snapshot,key,signal) {
   setWriteMode('readWrite');
   publishVaultEvent('vault-replaced',{vaultId});
   return {status:'pulled',head:copy};
+}
+
+export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false}) {
+  const {meta}=snapshot;
+  const head=state.head;
+  const candidates=state.candidates.filter(copy=>copy.status==='valid'&&copy.rev===head.rev);
+  const seen=new Set([meta.folderSyncedHash]);
+  const otherHeads=[];
+  const copies=[head,...candidates.filter(copy=>copy.name!==head.name)
+    .sort((a,b)=>a.hash.localeCompare(b.hash)||a.name.localeCompare(b.name))];
+  for(const copy of copies){
+    if(seen.has(copy.hash))continue;
+    seen.add(copy.hash);
+    otherHeads.push(await readReviewedCopy(handle,copy,key,meta.salt));
+  }
+  const {records,tombstones,stats,now,sameLocalNotes,sameHeadNotes}=await reconcileFolderNotes(snapshot,head,otherHeads,key);
+  const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
+  const samePreferences=['theme','lang'].every(name=>preferences[name]===head.payload.preferences[name]);
+  const equalsLocal=sameLocalNotes&&sameTombstones(tombstones,meta.tombstones,now);
+  const equalsHead=samePreferences&&sameHeadNotes&&
+    sameTombstones(tombstones,head.payload.tombstones,now);
+  const assertCurrent=async()=>{
+    if(!allowReadOnly)assertWritable();
+    await requireFolderSession(snapshot,key,signal);
+    if(hasPendingDrafts())throw folderFailure('folder.changed');
+    await verifyFolderWrite(meta,{signal,replaceLocal:true});
+  };
+  await assertCurrent();
+  if(folderStamp(await writer.scan(meta.salt))!==folderStamp(state))throw folderFailure('folder.changed');
+  if(equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
+    return {status:'saved',writtenAt:meta.folderWrittenAt};
+
+  const preserved=[];
+  if(stats.conflicts){
+    const toPreserve=state.candidates.filter(copy=>copy.status==='valid'&&(copy.rev===head.rev||copy.name===MAIN_FILE));
+    preserved.push(await preserveLocalChoice(handle,snapshot,key,signal));
+    preserved.push(...await preserveFolderChoice(handle,toPreserve,key,meta.salt,signal));
+  }
+  let target=head;
+  if(!equalsHead){
+    await assertCurrent();
+    const selected={hash:head.hash,payload:{notes:records,preferences,tombstones}};
+    target=await writer.writeChosen(snapshot,state,selected,{allowReadOnly});
+  }else{
+    target=await readReviewedCopy(handle,head,key,meta.salt);
+  }
+  await assertCurrent();
+  if(equalsLocal){
+    const {rev,hash,parent,exportedAt}=target;
+    await recordFolderWrite(meta,{rev,hash,parent,writtenAt:Date.parse(exportedAt),records:target.payload.notes},{signal,adopt:true});
+  }else{
+    await applyFolderCopy(target,snapshot,key,signal);
+  }
+  return {status:'merged',head:target,applied:!equalsLocal,stats,preserved,replacedEmptyMain:target.replacedEmptyMain};
 }
 
 export async function resolveFolderReview({handle,writer,review,choice,name,key,signal}) {

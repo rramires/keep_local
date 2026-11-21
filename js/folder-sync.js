@@ -3,9 +3,9 @@ import {hasPendingDrafts,watchLocalChanges} from './backup.js';
 import {enableFolderWrites,folderError} from './folder-store.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {createFolderWriter,folderFailure,folderStamp,withVaultLineage} from './folder-write.js';
-import {decideFolderAction,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
+import {decideFolderAction,executeFolderMerge,pullFolderHead,requireFolderSession,resolveFolderReview} from './folder-reconcile.js';
 
-export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
+export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
@@ -28,11 +28,16 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
     if(!admitting&&isReadOnly())return {status:'paused'};
     if(!admitting&&hasPendingDrafts())return {status:'push'};
     const decision=decideFolderAction(snapshot,state);
-    if(['push','pull','saved','adopt'].includes(decision)){
+    if(['push','pull','saved','adopt','merge'].includes(decision)){
       const ignored=[...state.unreadable,...state.tooLarge,...state.otherSalt].sort();
       const warning=JSON.stringify(ignored);
       if(ignored.length&&warning!==lastWarning)onIgnored();
       lastWarning=warning;
+    }
+    if(decision==='merge'){
+      const outcome=await executeFolderMerge({handle,writer,snapshot,state,key,signal:lifetime,allowReadOnly:admitting});
+      if(admitting&&isReadOnly())await enableFolderWrites({key,signal:lifetime});
+      return outcome;
     }
     if(decision==='pull'){
       const reading=isReadOnly();
@@ -44,9 +49,9 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
         throw folderFailure('folder.changed');
       await requireFolderSession(snapshot,key,lifetime);
-      const {rev,hash,exportedAt}=state.head;
+      const {rev,hash,parent,exportedAt}=state.head;
       const writtenAt=Date.parse(exportedAt);
-      await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt,records:state.head.payload.notes},{signal:lifetime,adopt:true});
+      await recordFolderWrite(snapshot.meta,{rev,hash,parent,writtenAt,records:state.head.payload.notes},{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
       return {status:'saved',writtenAt};
     }
@@ -67,7 +72,12 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       onReview(outcome);
       return false;
     }
-    if(outcome.status==='pulled'){
+    if(outcome.status==='merged'){
+      onStatus('saved',Date.parse(outcome.head.exportedAt));
+      if(outcome.applied)await onPulled(outcome.head,outcome.stats);
+      else onMerged(outcome.stats);
+      if(outcome.replacedEmptyMain)onEmptyMainReplaced();
+    }else if(outcome.status==='pulled'){
       onStatus('saved',Date.parse(outcome.head.exportedAt));
       await onPulled(outcome.head);
     }else if(outcome.status==='saved'){
@@ -89,12 +99,18 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
   }
 
   async function admit() {
-    try {return interpret(await withVaultLineage(()=>inspect(true)));}
-    catch(error) {
-      if(lifetime.aborted)return false;
-      if(!accessIssue(error))throw error;
-      return false;
+    while(!lifetime.aborted){
+      try {return interpret(await withVaultLineage(()=>inspect(true)));}
+      catch(error) {
+        if(lifetime.aborted)return false;
+        // A guarded replacement may have raced an edit in another tab.
+        // Inspecting again also rechecks the session identity before any write.
+        if(error.code==='vault.changed')continue;
+        if(!accessIssue(error))throw error;
+        return false;
+      }
     }
+    return false;
   }
 
   async function run() {
