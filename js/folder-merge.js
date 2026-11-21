@@ -25,19 +25,24 @@ export function recordVersions(records) {
   return Object.fromEntries(records.map(({id, updatedAt}) => [id, updatedAt]));
 }
 
-export function folderVersionState(meta, records, parent) {
-  const versions = meta.folderSyncedVersions;
-  // The parent of a written snapshot can still be the common base of two siblings.
-  const previous = parent && parent === meta.folderSyncedHash && versions
-    ? {hash:parent,versions}
-    : parent && parent === meta.folderSyncedBase?.hash ? meta.folderSyncedBase : null;
-  return {folderSyncedVersions:recordVersions(records), folderSyncedBase:previous};
+export function folderLineage(head) {
+  return [head.parent,...(head.payload?.ancestors??[])].filter(hash=>hash!=null);
+}
+
+export function folderVersionState(meta, head) {
+  const lineage=folderLineage(head);
+  const {folderSyncedHash:hash,folderSyncedVersions:versions,folderSyncedBase:base}=meta;
+  const previous=versions&&lineage.includes(hash)
+    ? {hash,versions}
+    : lineage.includes(base?.hash) ? base : null;
+  return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous};
 }
 
 export function baseForFolderHead(meta, head) {
-  return head.parent && head.parent === meta.folderSyncedBase?.hash
-    ? meta.folderSyncedBase.versions
-    : meta.folderSyncedVersions;
+  const lineage=folderLineage(head);
+  if (meta.folderSyncedVersions&&lineage.includes(meta.folderSyncedHash)) return meta.folderSyncedVersions;
+  if (lineage.includes(meta.folderSyncedBase?.hash)) return meta.folderSyncedBase.versions;
+  return undefined;
 }
 
 export function sameTombstones(left = [], right = [], now = Date.now()) {

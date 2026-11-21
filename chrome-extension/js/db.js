@@ -267,7 +267,8 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,parent,ancestors,writtenAt,records},{signal,adopt=false}={}) {
+export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
+  const {rev,hash,exportedAt,payload}=head;
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -277,11 +278,11 @@ export function recordFolderWrite(expected,{rev,hash,parent,ancestors,writtenAt,
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,...folderVersionState(current,records,parent),
-          folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:writtenAt,
+          folderSyncedHash:hash,...folderVersionState(current,head),
+          folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:Date.parse(exportedAt),
           exportRev:keepLineage?current.exportRev:rev,
           exportParent:keepLineage?current.exportParent:hash,
-          exportAncestors:(keepLineage?current.exportAncestors:ancestors)??[],
+          exportAncestors:(keepLineage?current.exportAncestors:payload.ancestors)??[],
         };
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         done();

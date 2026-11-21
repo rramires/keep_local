@@ -3,7 +3,7 @@ import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
-import {folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
+import {folderLineage,folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
 import {hasPendingDrafts} from './backup.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
@@ -34,7 +34,7 @@ export function decideFolderAction(snapshot,state) {
     return sameRecords(notes,head.payload.notes)&&sameTombstones(meta.tombstones,head.payload.tombstones)?'adopt':'conflict';
   }
   if(!state.divergent&&!localFolderDirty(meta)&&head.rev>(meta.folderSeenRev||0)&&
-      head.parent===meta.folderSyncedHash)return 'pull';
+      folderLineage(head).includes(meta.folderSyncedHash))return 'pull';
   return canMerge?'merge':'conflict';
 }
 
@@ -68,7 +68,7 @@ async function applyFolderCopy(copy,snapshot,key,signal) {
     ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,exportAncestors:copy.payload.ancestors,
     folderSyncedHash:copy.hash,folderSyncedRevision:revision,
-    ...folderVersionState(previous,copy.payload.notes,copy.parent),
+    ...folderVersionState(previous,copy),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
@@ -126,8 +126,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   }
   await assertCurrent();
   if(equalsLocal){
-    const {rev,hash,parent,exportedAt}=target;
-    await recordFolderWrite(meta,{rev,hash,parent,ancestors:target.payload.ancestors,writtenAt:Date.parse(exportedAt),records:target.payload.notes},{signal,adopt:true});
+    await recordFolderWrite(meta,target,{signal,adopt:true});
   }else{
     await applyFolderCopy(target,snapshot,key,signal);
   }

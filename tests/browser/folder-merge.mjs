@@ -7,7 +7,7 @@ import {decodeV2,payloadHash} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 import {validateNote} from '../../js/note-model.js';
 import {vaultFixture} from './vault-core.mjs';
-import {assertReadsMergedCopy} from './recovery-tool.mjs';
+import {assertReadsMergedCopy,exportFromApp} from './recovery-tool.mjs';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
@@ -187,6 +187,114 @@ async function decodedNotes(bytes) {
 }
 
 async function integration({check,assert}) {
+  for(const [scenario,aLater] of [['E1',true],['E2',false]]){
+    await check(`H2a.7b ${scenario} preserves both edits after the folder drops PC B's revision`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const x=note({title:'Shared X',content:'Original X'}),y=note({title:'Shared Y',content:'Original Y'});
+        const edits=['Edit typed on PC A','Edit typed on PC B'];
+        await connectBoth(a,b,[x,y],4);
+        for(const index of aLater?[1,0]:[0,1]){
+          const page=[a,b][index];
+          await editNote(page,x.id,{content:edits[index]});
+          await waitForRev(page,5);
+        }
+        await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+        await editNote(a,y.id,{content:'Y edited on PC A'});
+        await waitForRev(a,6);
+        const incoming=await readFolderFixture(a,primary);
+        await writeFolderFixture(b,primary,incoming);
+        await relogin(b);
+        await ready(b);
+        const expected=[...edits,'Y edited on PC A'].sort();
+        const bodies=notes=>notes.map(note=>note.content).sort();
+        const notesB=await loaded(b);
+        assert.deepEqual(bodies(notesB),expected);
+        assert.equal(notesB.filter(note=>note.title.includes(' (conflict ')).length,1);
+        await toast(b,'1 conflict (copy created)');
+        const merged=await readFolderFixture(b,primary);
+        assert.deepEqual(bodies((await decodedNotes(merged)).notes),expected);
+        await waitForRev(b,7);
+        const copies=await preservedCopies(b);
+        assert.equal(copies.length,2);
+        assert.ok(copies.some(([name,bytes])=>name.includes('-folder-')&&bytes===incoming));
+        const localCopy=copies.find(([name])=>name.includes('-local-'))[1];
+        assert.ok((await decodedNotes(localCopy)).notes.some(note=>note.content===edits[1]));
+        await writeFolderFixture(a,primary,merged);
+        await settleFocus(a);
+        await waitForRev(a,7);
+        await a.until("document.querySelectorAll('.note-card').length===3");
+        assert.deepEqual(bodies(await loaded(a)),expected);
+        assert.deepEqual((await loaded(a)).map(note=>note.id).sort(),notesB.map(note=>note.id).sort());
+      });
+    });
+  }
+
+  await check('H2a.7b pulls two descendant edits of the same note without a merge or review',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Fictitious shared note'});
+      await connectBoth(a,b,[item],4);
+      await editNote(b,item.id,{content:'B edited first'});
+      await waitForRev(b,5);
+      await writeFolderFixture(a,primary,await readFolderFixture(b,primary));
+      await relogin(a);
+      await ready(a);
+      assert.equal((await loaded(a))[0].content,'B edited first');
+      for(const rev of [6,7]){
+        await editNote(a,item.id,{content:`A edit at revision ${rev}`});
+        await waitForRev(a,rev);
+      }
+      const final=await readFolderFixture(a,primary);
+      await writeFolderFixture(b,primary,final);
+      await relogin(b);
+      await ready(b);
+      await waitForRev(b,7);
+      assert.deepEqual((await loaded(b)).map(({id,content})=>({id,content})),[{id:item.id,content:'A edit at revision 7'}]);
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      assert.equal(await readFolderFixture(b,primary),final);
+      assert.match(await b.eval("document.querySelector('#toast-container').textContent"),/Loaded revision 7/);
+    });
+  });
+
+  await check('H2a.7b a manual export between folder writes still allows a direct pull',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Shared before a manual export'});
+      await connectBoth(a,b,[item]);
+      const {meta:shared}=await a.eval("(await import('./js/db.js')).readVault()");
+      const manual=await exportFromApp(a);
+      const manualCopy=await decodeV2(Buffer.from(manual,'base64'),PASSWORD);
+      const manualHash=await payloadHash(manualCopy.payloadText);
+      await editNote(a,item.id,{title:'Shared after a manual export'});
+      await waitForRev(a,3);
+      const final=await readFolderFixture(a,primary);
+      const {payload,payloadText}=await decodeV2(Buffer.from(final,'base64'),PASSWORD);
+      assert.equal(payload.parent,manualHash);
+      assert.deepEqual(payload.ancestors,[manualHash,shared.folderSyncedHash]);
+      const {meta:written}=await a.eval("(await import('./js/db.js')).readVault()");
+      assert.deepEqual(written.folderSyncedBase,{hash:shared.folderSyncedHash,versions:shared.folderSyncedVersions});
+      await writeFolderFixture(b,primary,final);
+      await relogin(b);
+      await ready(b);
+      assert.deepEqual((await loaded(b)).map(note=>note.title),['Shared after a manual export']);
+      assert.match(await b.eval("document.querySelector('#toast-container').textContent"),/Loaded revision 3/);
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      const {meta:pulled}=await b.eval("(await import('./js/db.js')).readVault()");
+      assert.equal(pulled.exportParent,await payloadHash(payloadText));
+      assert.deepEqual(pulled.exportAncestors,payload.ancestors);
+
+      const newer=await decodeV2(Buffer.from(await exportFromApp(b),'base64'),PASSWORD);
+      await b.eval(`(await import('./js/folder-store.js')).disconnectSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})`);
+      await attach(b);
+      await relogin(b);
+      await ready(b);
+      const {meta:adopted}=await b.eval("(await import('./js/db.js')).readVault()");
+      assert.equal(adopted.folderSyncedHash,pulled.folderSyncedHash);
+      assert.equal(adopted.exportRev,4);
+      assert.equal(adopted.exportParent,await payloadHash(newer.payloadText));
+      assert.deepEqual(adopted.exportAncestors,newer.payload.ancestors);
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+    });
+  });
+
   await check('H2a.3 a newer unrelated head retains PC B’s committed revision 5 edits',async()=>{
     await withTwoProfiles(async(a,b)=>{
       const x=note({title:'Shared X'}),y=note({title:'Shared Y'});
@@ -347,7 +455,10 @@ async function integration({check,assert}) {
       await b.until("!!document.querySelector('.app-view #main-inner')?.firstElementChild||!!document.querySelector('#login-error')?.textContent");
       assert.equal(await b.eval("!!document.querySelector('.app-view #main-inner')?.firstElementChild"),true,'Sign-in must retry the changed snapshot');
       await waitForRev(b,4);
-      assert.deepEqual((await loaded(b)).map(item=>item.content).sort(),['A before sign-in','B concurrent tab edit']);
+      const notes=await loaded(b);
+      assert.deepEqual(notes.map(item=>item.content).sort(),['A before sign-in','B before sign-in','B concurrent tab edit']);
+      assert.equal(notes.find(item=>item.id===x.id).content,'B concurrent tab edit');
+      assert.match(notes.find(item=>item.content==='B before sign-in').title,/\(conflict /);
     });
   });
 }

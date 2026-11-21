@@ -45,7 +45,7 @@ async function submit(page, password) {
     document.querySelector('#open-backup').click()`);
 }
 
-function exportFromApp(page) {
+export function exportFromApp(page) {
   return page.eval(`(async () => {
     let snapshot;
     URL.createObjectURL = blob => { snapshot = blob; return 'blob:fixture'; };

@@ -90,6 +90,35 @@ test('H2a.2 conflict IDs, UTC titles and record reuse are deterministic and idem
   for(const note of result.notes) assert.equal(validateNote(note),note);
 });
 
+test('H2a.7b uses only a common snapshot proven by the folder lineage',async()=>{
+  const original=fixture();
+  const local=fixture({content:'PC B edit',updatedAt:NOW-40});
+  const remote=fixture({content:'PC A edit',updatedAt:NOW-30});
+  const commonHash='4'.repeat(64),localHash='b'.repeat(64),remoteHash='a'.repeat(64);
+  const commonVersions={[original.id]:original.updatedAt};
+  const localVersions={[local.id]:local.updatedAt};
+  const meta={folderSyncedHash:localHash,folderSyncedVersions:localVersions,
+    folderSyncedBase:{hash:commonHash,versions:commonVersions}};
+  assert.equal(folderMerge.baseForFolderHead(meta,{parent:localHash}),localVersions);
+  assert.equal(folderMerge.baseForFolderHead(meta,{parent:commonHash}),commonVersions);
+  assert.equal(folderMerge.baseForFolderHead(meta,{parent:remoteHash,payload:{ancestors:[remoteHash,localHash,commonHash]}}),localVersions);
+
+  for(const ancestors of [[remoteHash,commonHash],[remoteHash],undefined]){
+    const head={parent:remoteHash,payload:{ancestors}};
+    const selected=folderMerge.baseForFolderHead(meta,head);
+    assert.equal(selected,ancestors?.includes(commonHash)?commonVersions:undefined);
+    const result=await merge([local],[remote],{base:selected});
+    assert.deepEqual(result.notes.map(note=>note.content).sort(),[local.content,remote.content].sort());
+    assert.equal(result.stats.conflicts,1);
+  }
+
+  const history=[...Array.from({length:31},(_,i)=>i.toString(16).padStart(64,'0')),localHash,commonHash];
+  const {makePayload}=await import('../../js/backup-v2.js');
+  const payload=makePayload([],{},35,remoteHash,[],history);
+  assert.equal(payload.ancestors.length,32);
+  assert.equal(folderMerge.baseForFolderHead(meta,{parent:remoteHash,payload}),undefined);
+});
+
 test('H2a.2 seeded fuzz retains edited versions, removes permanent deletions and stays valid',async()=>{
   let seed=0x4b4c2026;
   const random=bound=>{

@@ -49,9 +49,8 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
         throw folderFailure('folder.changed');
       await requireFolderSession(snapshot,key,lifetime);
-      const {rev,hash,parent,payload,exportedAt}=state.head;
-      const writtenAt=Date.parse(exportedAt);
-      await recordFolderWrite(snapshot.meta,{rev,hash,parent,ancestors:payload.ancestors,writtenAt,records:payload.notes},{signal:lifetime,adopt:true});
+      const writtenAt=Date.parse(state.head.exportedAt);
+      await recordFolderWrite(snapshot.meta,state.head,{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
       return {status:'saved',writtenAt};
     }
