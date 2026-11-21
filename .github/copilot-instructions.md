@@ -12,9 +12,13 @@ notes are UUID `text|todo|vault`, validated by `note-model.js`
 (`vault` = `blocks` of text/field/divider, checked by `vault-model.js`). Local outer IDs/timestamps
 and meta are not secret. Metadata includes salt, encrypted `keyCheck`, `vaultId`,
 preferences, `revision` (data changes), `dirtySinceBackup`, `lastBackupAt` (download
-attempt), `exportRev` and `exportParent` (export lineage). The extension vault folder adds
-`syncFolder` (directory handle), `folderConnectionId`, `folderSyncedHash`,
-`folderSyncedRevision`, `folderSeenRev` and `folderWrittenAt`. Local-only vault preferences
+attempt), `exportRev`, `exportParent`, `exportAncestors` and `exportClock` (export lineage) and
+`tombstones` (deletion records). The extension vault folder adds `syncFolder` (directory
+handle), `folderConnectionId`, `folderSyncedHash`, `folderSyncedClock`, `folderSyncedVersions`,
+`folderSyncedBases` (up to 4 proven merge bases, newest first), `folderPendingWrite` (clock and
+local-side versions of an unrecorded write), `writerId`/`writerCount` (this vault's folder
+writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev` and
+`folderWrittenAt`; none of it is exported. Local-only vault preferences
 (`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
@@ -28,10 +32,12 @@ New passphrases require 14 characters, no composition rules, an embedded denylis
 Backup v2 is raw `[salt16][iv12][ciphertext+tag]`, no plaintext magic/header.
 Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD
 `[0x02] || salt || iv`. The encrypted UTF-8 JSON payload carries `v`, `profile`,
-`rev`, `parent`, `exportedAt`, preferences, records and ordered count/ID manifest.
-`parent` hashes the previous exact plaintext JSON bytes using SHA-256 hex.
-Export lineage is recorded atomically and shared by manual exports and vault-folder
-writes; no per-note merge is implemented.
+`rev`, `parent`, `exportedAt`, preferences, records and ordered count/ID manifest, plus
+three optional fields older readers ignore: `tombstones` (deletion records, at most 10000,
+kept 1 year), `ancestors` (up to 32 previous hashes) and `clock` (`{writerUUID: n}`, at most
+64 entries, safe integers ≥ 1; absent means `{}`). `parent` hashes the previous exact
+plaintext JSON bytes using SHA-256 hex. Export lineage is recorded atomically and shared by
+manual exports (which carry the clock without incrementing) and vault-folder writes.
 README documents the recovery contract. Preserve profile 2 for future readers.
 Only binary v2 imports are supported, with complete schema/crypto/model validation
 before one `replaceVault` transaction. Unsupported formats preserve the vault. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
@@ -88,9 +94,19 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     encrypted `rev`, divergence and unreadable/other-salt copies.
   - `folder-write.js`: profile 2 snapshot of `keeplocal-vault.keeplocal`, readback
     verification and the `keeplocal-vault-lineage` Web Lock.
-  - `folder-reconcile.js`, `folder-review.js`: whole-vault decision
-    (push/pull/adopt/conflict/rollback/otherSalt/unreadableCopy) and the typed
-    review. First connection: 0 local records pull, identical record set adopts.
+  - `folder-reconcile.js`, `folder-review.js`: decision
+    (push/pull/adopt/merge/conflict/rollback/otherSalt/unreadableCopy) and the typed
+    review (remote/local/merge). First connection: 0 local records pull, identical
+    record set adopts, anything else is a conflict. A direct pull needs a clean local
+    vault and a head that descends from the last synced state.
+  - `folder-merge.js`, `folder-clock.js`: per-note three-way merge. A base is
+    proven by hash lineage (`parent`/`ancestors`) or a nonempty dominated `clock`;
+    order: pending write → stored bases → synced state → none. Without proof the
+    newer version keeps the id and the other becomes a conflict copy (preserved
+    first). A note is deleted only by a tombstone not older than its edit. The
+    writer counter is reserved in a guarded transaction inside the lineage lock before
+    the file is opened; a clock over 64 entries drops other writers (smallest count,
+    then id), never its own. Explicit remote/local choices reset the base list.
   - `folder-preserve.js`: before any replacement, the losing side goes to
     `keeplocal-preserved/` (exact bytes or encrypted local snapshot), read back and
     verified; failure replaces nothing. Never cleaned; reads stay root-only.
@@ -149,7 +165,8 @@ CDP-installed picker/permission substitutes.
 
 Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the owner's
 roadmap, one sub-stage per owner request: H1 (standalone recovery tool and
-emergency kit, merged), H2 (per-note merge and tombstones, other-salt folders, rotating
-copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
+emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
+H2b (password changed on another PC / other-salt folders, other folder as read-only
+recovery), H2c (rotating copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
