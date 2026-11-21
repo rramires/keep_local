@@ -152,6 +152,24 @@ async function assertReadsCopy({ browser, assert, name, base64, title, content }
   });
 }
 
+export async function assertReadsMergedCopy({browser,assert,base64,titles,secrets}) {
+  await withRecovery(browser,async({page,directory,url})=>{
+    const path=join(directory,'merged-vault.keeplocal');
+    await writeFile(path,Buffer.from(base64,'base64'));
+    await selectFile(page,path);
+    await submit(page,PASSWORD);
+    await page.until("!document.querySelector('#results').hidden");
+    const shown=await page.eval("[...document.querySelectorAll('#notes .note-title')].map(title=>title.textContent)");
+    assert.deepEqual(shown.sort(),titles.toSorted());
+    await page.eval("document.querySelectorAll('#notes details').forEach(card=>{card.open=true})");
+    await page.until("document.querySelectorAll('#notes .field-value').length===4");
+    assert.ok(await page.eval("[...document.querySelectorAll('#notes .field-value')].every(field=>/^•+$/.test(field.textContent))"));
+    assert.equal(await page.eval(`${JSON.stringify(secrets)}.some(value=>document.body.innerHTML.includes(value))`),false);
+    assert.deepEqual(page.errors,[]);
+    assert.ok(page.requests.every(request=>request===url));
+  });
+}
+
 export async function run({ browser, check, assert }) {
   await check('H1.1 standalone file opens the golden backup and renders plaintext safely', async () => {
     await withRecovery(browser, async ({ page, directory, url }) => {

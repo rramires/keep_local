@@ -1,14 +1,20 @@
-import {create, launchExtension, note, PASSWORD, unlock} from './harness.mjs';
+import {create, launch, launchExtension, note, PASSWORD, unlock} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {submitExtensionLogin} from './extension.mjs';
-import {importExpression} from './backup-fixture.mjs';
-import {decodeV2} from '../../js/backup-v2.js';
+import {backupFixture,importExpression} from './backup-fixture.mjs';
+import {decodeV2,payloadHash} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
+import {validateNote} from '../../js/note-model.js';
+import {vaultFixture} from './vault-core.mjs';
+import {assertReadsMergedCopy} from './recovery-tool.mjs';
+import {writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
 
 export async function run({check,assert}) {
   await integration({check,assert});
   await reviewMerge({check,assert});
+  await e2e({check,assert});
   await check('H2a.0 permanent deletions and their tombstones commit or roll back together',async()=>{
     const browser=await launchExtension();
     try {
@@ -397,6 +403,7 @@ async function reviewMerge({check,assert}) {
     await withTwoProfiles(async(a,b)=>{
       const {item,file}=await withFirstConflict(a,b,{lang:'pt-BR'});
       assert.equal(await b.eval("document.querySelector('[data-folder-action=joinBoth]')?.textContent"),'Juntar as duas');
+      await captureMergeEvidence(b,'juntar-as-duas',assert);
       const hash=await b.eval("(await import('./js/db.js')).getMeta('folderSyncedHash')");
       assert.equal(hash,null);
       await joinReview(b);
@@ -443,6 +450,240 @@ async function reviewMerge({check,assert}) {
       const local=await decodedNotes(copies.find(([name])=>name.includes('-local-'))[1]);
       assert.deepEqual(local.notes.map(item=>item.title).sort(),[earlier.title,newer.title].sort());
       assert.deepEqual((await loaded(b)).map(item=>item.title).sort(),[earlier.title,newer.title].sort());
+    });
+  });
+}
+
+
+async function settleFocus(page) {
+  await page.eval("window.dispatchEvent(new Event('focus'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
+}
+
+async function toast(page,text) {
+  await page.until(`document.querySelector('#toast-container')?.textContent.includes(${JSON.stringify(text)})`);
+}
+
+async function assertBase(page,assert,rev) {
+  const {meta,notes}=await page.eval("(await import('./js/db.js')).readVault()");
+  assert.equal(meta.folderSeenRev,rev);
+  assert.equal(meta.folderSyncedRevision,meta.revision);
+  assert.deepEqual(meta.folderSyncedVersions,Object.fromEntries(notes.map(({id,updatedAt})=>[id,updatedAt])));
+}
+
+async function captureMergeEvidence(page,label,assert) {
+  const directory=process.env.KEEPLOCAL_H2A_CAPTURES;
+  if(!directory)return;
+  const themeAtStart=await page.eval('document.documentElement.dataset.theme');
+  try {
+    for(const theme of ['light','dark']){
+      for(const width of [1100,390]){
+        await page.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width===390});
+        await page.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)};
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+        assert.equal(await page.eval('innerWidth'),width);
+        assert.equal(await page.eval('document.documentElement.scrollWidth<=innerWidth'),true);
+        const {data}=await page.send('Page.captureScreenshot',{format:'png',fromSurface:true});
+        await writeFile(join(directory,`${label}-${theme}-${width}.png`),Buffer.from(data,'base64'));
+      }
+    }
+  } finally {
+    await page.send('Emulation.clearDeviceMetricsOverride');
+    await page.eval(`document.documentElement.dataset.theme=${JSON.stringify(themeAtStart)}`);
+  }
+}
+
+async function e2e({check,assert}) {
+  await check('H2a.5 disjoint changes merge on focus, report the count and converge without more writes',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Shared X'}),y=note({title:'Shared Y'});
+      await connectBoth(a,b,[x,y]);
+      await editNote(a,x.id,{title:'Edited X on A'});
+      await waitForRev(a,2);
+      const a2=await readFolderFixture(a,primary);
+      await writeFolderFixture(b,primary,a2);
+      await editNote(b,y.id,{title:'Edited Y on B'});
+      await focus(b);
+      await b.until("!!document.querySelector('.folder-review')||document.querySelector('#toast-container')?.textContent.includes('were merged')");
+      assert.equal(await b.eval("!!document.querySelector('.folder-review')"),false);
+      await toast(b,'Changes from another computer were merged: 1 updated.');
+      await assertBase(b,assert,3);
+      const common=await readFolderFixture(b,primary);
+      const {payload}=await decodedNotes(common);
+      assert.equal(payload.parent,await payloadHash((await decodeV2(Buffer.from(a2,'base64'),PASSWORD)).payloadText));
+      await writeFolderFixture(a,primary,common);
+      for(const page of [a,b]){
+        await relogin(page);
+        await ready(page);
+        await assertBase(page,assert,3);
+        assert.deepEqual((await loaded(page)).map(item=>item.title).sort(),['Edited X on A','Edited Y on B']);
+        await settleFocus(page);
+        assert.equal(await page.eval('folderTest.writeAttempts'),0);
+        assert.equal(await readFolderFixture(page,primary),common);
+      }
+    });
+  });
+
+  await check('H2a.5 sibling merges produce the same conflict ID, preserve sources and stay at the same revision',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      await a.eval("(await import('./js/i18n.js')).setLang('pt-BR')");
+      const item=note({title:'Planejamento fictício',content:'Texto inicial'});
+      await connectBoth(a,b,[item]);
+      await editNote(a,item.id,{content:'Texto editado no computador A'});
+      await waitForRev(a,2);
+      await editNote(b,item.id,{content:'Texto editado no computador B'});
+      await waitForRev(b,2);
+      const a2=await readFolderFixture(a,primary),b2=await readFolderFixture(b,primary);
+      await writeFolderFixture(a,primary,b2);
+      await writeFolderFixture(b,primary,a2);
+      const ids=[];
+      for(const [page,remote,local] of [[a,b2,a2],[b,a2,b2]]){
+        await relogin(page);
+        await ready(page);
+        await assertBase(page,assert,3);
+        const notes=await loaded(page);
+        const copy=notes.find(row=>row.id!==item.id);
+        assert.equal(notes.length,2);
+        assert.match(copy.title,/\(conflito \d{4}-\d{2}-\d{2} \d{2}:\d{2}\)/);
+        ids.push(copy.id);
+        await toast(page,'1 em conflito (cópia criada)');
+        if(page===a)await captureMergeEvidence(page,'aviso-juncao',assert);
+        const copies=await preservedCopies(page);
+        assert.ok(copies.some(([name,bytes])=>name.includes('-folder-')&&bytes===remote));
+        const preserved=await decodedNotes(copies.find(([name])=>name.includes('-local-'))[1]);
+        assert.deepEqual(preserved.notes,(await decodedNotes(local)).notes);
+        await settleFocus(page);
+        assert.equal(await page.eval('folderTest.writeAttempts'),1);
+        if(page===a&&process.env.KEEPLOCAL_H2A_CAPTURES){
+          await page.eval("document.querySelectorAll('#toast-container .toast').forEach(toast=>toast.remove())");
+          await captureMergeEvidence(page,'copia-conflito',assert);
+        }
+      }
+      assert.equal(ids[0],ids[1]);
+      const common=await readFolderFixture(b,primary);
+      await writeFolderFixture(a,primary,common);
+      await relogin(a);
+      await ready(a);
+      await settleFocus(a);
+      await assertBase(a,assert,3);
+      assert.equal(await a.eval('folderTest.writeAttempts'),0);
+      assert.equal(await readFolderFixture(a,primary),common);
+    });
+  });
+
+  for(const edited of [false,true]){
+    await check(`H2a.5 a permanent deletion ${edited?'keeps a later local edit with a notice':'removes the unchanged note'}`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const item=note({title:'Fictitious permanent deletion'});
+        await connectBoth(a,b,[item]);
+        await editNote(a,item.id,{deletedAt:Date.now()});
+        await a.eval(`(await import('./js/app.js')).permanentDeleteNote(${JSON.stringify(item.id)})`);
+        await waitForRev(a,2);
+        const remote=await readFolderFixture(a,primary);
+        await writeFolderFixture(b,primary,remote);
+        if(edited)await editNote(b,item.id,{content:'Edited after deletion'});
+        await focus(b);
+        await waitForRev(b,edited?3:2);
+        await b.until(`(await import('./js/app.js')).getNotes().length===${Number(edited)}`);
+        const copy=await decodedNotes(await readFolderFixture(b,primary));
+        assert.equal(copy.payload.tombstones[0].id,item.id);
+        assert.equal(copy.notes.length,Number(edited));
+        if(edited){
+          assert.equal(copy.notes[0].content,'Edited after deletion');
+          await toast(b,'A note deleted on another computer was kept because it was edited here.');
+        }
+      });
+    });
+  }
+
+  await check('H2a.5 tied highest heads merge and older sibling copies stay outside the result',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Common X'}),y=note({title:'Common Y'});
+      await connectBoth(a,b,[x,y]);
+      await editNote(a,x.id,{title:'X from the alternate head'});
+      await waitForRev(a,2);
+      await editNote(b,y.id,{title:'Y from the main head'});
+      await waitForRev(b,2);
+      const a2=await readFolderFixture(a,primary);
+      const salt=Buffer.from(await b.eval("(await import('./js/db.js')).getMeta('salt')"),'base64');
+      const old=await backupFixture([note({title:'Obsolete sibling not selected'})],PASSWORD,salt);
+      await writeFolderFixture(b,'tied.keeplocal',a2);
+      await writeFolderFixture(b,'older.keeplocal',await old.seal({...old.payload,rev:1}));
+      await relogin(b);
+      await ready(b);
+      await assertBase(b,assert,3);
+      assert.deepEqual((await loaded(b)).map(row=>row.title).sort(),['X from the alternate head','Y from the main head']);
+      assert.equal(await readFolderFixture(b,'tied.keeplocal'),a2);
+    });
+  });
+
+  await check('H2a.5 vault conflicts stay masked on cards, in search and toasts and open in the recovery reader',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const secrets=['fixture-secret-'+crypto.randomUUID(),'fixture-secret-'+crypto.randomUUID()];
+      const item=vaultFixture({title:'Fictitious private item'});
+      await connectBoth(a,b,[item]);
+      for(const [page,value] of [[a,secrets[0]],[b,secrets[1]]]){
+        const blocks=structuredClone(item.blocks);
+        blocks[1].value=value;
+        await editNote(page,item.id,{blocks});
+        await waitForRev(page,2);
+      }
+      await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+      await relogin(b);
+      await ready(b);
+      await waitForRev(b,3);
+      await toast(b,'1 conflict (copy created)');
+      const file=await readFolderFixture(b,primary);
+      const {notes}=await decodedNotes(file);
+      assert.deepEqual(notes.map(row=>row.blocks[1].value).sort(),secrets.toSorted());
+      notes.forEach(validateNote);
+      await b.eval("document.querySelector('[data-view=vault]').click()");
+      await b.until("document.querySelectorAll('.vault-card').length===2");
+      const scan=()=>b.eval(`(async()=>{
+        const dom=document.body.innerHTML;
+        return ${JSON.stringify(secrets)}.some(value=>dom.includes(value));
+      })()`);
+      assert.equal(await scan(),false);
+      for(const secret of secrets){
+        await b.eval(`const search=document.querySelector('#search-input');
+          search.value=${JSON.stringify(secret)};
+          search.dispatchEvent(new Event('input',{bubbles:true}));`);
+        await b.until("document.querySelector('.vault-section').dataset.vaultSearchActive==='true'&&!document.querySelector('.vault-card')");
+        assert.equal(await scan(),false);
+        await b.eval("document.querySelector('#search-clear').click()");
+      }
+      assert.ok(b.errors.every(error=>secrets.every(secret=>!error.includes(secret))));
+      const browser=await launch();
+      try {
+        await assertReadsMergedCopy({browser,assert,base64:file,titles:notes.map(row=>row.title),secrets});
+      } finally {await browser.close();}
+    });
+  });
+
+  await check('H2a.5 a read-only session neither applies nor writes a merge when the folder returns',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Read-only local X'}),y=note({title:'Read-only remote Y'});
+      await connectBoth(a,b,[x,y]);
+      await editNote(a,y.id,{content:'Remote edit available in the recovered folder'});
+      await waitForRev(a,2);
+      await editNote(b,x.id,{content:'Fictitious local work'});
+      await waitForRev(b,2);
+      const local=await b.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");
+      const remote=await readFolderFixture(a,primary);
+      await writeFolderFixture(b,primary,remote);
+      await b.reload();
+      await b.eval("folderTest.requested='denied'");
+      await submitExtensionLogin(b);
+      await b.until("!!document.querySelector('[data-folder-status=denied]')");
+      await b.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+      await ready(b);
+      await b.eval("folderTest.permission='granted'");
+      await settleFocus(b);
+      assert.equal(await b.eval("(await import('./js/db.js')).isReadOnly()"),true);
+      assert.equal(await b.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),local);
+      assert.deepEqual(await b.eval('folderTest.writes'),{});
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      assert.equal(await readFolderFixture(b,primary),remote);
+      assert.equal(await b.eval("document.querySelector('#toast-container').textContent.includes('were merged')"),false);
     });
   });
 }
