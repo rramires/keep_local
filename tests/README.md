@@ -111,7 +111,8 @@ The full gate uses a disposable profile for every test. At phase closing, run
 the complete browser runner three consecutive times and stop on the first
 failure. Setting `KEEPLOCAL_H2A_CAPTURES` to an existing output directory
 captures the merge notice, conflict copy and review choice in both themes at
-1100 and 390 px.
+1100 and 390 px. Set `KEEPLOCAL_H2A7_CAPTURES` to an existing directory for
+the four captures of the kept-edit notice in E4.
 
 ## Phase 2c verification
 

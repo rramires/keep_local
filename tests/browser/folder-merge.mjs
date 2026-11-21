@@ -581,8 +581,7 @@ async function assertBase(page,assert,rev) {
   assert.deepEqual(meta.folderSyncedVersions,Object.fromEntries(notes.map(({id,updatedAt})=>[id,updatedAt])));
 }
 
-async function captureMergeEvidence(page,label,assert) {
-  const directory=process.env.KEEPLOCAL_H2A_CAPTURES;
+async function captureMergeEvidence(page,label,assert,{directory=process.env.KEEPLOCAL_H2A_CAPTURES,notice}={}) {
   if(!directory)return;
   const themeAtStart=await page.eval('document.documentElement.dataset.theme');
   try {
@@ -598,6 +597,16 @@ async function captureMergeEvidence(page,label,assert) {
         })()`);
         assert.equal(await page.eval('innerWidth'),width);
         assert.equal(await page.eval('document.documentElement.scrollWidth<=innerWidth'),true);
+        if(notice){
+          assert.equal(await page.eval(`(async()=>{
+            const toast=[...document.querySelectorAll('#toast-container .toast')].find(node=>
+              node.textContent.includes(${JSON.stringify(notice)}));
+            if(!toast)return false;
+            const bounds=toast.getBoundingClientRect();
+            return bounds.width>0&&bounds.height>0&&bounds.left>=0&&bounds.right<=innerWidth&&
+              bounds.top>=0&&bounds.bottom<=innerHeight&&Number(getComputedStyle(toast).opacity)>0;
+          })()`),true,`Notice clipped in ${theme} at ${width}px`);
+        }
         const {data}=await page.send('Page.captureScreenshot',{format:'png',fromSurface:true});
         await writeFile(join(directory,`${label}-${theme}-${width}.png`),Buffer.from(data,'base64'));
       }
@@ -733,6 +742,10 @@ async function e2e({check,assert}) {
           'A note deleted on another computer was kept because it was edited here.',
         ];
         for(const [index,message] of messages.entries())assert.ok(message.includes(expected[index]),message);
+        const directory=process.env.KEEPLOCAL_H2A7_CAPTURES;
+        if(scenario==='E4'&&directory){
+          await captureMergeEvidence(a,'aviso-nota-mantida',assert,{directory,notice:expected[0]});
+        }
       });
     });
   }
