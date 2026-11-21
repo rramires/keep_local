@@ -356,6 +356,125 @@ async function integration({check,assert}) {
     });
   });
 
+  for(const keepFile of [true,false]){
+    await check(`H2a.8c interrupted normal write resumes its counter when the file is ${keepFile?'retained':'lost'}`,async()=>{
+      const browser=await launchExtension();
+      try{
+        const page=await browser.page(undefined,folderFixtureSource('KL-TEST-H28-COUNTER'));
+        await create(page);
+        const item=note({title:'Fictitious interrupted counter'});
+        await putNote(page,item);
+        await attach(page);
+        await relogin(page);
+        await waitForRev(page,1);
+        const prior=await readFolderFixture(page,primary);
+        const {meta}=await page.eval("(await import('./js/db.js')).readVault()");
+        await page.eval(`(()=>{
+          const create=FileSystemFileHandle.prototype.createWritable;
+          FileSystemFileHandle.prototype.createWritable=async function(...args){
+            const stream=await create.apply(this,args);
+            if(this.name===${JSON.stringify(primary)}&&!window.counterPaused){
+              const close=stream.close.bind(stream);
+              stream.close=async()=>{
+                await close();
+                window.counterPaused=true;
+                await new Promise(resolve=>{window.resumeCounter=resolve;});
+              };
+            }
+            return stream;
+          };
+        })()`);
+        await editNote(page,item.id,{content:'Fictional content before closing'});
+        await focus(page);
+        await page.until("typeof resumeCounter==='function'");
+        const pending=await readFolderFixture(page,primary);
+        assert.equal((await decodedNotes(pending)).payload.clock[meta.writerId],2);
+        assert.equal(await page.eval("(await import('./js/db.js')).getMeta('writerCount')"),1);
+        await page.reload();
+        if(!keepFile)await writeFolderFixture(page,primary,prior);
+        await page.eval("folderTest.permission='granted'");
+        await submitExtensionLogin(page);
+        await ready(page);
+        await settleFocus(page);
+        await waitForRev(page,2);
+        const recovered=await decodedNotes(await readFolderFixture(page,primary));
+        assert.equal(recovered.payload.clock[meta.writerId],2);
+        assert.deepEqual(recovered.notes.map(note=>note.content),['Fictional content before closing']);
+        assert.equal(await page.eval("(await import('./js/db.js')).getMeta('writerCount')"),2);
+        const continued=await page.eval("(await import('./js/db.js')).readVault()");
+        assert.equal(continued.meta.writerId,meta.writerId);
+        await editNote(page,item.id,{content:'Fictional next edit'});
+        await settleFocus(page);
+        await waitForRev(page,3);
+        assert.equal((await decodedNotes(await readFolderFixture(page,primary))).payload.clock[meta.writerId],3);
+
+        if(keepFile){
+          await page.eval(`(await import('./js/account.js')).resetVault((await import('./js/i18n.js')).t('account.resetWord'))`);
+          await page.reload();
+          await create(page);
+          await page.eval("folderTest.name='KL-TEST-H28-RESET'");
+          await attach(page);
+          await relogin(page);
+          await waitForRev(page,1);
+          const reset=await page.eval("(await import('./js/db.js')).readVault()");
+          assert.notEqual(reset.meta.writerId,meta.writerId);
+          assert.equal(reset.meta.writerCount,1);
+          assert.deepEqual(reset.meta.exportClock,{[reset.meta.writerId]:1});
+        }
+      }finally{await browser.close();}
+    });
+  }
+
+  await check('H2a.8c reopening after a merged folder write resumes application without a conflict copy',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Fictitious interrupted X'}),y=note({title:'Fictitious interrupted Y'});
+      await connectBoth(a,b,[x,y]);
+      for(const [page,item,content] of [[b,x,'PC B before closing'],[a,y,'PC A before closing']]){
+        await editNote(page,item.id,{content});
+        await settleFocus(page);
+        await waitForRev(page,2);
+      }
+      const {meta:before}=await b.eval("(await import('./js/db.js')).readVault()");
+      await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+      const {identifier}=await b.send('Page.addScriptToEvaluateOnNewDocument',{source:`(()=>{
+        const create=FileSystemFileHandle.prototype.createWritable;
+        FileSystemFileHandle.prototype.createWritable=async function(...args){
+          const stream=await create.apply(this,args);
+          if(this.name===${JSON.stringify(primary)}&&!window.interruptedWrite){
+            const close=stream.close.bind(stream);
+            stream.close=async()=>{
+              await close();
+              window.interruptedWrite=true;
+              await new Promise(resolve=>{window.resumeInterruptedWrite=resolve;});
+            };
+          }
+          return stream;
+        };
+      })()`});
+      await relogin(b);
+      await b.until("typeof window.resumeInterruptedWrite==='function'");
+      const merged=await readFolderFixture(b,primary);
+      assert.equal((await decodedNotes(merged)).payload.rev,3);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),2);
+      await b.send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
+      await relogin(b);
+      await ready(b);
+      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),['PC A before closing','PC B before closing']);
+      assert.equal(await readFolderFixture(b,primary),merged);
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+      const {meta:resumed}=await b.eval("(await import('./js/db.js')).readVault()");
+      assert.equal(resumed.writerId,before.writerId);
+      assert.equal(resumed.writerCount,before.writerCount+1);
+      await editNote(b,x.id,{content:'PC B continued after reopening'});
+      await settleFocus(b);
+      await waitForRev(b,4);
+      const continued=await decodedNotes(await readFolderFixture(b,primary));
+      assert.equal(continued.payload.clock[before.writerId],before.writerCount+2);
+    });
+  });
+
   for(const [scenario,aLater] of [['E1',true],['E2',false]]){
     await check(`H2a.7b ${scenario} preserves both edits after the folder drops PC B's revision`,async()=>{
       await withTwoProfiles(async(a,b)=>{
