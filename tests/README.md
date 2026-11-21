@@ -122,6 +122,30 @@ from another tab. The sign-in race expects two contents. Normal writes also
 pause before their local receipt, exercising both retained and lost files,
 counter continuation and a new writer identity after reset.
 
+The recovery regressions C1, C3a and C3b use the production reservation, base
+selection, receipt and merge functions. C1 covers an unsaved local edit in an
+interrupted merge. C3a/C3b use three PCs to verify unique reserved counters,
+retention of the reopened edit and the real concurrent conflict in C3a.
+The lost-file case requires the next reserved count, even when the earlier file
+has disappeared. Injected reservation failures leave the database and file
+unchanged with zero file-write attempts.
+
+C5 uses seeds `0x0c10c4a8` and `0x0c10c4a9`, 600 sequences per variant,
+two or three PCs, 40 randomized steps and final convergence. Each PC edits
+only its own note. A delivery is dropped only when two PCs write over the same
+head and one file wins. One variant also closes after writing and before the
+local receipt or application. Both require zero lost final edits, generated
+conflicts and conflict copies. A separate regression checks that a proven
+archived B:2 pending base precedes the older B:1 receipt when B:3 is unproven.
+
+E8/E9 repeat unsaved-edit interruptions with two real extension profiles and
+OPFS, using an intervening guarded write from another tab. E8c is the control.
+E10 drops a merge while the other PC writes again, then checks both contents
+on both PCs without conflict copies or preservation files. Explicit source
+choices keep only their chosen base, and disconnect clears the history.
+A real 65th writer also writes a file successfully. Unit tests check stable
+clock trimming and conservative conflict preservation when proof is trimmed.
+
 The full gate uses a disposable profile for every test. At phase closing, run
 the complete browser runner three consecutive times and stop on the first
 failure. Setting `KEEPLOCAL_H2A_CAPTURES` to an existing output directory

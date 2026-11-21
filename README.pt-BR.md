@@ -256,16 +256,30 @@ obrigatória a cada abertura.
   sem registros de exclusão carrega a pasta. Um conjunto idêntico é adotado
   sem gravar.
 - **Mesclagem:** o pai cifrado, a lista opcional `ancestors` e o campo opcional
-  `clock` identificam uma cópia em comum para comparar as alterações. Cada
-  cofre local recebe um UUID de gravador na primeira escrita na pasta e
-  incrementa seu contador a cada escrita. A junção leva os maiores contadores
-  de todas as fontes e incrementa o deste PC. Assim, o app reconhece a junção
-  após uma aplicação local interrompida. Contador e clocks são gravados com
-  os hashes correspondentes. Um reset do cofre gera outro UUID de gravador.
-  Edições em notas diferentes
-  podem ser juntadas a partir dessa base. Se a mesma nota tem edições de conteúdo
-  concorrentes ou conteúdo diferente sem base conhecida, a versão mais recente
-  mantém o ID e a outra vira uma cópia de conflito, com a data da edição em UTC.
+  `clock` identificam estados em comum para comparar as alterações. Cada
+  cofre local recebe um UUID de gravador na primeira escrita na pasta. Antes
+  de abrir o arquivo para escrever, uma transação local guardada reserva o
+  próximo contador e uma base pendente com as versões das notas locais usadas
+  nessa gravação. Uma interrupção pode deixar uma lacuna, e a próxima tentativa
+  sempre avança o contador reservado. O export manual leva o clock sem somar.
+  A junção leva os maiores contadores de todas as fontes e incrementa o deste
+  PC. O clock guarda até 64 gravadores. Ao ultrapassar esse limite, uma escrita
+  remove entradas de outros gravadores pelo menor contador e depois pelo ID,
+  mantendo a própria entrada.
+  A base pendente e um histórico de até quatro estados ficam só no navegador.
+  A mesclagem usa a pendente quando comprovada, depois a primeira entrada
+  comprovada desse histórico, com o último estado registrado da pasta como
+  reserva.
+  Uma pendente anterior entra na frente do histórico antes de outra gravação
+  substituí-la. O registro da gravação conferida leva histórico e clocks com
+  os hashes correspondentes e remove a pendente em uma única transação.
+  Escolher explicitamente um dos lados conserva só o estado escolhido como
+  base. Um reset do cofre gera outro UUID de gravador. Edições em notas
+  diferentes podem ser juntadas a partir de uma base comprovada. Se a mesma
+  nota tem edições de conteúdo concorrentes ou conteúdo diferente sem base
+  conhecida, a versão mais recente mantém o ID e a outra vira uma cópia de
+  conflito, com a data da edição em UTC. A poda do clock também pode deixar
+  uma versão sem prova e exigir uma cópia de conflito.
   Ao criar uma cópia de conflito ou ao escolher **Juntar as duas**, o app guarda
   os originais da pasta e do navegador em `keeplocal-preserved/` e os relê antes
   da substituição. Participam a maior revisão cifrada e as outras cópias com a

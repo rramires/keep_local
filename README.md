@@ -268,18 +268,30 @@ is still required at every opening.
   unreadable main copy. An empty local vault without deletion markers loads the
   folder on first connection. An identical set is adopted without writing.
 - **Merging:** the encrypted parent, optional `ancestors` list and optional
-  `clock` identify a known shared snapshot for comparing edits. Each local
-  vault creates a UUID writer ID at its first folder write and advances its
-  counter on folder writes. A merged file carries the maximum counters of
-  all its sources and advances the current writer. This lets the app recognize
-  the merged file after an interrupted local application. The writer counter
-  and clocks are committed with their corresponding hashes. Resetting the
+  `clock` identify known shared snapshots for comparing edits. Each local
+  vault creates a UUID writer ID at its first folder write. Before opening
+  the file for writing, a guarded local transaction reserves its next counter
+  and a pending base with the versions of the local notes used in that write.
+  An interruption can leave a gap, and the next attempt always advances the
+  reserved counter. Manual exports carry the clock without advancing it.
+  A merged file carries the maximum counters of all its sources and advances
+  the current writer. Clocks keep at most 64 writers. A new write trims other
+  writers with the smallest counters first, then by ID, and keeps its own entry.
+  The pending base and a history of up to four known snapshots stay in the
+  browser. Reconciliation uses the pending base when proven, then the first
+  proven entry in that history, with the last recorded folder state as a
+  fallback.
+  An older pending base is kept at the front of the history before another
+  write replaces it. The verified receipt records the history and clocks
+  with their hashes and clears the pending base in one transaction. Choosing
+  one side explicitly keeps only the chosen snapshot as a base. Resetting the
   vault gives it a new writer ID. Edits to different notes can be
-  combined from that snapshot. When the same note has competing content edits
-  or has differing content without a known base, the newer version keeps its
-  ID and the other becomes a conflict copy with its edit time in UTC. The app
-  keeps the folder and local originals in `keeplocal-preserved/` and reads them
-  back before replacing either source when it creates a conflict copy or you
+  combined from a proven snapshot. When the same note has competing content
+  edits or has differing content without a known base, the newer version keeps its
+  ID and the other becomes a conflict copy with its edit time in UTC. Clock
+  trimming can also leave a version without proof and require a conflict copy.
+  The app keeps the folder and local originals in `keeplocal-preserved/` and
+  reads them back before replacing either source when it creates a conflict copy or you
   choose **Merge both**. The highest encrypted revision and other copies at
   that revision take part. The notice lists changes that occurred.
 - **Permanent deletions:** encrypted backups carry up to 10,000 deletion
