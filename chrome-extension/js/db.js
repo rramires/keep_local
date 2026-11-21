@@ -278,7 +278,7 @@ export function recordFolderWrite(expected,{rev,hash,parent,writtenAt,records},{
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
           folderSyncedHash:hash,...folderVersionState(current,records,parent),
-          folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
+          folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:writtenAt,
         };
         if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
         for(const [key,value] of Object.entries(state))meta.put({key,value});

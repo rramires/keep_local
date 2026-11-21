@@ -8,6 +8,7 @@ import {decryptRecords} from '../../js/backup-format.js';
 
 export async function run({check,assert}) {
   await integration({check,assert});
+  await reviewMerge({check,assert});
   await check('H2a.0 permanent deletions and their tombstones commit or roll back together',async()=>{
     const browser=await launchExtension();
     try {
@@ -341,6 +342,107 @@ async function integration({check,assert}) {
       assert.equal(await b.eval("!!document.querySelector('.app-view #main-inner')?.firstElementChild"),true,'Sign-in must retry the changed snapshot');
       await waitForRev(b,4);
       assert.deepEqual((await loaded(b)).map(item=>item.content).sort(),['A before sign-in','B concurrent tab edit']);
+    });
+  });
+}
+
+async function withFirstConflict(a,b,{lang='en'}={}) {
+  const item=note({title:lang==='pt-BR'?'Nota de exemplo':'Fictitious first connection'});
+  await a.eval(`(await import('./js/i18n.js')).setLang(${JSON.stringify(lang)})`);
+  await create(a);
+  await putNote(a,item);
+  await attach(a);
+  await relogin(a);
+  await waitForRev(a,1);
+  const file=await readFolderFixture(a,primary);
+  await b.eval(importExpression(file));
+  await b.reload();
+  await unlock(b);
+  await editNote(b,item.id,{content:'Local first-connection version'});
+  await attach(b);
+  await writeFolderFixture(b,primary,file);
+  await relogin(b);
+  await b.until("!!document.querySelector('[data-folder-status=conflict]')");
+  return {item,file};
+}
+
+async function preservedCopies(page) {
+  return page.eval(`(async()=>{
+    const copies=await(await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+    const entries=[];
+    for await(const [name,entry] of copies.entries()){
+      entries.push([name,new Uint8Array(await(await entry.getFile()).arrayBuffer()).toBase64()]);
+    }
+    return entries;
+  })()`);
+}
+
+async function joinReview(page) {
+  await page.eval("document.querySelector('[data-folder-action=joinBoth]').click()");
+  await page.until("!!document.querySelector('.app-dialog input')");
+}
+
+async function typeConfirmation(page) {
+  await page.eval(`(async()=>{
+    const {t}=await import('./js/i18n.js');
+    const input=document.querySelector('.app-dialog input');
+    input.value=t('folder.replaceWord');
+    input.dispatchEvent(new Event('input'));
+    document.querySelector('[data-dialog-action=confirm]').click();
+  })()`);
+}
+
+async function reviewMerge({check,assert}) {
+  await check('H2a.4 first connection offers a typed join and preserves both complete sources',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const {item,file}=await withFirstConflict(a,b,{lang:'pt-BR'});
+      assert.equal(await b.eval("document.querySelector('[data-folder-action=joinBoth]')?.textContent"),'Juntar as duas');
+      const hash=await b.eval("(await import('./js/db.js')).getMeta('folderSyncedHash')");
+      assert.equal(hash,null);
+      await joinReview(b);
+      assert.equal(await b.eval("document.querySelector('[data-dialog-action=confirm]').disabled"),true);
+      await b.eval("document.querySelector('[data-dialog-action=cancel]').click()");
+      await b.until("!document.querySelector('.app-dialog')");
+      assert.deepEqual(await b.eval('folderTest.writes'),{});
+      assert.equal(await readFolderFixture(b,primary),file);
+      await b.eval("folderTest.failPreservation=true");
+      await joinReview(b);
+      await typeConfirmation(b);
+      await b.until("document.querySelector('.folder-reason').textContent.includes('Não foi possível preservar')");
+      assert.equal(await readFolderFixture(b,primary),file);
+      assert.deepEqual(await b.eval('folderTest.writes'),{});
+      await b.eval("folderTest.failPreservation=false");
+      await joinReview(b);
+      await typeConfirmation(b);
+      await ready(b);
+      await waitForRev(b,2);
+      assert.deepEqual((await loaded(b)).map(row=>row.content).sort(),[item.content,'Local first-connection version'].sort());
+      const copies=await preservedCopies(b);
+      assert.ok(copies.some(([name,bytes])=>name.includes('-folder-')&&bytes===file));
+      const local=await decodedNotes(copies.find(([name])=>name.includes('-local-'))[1]);
+      assert.deepEqual(local.notes.map(row=>row.content),['Local first-connection version']);
+    });
+  });
+
+  await check('H2a.4 rollback can join a prior file and keeps both encrypted source copies',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const earlier=note({title:'Already present'}), newer=note({title:'Written after the prior file'});
+      const old=await connectBoth(a,b,[earlier]);
+      await putNote(b,newer);
+      await waitForRev(b,2);
+      await writeFolderFixture(b,primary,old);
+      await relogin(b);
+      await b.until("!!document.querySelector('[data-folder-status=rollback]')");
+      await joinReview(b);
+      await typeConfirmation(b);
+      await ready(b);
+      await waitForRev(b,3);
+      assert.equal(await b.eval("(await import('./js/db.js')).isReadOnly()"),false);
+      const copies=await preservedCopies(b);
+      assert.ok(copies.some(([name,bytes])=>name.includes('-folder-')&&bytes===old));
+      const local=await decodedNotes(copies.find(([name])=>name.includes('-local-'))[1]);
+      assert.deepEqual(local.notes.map(item=>item.title).sort(),[earlier.title,newer.title].sort());
+      assert.deepEqual((await loaded(b)).map(item=>item.title).sort(),[earlier.title,newer.title].sort());
     });
   });
 }

@@ -1213,14 +1213,14 @@ export async function run({check,assert}) {
             const paragraphs=[...panel.querySelectorAll('.folder-review-warnings p')];
             const rects=paragraphs.map(node=>node.getBoundingClientRect());
             return {
-              paragraphs:paragraphs.map(node=>node.textContent),expected:['preserveLocal','preserveTiedMain','preserveFolder'].map(key=>t('folder.'+key)),
+              paragraphs:paragraphs.map(node=>node.textContent),expected:['preserveBoth','preserveLocal','preserveTiedMain','preserveFolder'].map(key=>t('folder.'+key)),
               spacing:rects.slice(1).map((rect,index)=>rect.top-rects[index].bottom),
               field,select,scheme,selectFocus,inputFocus,
               lang:document.documentElement.lang,width:innerWidth,scroll:document.documentElement.scrollWidth,
             };
           })()`);
           assert.deepEqual(view.paragraphs,view.expected,`distinct warnings at ${width}px in ${theme}`);
-          assert.equal(view.spacing.length,2);
+          assert.equal(view.spacing.length,3);
           assert.ok(view.spacing.every(gap=>gap>=8));
           assert.deepEqual(view.select,view.field);
           assert.equal(view.scheme,theme);

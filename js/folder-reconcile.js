@@ -80,7 +80,7 @@ async function applyFolderCopy(copy,snapshot,key,signal) {
   return {status:'pulled',head:copy};
 }
 
-export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false}) {
+export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false}) {
   const {meta}=snapshot;
   const head=state.head;
   const candidates=state.candidates.filter(copy=>copy.status==='valid'&&copy.rev===head.rev);
@@ -107,11 +107,11 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   };
   await assertCurrent();
   if(folderStamp(await writer.scan(meta.salt))!==folderStamp(state))throw folderFailure('folder.changed');
-  if(equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
+  if(!manual&&equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
     return {status:'saved',writtenAt:meta.folderWrittenAt};
 
   const preserved=[];
-  if(stats.conflicts){
+  if(manual||stats.conflicts){
     const toPreserve=state.candidates.filter(copy=>copy.status==='valid'&&(copy.rev===head.rev||copy.name===MAIN_FILE));
     preserved.push(await preserveLocalChoice(handle,snapshot,key,signal));
     preserved.push(...await preserveFolderChoice(handle,toPreserve,key,meta.salt,signal));
@@ -143,6 +143,10 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
     throw folderFailure('folder.changed');
   const head=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head?.rev);
   if(!head||unsafeFolder(state))throw folderFailure('folder.changed');
+  if(choice==='merge'){
+    const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
+    return executeFolderMerge({handle,writer,snapshot,state:{...state,head:chosen},key,signal,allowReadOnly:true,manual:true});
+  }
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
   if(choice==='remote'){
     const preserved=[await preserveLocalChoice(handle,snapshot,key,signal)];

@@ -143,8 +143,12 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
   }
 
   async function resolve(review,choice,name) {
-    const result=await withVaultLineage(()=>resolveFolderReview({handle,writer,review,choice,name,key,signal:lifetime}));
-    if(result.status==='pulled')await interpret(result);
+    const result=await withVaultLineage(async()=>{
+      const result=await resolveFolderReview({handle,writer,review,choice,name,key,signal:lifetime});
+      if(result.status==='merged'&&isReadOnly())await enableFolderWrites({key,signal:lifetime});
+      return result;
+    });
+    if(['pulled','merged'].includes(result.status))await interpret(result);
     else onStatus('saved',result.result.writtenAt);
     return result;
   }
