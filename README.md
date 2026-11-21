@@ -122,6 +122,17 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 
 ## Binary backup format and recovery
 
+The standalone recovery reader implements this contract independently. Open
+the HTML file directly in Chrome or Edge to read a backup offline.
+[Open the recovery reader](recovery/keeplocal-recovery.html).
+
+The reader displays unrecognized color names as plain text and ignores extra
+properties on notes, tasks and vault blocks. For an unrecognized note type it
+shows the title and a newer-format warning. For an unrecognized vault block it
+shows only the warning in place of the block. Known vault fields stay masked
+until explicitly revealed. Records with invalid field types are reported as
+unreadable. The app applies strict validation when importing a backup.
+
 New exports use `.keeplocal`, MIME `application/octet-stream`, without magic,
 plaintext app/version identifiers, JSON headers or KDF parameters:
 
@@ -141,7 +152,8 @@ The payload contains `v:2`, `profile:2`, `rev`, ISO `exportedAt`, `preferences`
 (`lang`, `theme`), `notes`, and `manifest:{count,ids}`. `ids` must equal note IDs
 in their exact array order. Notes are the original encrypted IndexedDB records
 `{id,iv,ciphertext,updatedAt}` (Base64 inner IV/ciphertext); decrypt each using the
-same derived key and validate the note and its matching ID/timestamp. Keeping
+same derived key and no additional authenticated data. Validate each note
+and its matching ID/timestamp. Keeping
 inner records also preserves unreadable local records in an export; such a
 backup requires recovery of those records before a complete import can succeed.
 Export asks for confirmation when unreadable records exist and reports a partial
@@ -178,6 +190,24 @@ rejects concurrent export tips. A v2 import resumes its counter and records the
 imported payload's exact hash as the next parent. Manual exports and vault-folder
 writes share this lineage, so gaps in `rev` are normal. Manual import performs no
 merge or rollback protection.
+
+## Emergency kit
+
+Keep an **encrypted USB drive** (BitLocker To Go or VeraCrypt) with these files:
+
+- Your latest `.keeplocal` copies, including the vault folder file and manual backups.
+- The extension ZIP for the version in use.
+- `keeplocal-recovery.html`, `LEIA-ME.txt` and `SHA256SUMS` from `dist/`.
+
+Keep the master passphrase separately from the drive. Update the kit after
+important changes and test a backup with the reader periodically, for example
+every three months. Compare each distribution file with `SHA256SUMS` using
+`certutil -hashfile <file> SHA256` on Windows or run
+`sha256sum -c SHA256SUMS` from the kit directory on Linux.
+
+Open the HTML directly in Chrome or Edge to view notes and reveal or copy one
+field at a time. The reader leaves your backup file intact. The guide covers
+reinstalling KeepLocal and importing a backup. [Bilingual guide](recovery/LEIA-ME.txt).
 
 ## Passwords & Keys
 
@@ -240,7 +270,7 @@ is still required at every opening.
   connected.
 
 Per-note merge, rotating copies, folders written with another passphrase,
-opening another folder for recovery and a standalone recovery tool are not
+and opening another folder for recovery are not
 implemented.
 
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.

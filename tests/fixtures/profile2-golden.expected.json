@@ -1,0 +1,133 @@
+[
+  {
+    "id": "c0ffee00-0000-4000-8000-000000000001",
+    "title": "Café com anotações ☕",
+    "type": "text",
+    "content": "# Plano fictício 🚀\n\n**Revisão** com acentos.\n<img src=\"https://example.invalid/image\" onerror=\"alert(1)\">",
+    "color": "mint",
+    "pinned": false,
+    "labels": [
+      "viagem",
+      "pessoal"
+    ],
+    "createdAt": 1767323045000,
+    "updatedAt": 1767323045000,
+    "deletedAt": null,
+    "archivedAt": null,
+    "order": 1
+  },
+  {
+    "id": "c0ffee00-0000-4000-8000-000000000002",
+    "title": "Lista de revisão",
+    "type": "todo",
+    "color": "sage",
+    "pinned": false,
+    "labels": [
+      "fictício"
+    ],
+    "createdAt": 1767323045000,
+    "updatedAt": 1767323045000,
+    "deletedAt": null,
+    "archivedAt": null,
+    "order": 2,
+    "tasks": [
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000021",
+        "text": "Conferir versão",
+        "done": true,
+        "parentId": null,
+        "order": 0
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000022",
+        "text": "Subtarefa com ação 📌",
+        "done": false,
+        "parentId": "c0ffee00-0000-4000-8000-000000000021",
+        "order": 1
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000023",
+        "text": "Rodar a conferência",
+        "done": false,
+        "parentId": null,
+        "order": 2
+      }
+    ]
+  },
+  {
+    "id": "c0ffee00-0000-4000-8000-000000000003",
+    "title": "Cofre de teste",
+    "type": "vault",
+    "color": "coral",
+    "pinned": false,
+    "labels": [
+      "fictício"
+    ],
+    "createdAt": 1767323045000,
+    "updatedAt": 1767323045000,
+    "deletedAt": null,
+    "archivedAt": null,
+    "order": 3,
+    "blocks": [
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000031",
+        "kind": "field",
+        "label": "Host",
+        "value": "fixture.example.invalid",
+        "secret": false
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000032",
+        "kind": "field",
+        "label": "Senha",
+        "value": "FICTITIOUS-VAULT-FIELD-15342",
+        "secret": true,
+        "primary": true
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000033",
+        "kind": "field",
+        "label": "Chave de teste",
+        "value": "FICTITIOUS-LINE-ONE\nFICTITIOUS-LINE-TWO",
+        "multiline": true
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000034",
+        "kind": "text",
+        "value": "Observação fictícia"
+      },
+      {
+        "id": "c0ffee00-0000-4000-8000-000000000035",
+        "kind": "divider"
+      }
+    ]
+  },
+  {
+    "id": "c0ffee00-0000-4000-8000-000000000004",
+    "title": "Nota na Lixeira",
+    "type": "text",
+    "content": "Conteúdo descartável",
+    "color": "default",
+    "pinned": false,
+    "labels": [],
+    "createdAt": 1767323045000,
+    "updatedAt": 1767323045000,
+    "deletedAt": 1767323046000,
+    "archivedAt": null,
+    "order": 4
+  },
+  {
+    "id": "c0ffee00-0000-4000-8000-000000000005",
+    "title": "Nota arquivada",
+    "type": "text",
+    "content": "Leitura de referência",
+    "color": "default",
+    "pinned": true,
+    "labels": [],
+    "createdAt": 1767323045000,
+    "updatedAt": 1767323045000,
+    "deletedAt": null,
+    "archivedAt": 1767323047000,
+    "order": 5
+  }
+]

@@ -123,6 +123,14 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 
 ## Formato binário do backup e recuperação
 
+A [ferramenta de recuperação](recovery/keeplocal-recovery.html) abre cópias
+offline no Chrome ou Edge. Ela exibe cores desconhecidas como texto e ignora
+chaves adicionais em notas, tarefas e blocos do cofre. Para um tipo de nota
+desconhecido, exibe o título e um aviso de formato mais novo. Para um bloco
+desconhecido, exibe só o aviso no lugar do bloco. Os campos conhecidos do cofre
+ficam mascarados até serem revelados. Registros com campos de tipo inválido
+aparecem como ilegíveis. O app aplica validação estrita ao importar um backup.
+
 Exportações novas usam `.keeplocal`: `[salt 16 bytes][iv 12 bytes][ciphertext+tag]`,
 sem magic, app, versão, parâmetros KDF ou cabeçalho JSON em claro. O perfil 2
 (único atual, tentado primeiro) usa PBKDF2-HMAC-SHA-256, 600000 iterações, senha
@@ -159,6 +167,28 @@ concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
 importado como próximo pai. Exportações manuais e gravações na pasta do cofre
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação
 manual não faz merge nem protege contra rollback.
+
+## Kit de emergência
+
+Guarde em um **pen-drive criptografado** (BitLocker To Go ou VeraCrypt):
+
+- As cópias `.keeplocal` mais recentes, incluindo o arquivo da pasta do cofre
+  e os backups manuais.
+- O ZIP da extensão na versão em uso.
+- `keeplocal-recovery.html`, `LEIA-ME.txt` e `SHA256SUMS` de `dist/`.
+
+Guarde a senha mestra separadamente do pen-drive. Atualize o kit após mudanças
+importantes e teste periodicamente a abertura de uma cópia com a ferramenta,
+por exemplo a cada trimestre. No Windows, compare a soma de cada arquivo da
+distribuição com `SHA256SUMS` usando `certutil -hashfile <arquivo> SHA256`.
+No Linux, rode `sha256sum -c SHA256SUMS` dentro da pasta do kit.
+
+Abra o HTML diretamente no Chrome ou Edge para ver as notas e revelar ou
+copiar um campo por vez. A ferramenta preserva o arquivo de backup.
+[Leitor independente](recovery/keeplocal-recovery.html).
+
+O guia explica como reinstalar o KeepLocal e importar a cópia.
+[Guia bilíngue](recovery/LEIA-ME.txt).
 
 ## Senhas e Chaves
 
@@ -223,9 +253,8 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
-Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha, abrir
-outra pasta para recuperação e ferramenta de recuperação independente não estão
-implementados.
+Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha e abrir
+outra pasta para recuperação ainda aguardam implementação.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).
