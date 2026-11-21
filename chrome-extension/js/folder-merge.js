@@ -3,7 +3,7 @@ import {decryptRecords,validateRecords} from './backup-format.js';
 import {encrypt,arrayToBase64,arrayBufferToBase64} from './crypto.js';
 import {editorFields} from './note-write-queue.js';
 import {t,tp,translateFor} from './i18n.js';
-import {descends} from './folder-clock.js';
+import {descends,nextFolderClock} from './folder-clock.js';
 
 export const MAX_TOMBSTONES = 10000;
 const TOMBSTONE_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -26,6 +26,27 @@ export function recordVersions(records) {
   return Object.fromEntries(records.map(({id, updatedAt}) => [id, updatedAt]));
 }
 
+export function retainFolderBases(bases) {
+  const seen=new Set();
+  return bases.filter(base=>{
+    if(!base?.versions)return false;
+    const key=base.hash||JSON.stringify(Object.entries(base.clock??{}).sort(([a],[b])=>a.localeCompare(b)));
+    if(seen.has(key))return false;
+    seen.add(key);
+    return true;
+  }).slice(0,4);
+}
+
+export function reserveFolderVersion(meta,records,heads,options) {
+  const clock=nextFolderClock(meta,heads,options);
+  const state={writerCount:clock[meta.writerId],folderPendingWrite:{clock,versions:recordVersions(records)}};
+  if(meta.folderPendingWrite){
+    state.folderSyncedBases=retainFolderBases([meta.folderPendingWrite,
+      ...(meta.folderSyncedBases??[meta.folderSyncedBase])]);
+  }
+  return state;
+}
+
 export function folderLineage(head) {
   return [head.parent,...(head.payload?.ancestors??[])].filter(hash=>hash!=null);
 }
@@ -35,11 +56,16 @@ export function folderVersionState(meta, head) {
   const previous=versions&&descends(head,{hash,clock})
     ? {hash,versions,clock}
     : descends(head,base) ? base : null;
-  return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous};
+  return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous,
+    ...(meta.folderSyncedBases?{folderSyncedBases:meta.folderSyncedBases}:{})};
 }
 
 export function baseForFolderHead(meta, head) {
+  const pending=meta.folderPendingWrite;
+  if(pending&&descends(head,{clock:pending.clock}))return pending.versions;
   if (meta.folderSyncedVersions&&descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})) return meta.folderSyncedVersions;
+  const base=meta.folderSyncedBases?.find(base=>descends(head,base));
+  if(base)return base.versions;
   if (descends(head,meta.folderSyncedBase)) return meta.folderSyncedBase.versions;
   return undefined;
 }

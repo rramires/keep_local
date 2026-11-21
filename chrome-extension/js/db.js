@@ -1,6 +1,6 @@
 // db.js — IndexedDB wrapper for KeepLocal
 
-import {pruneTombstones,folderVersionState} from './folder-merge.js';
+import {pruneTombstones,folderVersionState,reserveFolderVersion} from './folder-merge.js';
 import {folderWriterState} from './folder-clock.js';
 
 const DB_NAME = 'KeepLocalDB';
@@ -215,19 +215,30 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
   return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
-export function replaceVaultFromFolder({notes,meta},expected,{signal}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true);
+export function replaceVaultFromFolder({notes,meta},expected,{signal,head}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true,head);
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false) {
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderHead) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
-    const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
+    const replace=(current={})=>{
+      let next=values;
+      if(folderHead){
+        next={...values,...folderVersionState(current,folderHead),...folderWriterState(current,folderHead.payload)};
+        if(current.writerId)next.writerId=current.writerId;
+        delete next.folderPendingWrite;
+      }
+      notes.clear();meta.clear();
+      for(const record of records)notes.put(record);
+      for(const[key,value]of Object.entries(next))meta.put({key,value});
+      done();
+    };
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       assertVaultSnapshot(current,expected);
-      replace();
+      replace(current);
     }catch(error){fail(error);}};
   },explicitTransition);
 }
@@ -268,19 +279,20 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function ensureFolderWriter(expected,{signal,transition=false}={}) {
-  if(expected.writerId)return Promise.resolve(expected.writerId);
+export function reserveFolderWrite(expected,records,heads,{signal,replace=false,replaceLocal=false,allowReadOnly=false}={}) {
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
-      assertVaultSnapshot(current,expected);
+      assertVaultSnapshot(current,expected,{allowNewEdits:!replaceLocal});
       const id=current.writerId??crypto.randomUUID();
+      const state=reserveFolderVersion({...current,exportClock:expected.exportClock,writerId:id},records,heads,{replace});
       meta.put({key:'writerId',value:id});
-      done(id);
+      for(const [key,value] of Object.entries(state))meta.put({key,value});
+      done(state.folderPendingWrite.clock);
     }catch(error){fail(error);}};
-  },transition);
+  },allowReadOnly);
 }
 
 export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
@@ -303,6 +315,7 @@ export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
           ...folderWriterState(current,payload),
         };
         for(const [key,value] of Object.entries(state))meta.put({key,value});
+        meta.delete('folderPendingWrite');
         done();
       }catch(error){fail(error);}
     };

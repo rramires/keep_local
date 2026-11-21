@@ -1,11 +1,11 @@
-import {assertWritable,getMeta,readVault,recordFolderWrite,verifyFolderWrite,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
+import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
 import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
-import {folderPullNotices,folderVersionState,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
+import {folderPullNotices,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
 import {hasPendingDrafts} from './backup.js';
-import {descends,folderWriterState} from './folder-clock.js';
+import {descends} from './folder-clock.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
@@ -65,19 +65,16 @@ export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDele
 async function applyFolderCopy(copy,snapshot,key,signal) {
   await requireFolderSession(snapshot,key,signal);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
-  const writerId=previous.writerId??await getMeta('writerId');
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
     ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,exportAncestors:copy.payload.ancestors,
-    exportClock:copy.payload.clock??{},...folderWriterState({...previous,writerId},copy.payload),
-    ...(writerId?{writerId}:{}),
+    exportClock:copy.payload.clock??{},
     folderSyncedHash:copy.hash,folderSyncedClock:copy.payload.clock??{},folderSyncedRevision:revision,
-    ...folderVersionState(previous,copy),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
-  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal});
+  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy});
   if(signal.aborted)throw folderFailure('session.ended');
   storeSessionKey(key,vaultId);
   setWriteMode('readWrite');

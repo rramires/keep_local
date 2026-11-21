@@ -1,9 +1,8 @@
 import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
-import {assertWritable,ensureFolderWriter,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
+import {assertWritable,reserveFolderWrite,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
 import {pruneTombstones} from './folder-merge.js';
-import {nextFolderClock} from './folder-clock.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -50,12 +49,6 @@ export function createFolderWriter(handle,key,signal) {
     const parentAncestors=replace?parentCopy?.payload.ancestors:meta.exportAncestors;
     const preferences=selected?.payload.preferences??Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const tombstones=pruneTombstones(selected?.payload.tombstones??meta.tombstones??[]);
-    const writerId=await ensureFolderWriter(meta,{signal,transition:allowReadOnly});
-    const heads=[state.head,selected,...sourceHeads].filter(Boolean);
-    const clock=nextFolderClock({...meta,writerId},heads,{replace});
-    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
-    const hash=await payloadHash(JSON.stringify(payload));
-    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     const expected=folderStamp(state);
     const verify=async(created)=>{
       assertCurrent();
@@ -69,6 +62,12 @@ export function createFolderWriter(handle,key,signal) {
       await verifyFolderWrite(meta,{signal,replaceLocal:!!selected});
     };
     await verify();
+    const heads=[state.head,selected,...sourceHeads].filter(Boolean);
+    const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
+      replaceLocal:!!selected,allowReadOnly});
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
+    const hash=await payloadHash(JSON.stringify(payload));
+    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     let file,created;
     try {file=await handle.getFileHandle(MAIN_FILE);}
     catch(error){

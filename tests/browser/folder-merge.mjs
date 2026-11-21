@@ -205,6 +205,85 @@ async function decodedNotes(bytes) {
 }
 
 async function integration({check,assert}) {
+  for(const mode of ['race','reopen','control']){
+    const code=mode==='reopen'?'E9':mode==='control'?'E8c':'E8';
+    await check(`H2a.9a ${code} unsaved local edit survives an interrupted merge without a false copy`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const x=note({title:'Fictitious pending X'}),y=note({title:'Fictitious pending Y'});
+        await connectBoth(a,b,[x,y]);
+        await editNote(a,y.id,{content:'A edited Y'});
+        await settleFocus(a);
+        await waitForRev(a,2);
+        await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+        await b.eval(`(()=>{
+          const create=FileSystemFileHandle.prototype.createWritable;
+          FileSystemFileHandle.prototype.createWritable=async function(...args){
+            const stream=await create.apply(this,args);
+            if(this.name===${JSON.stringify(primary)}&&!window.pendingMergePaused){
+              const close=stream.close.bind(stream);
+              stream.close=async()=>{await close();window.pendingMergePaused=true;
+                await new Promise(resolve=>{window.resumePendingMerge=resolve;});};
+            }
+            return stream;
+          };
+        })()`);
+        await editNote(b,x.id,{content:'B first unsaved edit'});
+        await focus(b);
+        await b.until('window.pendingMergePaused===true');
+        const first=await decodedNotes(await readFolderFixture(b,primary));
+        assert.deepEqual(first.notes.map(note=>note.content).sort(),['A edited Y','B first unsaved edit']);
+        const finalContent=mode==='control'?'B first unsaved edit':'B second edit';
+        if(mode==='reopen'){
+          await b.reload();
+          await editFromOtherTab(b,x.id,finalContent);
+          await relogin(b);
+        }else{
+          if(mode==='race')await editFromOtherTab(b,x.id,finalContent);
+          await b.eval('window.resumePendingMerge()');
+        }
+        await ready(b);
+        await settleFocus(b);
+        await waitForRev(b,mode==='control'?3:4);
+        const expected=['A edited Y',finalContent].sort();
+        assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),expected);
+        assert.deepEqual((await decodedNotes(await readFolderFixture(b,primary))).notes.map(note=>note.content).sort(),expected);
+        assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+        assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderPendingWrite')"),null);
+      });
+    });
+  }
+
+  await check('H2a.9a reservation failure rolls back counter and pending base before any file write',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Fictitious failed reservation'});
+      await connectBoth(a,b,[item]);
+      await editNote(a,item.id,{content:'Fictitious next version'});
+      const result=await a.eval(`(await import('./js/folder-write.js')).withVaultLineage(async()=>{
+        const db=await import('./js/db.js'),{createFolderWriter}=await import('./js/folder-write.js');
+        const snapshot=await db.readVault(),handle=await folderTest.directory();
+        const writer=createFolderWriter(handle,(await import('./js/app.js')).getCryptoKey(),new AbortController().signal);
+        const original=await (await handle.getFileHandle(${JSON.stringify(primary)})).getFile();
+        const before=Array.from(new Uint8Array(await original.arrayBuffer()));
+        const state=await writer.scan(snapshot.meta.salt),put=IDBObjectStore.prototype.put;
+        const result=[];
+        for(const field of ['writerCount','folderPendingWrite']){
+          const attempts=folderTest.writeAttempts;
+          IDBObjectStore.prototype.put=function(row){
+            if(row.key===field)throw Error('Fictitious reservation failure');
+            return put.call(this,row);
+          };
+          let failed=false;
+          try{await writer.write(snapshot,state);}catch{failed=true;}finally{IDBObjectStore.prototype.put=put;}
+          const file=await (await handle.getFileHandle(${JSON.stringify(primary)})).getFile();
+          result.push({failed,unchanged:JSON.stringify(snapshot)===JSON.stringify(await db.readVault()),
+            attempts:folderTest.writeAttempts-attempts,bytes:JSON.stringify(before)===JSON.stringify(Array.from(new Uint8Array(await file.arrayBuffer())))});
+        }
+        return result;
+      })`);
+      assert.deepEqual(result,[0,1].map(()=>({failed:true,unchanged:true,attempts:0,bytes:true})));
+    });
+  });
+
   await check('H2a.8a folder clocks commit with their hashes and keep each writer local',async()=>{
     await withTwoProfiles(async(a,b)=>{
       const item=note({title:'Fictitious clock fixture'});
@@ -333,7 +412,7 @@ async function integration({check,assert}) {
       await b.until("typeof window.resumeInterruptedWrite==='function'");
       const merged=await readFolderFixture(b,primary);
       assert.equal((await decodedNotes(merged)).payload.rev,3);
-      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount+1);
       assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),2);
       await editFromOtherTab(b,x.id,'PC B edited after the folder write');
       await b.send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
@@ -389,7 +468,7 @@ async function integration({check,assert}) {
         await page.until("typeof resumeCounter==='function'");
         const pending=await readFolderFixture(page,primary);
         assert.equal((await decodedNotes(pending)).payload.clock[meta.writerId],2);
-        assert.equal(await page.eval("(await import('./js/db.js')).getMeta('writerCount')"),1);
+        const reservedCount=await page.eval("(await import('./js/db.js')).getMeta('writerCount')");
         await page.reload();
         if(!keepFile)await writeFolderFixture(page,primary,prior);
         await page.eval("folderTest.permission='granted'");
@@ -398,15 +477,16 @@ async function integration({check,assert}) {
         await settleFocus(page);
         await waitForRev(page,2);
         const recovered=await decodedNotes(await readFolderFixture(page,primary));
-        assert.equal(recovered.payload.clock[meta.writerId],2);
+        assert.equal(recovered.payload.clock[meta.writerId],keepFile?2:3);
+        assert.equal(reservedCount,2);
         assert.deepEqual(recovered.notes.map(note=>note.content),['Fictional content before closing']);
-        assert.equal(await page.eval("(await import('./js/db.js')).getMeta('writerCount')"),2);
+        assert.equal(await page.eval("(await import('./js/db.js')).getMeta('writerCount')"),keepFile?2:3);
         const continued=await page.eval("(await import('./js/db.js')).readVault()");
         assert.equal(continued.meta.writerId,meta.writerId);
         await editNote(page,item.id,{content:'Fictional next edit'});
         await settleFocus(page);
         await waitForRev(page,3);
-        assert.equal((await decodedNotes(await readFolderFixture(page,primary))).payload.clock[meta.writerId],3);
+        assert.equal((await decodedNotes(await readFolderFixture(page,primary))).payload.clock[meta.writerId],keepFile?3:4);
 
         if(keepFile){
           await page.eval(`(await import('./js/account.js')).resetVault((await import('./js/i18n.js')).t('account.resetWord'))`);
@@ -455,7 +535,7 @@ async function integration({check,assert}) {
       await b.until("typeof window.resumeInterruptedWrite==='function'");
       const merged=await readFolderFixture(b,primary);
       assert.equal((await decodedNotes(merged)).payload.rev,3);
-      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('writerCount')"),before.writerCount+1);
       assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderSeenRev')"),2);
       await b.send('Page.removeScriptToEvaluateOnNewDocument',{identifier});
       await relogin(b);
