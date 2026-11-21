@@ -708,6 +708,7 @@ export async function run({check,assert}) {
     const {folderFixtureSource}=await import('./folder-fixture.mjs');
     const {readFolderFixture,writeFolderFixture,copyFolderFiles}=await import('./folder-transfer.mjs');
     const {backupFixture,importExpression}=await import('./backup-fixture.mjs');
+    const {decodeV2,payloadHash}=await import('../../js/backup-v2.js');
     const a=await harness.launchExtension(),b=await harness.launchExtension();
     const primary='keeplocal-vault.keeplocal';
     const attach=p=>p.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
@@ -831,6 +832,12 @@ export async function run({check,assert}) {
         }finally{await clean.close();}
       }
       const written=await readFolderFixture(pa,primary);
+      const selected=await decodeV2(Buffer.from(independentA,'base64'),harness.PASSWORD);
+      const replacement=await decodeV2(Buffer.from(written,'base64'),harness.PASSWORD);
+      assert.deepEqual(replacement.payload.ancestors,[await payloadHash(selected.payloadText),...selected.payload.ancestors]);
+      const {meta}=await pa.eval("(await import('./js/db.js')).readVault()");
+      assert.equal(meta.exportParent,await payloadHash(replacement.payloadText));
+      assert.deepEqual(meta.exportAncestors,replacement.payload.ancestors);
       await writeFolderFixture(pb,'keeplocal-vault (2).keeplocal',written);
       await pb.eval("window.dispatchEvent(new Event('focus'))");
       await pb.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${common+1})`);

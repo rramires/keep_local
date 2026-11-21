@@ -188,9 +188,13 @@ export (first export: 1). `parent` is `null` for the first export, otherwise the
 lowercase hexadecimal SHA-256 of the **exact UTF-8 JSON plaintext bytes** of the
 previous export, before encryption (not the envelope, not the ciphertext).
 `meta.exportParent` stores the current export's plaintext hash for the next one.
-The counter and parent are committed together, with a compare-and-swap that
-rejects concurrent export tips. A v2 import resumes its counter and records the
-imported payload's exact hash as the next parent. Manual exports and vault-folder
+The optional encrypted `ancestors` array stores up to 32 lowercase, 64-character
+hexadecimal hashes of previous payloads, newest first. A new payload prepends its
+non-null `parent` to that parent's list and keeps the first 32 hashes. An absent
+list is empty. Recovery tools can ignore it when listing live records.
+The counter, parent and `meta.exportAncestors` are committed together, with a
+compare-and-swap that rejects concurrent export tips. A v2 import resumes its counter
+and records the imported payload's exact hash and ancestor list. Manual exports and vault-folder
 writes share this lineage, so gaps in `rev` are normal. Manual import performs no
 merge or rollback protection.
 

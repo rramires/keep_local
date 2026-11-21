@@ -44,10 +44,12 @@ export function createFolderWriter(handle,key,signal) {
     catch {throw folderFailure('folder.unreadable');}
     const rev=Math.max(meta.exportRev||0,meta.folderSeenRev||0,state.head?.rev||0)+1;
     if(!Number.isSafeInteger(rev))throw folderFailure('backup.invalidFile');
-    const parent=selected?.hash??(replace?state.head?.hash??null:meta.exportParent||null);
+    const parentCopy=selected??state.head;
+    const parent=replace?parentCopy?.hash??null:meta.exportParent||null;
+    const parentAncestors=replace?parentCopy?.payload.ancestors:meta.exportAncestors;
     const preferences=selected?.payload.preferences??Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const tombstones=pruneTombstones(selected?.payload.tombstones??meta.tombstones??[]);
-    const payload=makePayload(notes,preferences,rev,parent,tombstones);
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors);
     const hash=await payloadHash(JSON.stringify(payload));
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     const expected=folderStamp(state);
@@ -89,9 +91,9 @@ export function createFolderWriter(handle,key,signal) {
   }
 
   async function write(snapshot,state,options) {
-    const {rev,hash,parent,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
+    const {rev,hash,parent,payload,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
     const writtenAt=Date.parse(exportedAt);
-    await recordFolderWrite(snapshot.meta,{rev,hash,parent,writtenAt,records:snapshot.notes},{signal});
+    await recordFolderWrite(snapshot.meta,{rev,hash,parent,ancestors:payload.ancestors,writtenAt,records:snapshot.notes},{signal});
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 

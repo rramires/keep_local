@@ -267,7 +267,7 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,parent,writtenAt,records},{signal,adopt=false}={}) {
+export function recordFolderWrite(expected,{rev,hash,parent,ancestors,writtenAt,records},{signal,adopt=false}={}) {
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -279,8 +279,10 @@ export function recordFolderWrite(expected,{rev,hash,parent,writtenAt,records},{
         const state={
           folderSyncedHash:hash,...folderVersionState(current,records,parent),
           folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:writtenAt,
+          exportRev:keepLineage?current.exportRev:rev,
+          exportParent:keepLineage?current.exportParent:hash,
+          exportAncestors:(keepLineage?current.exportAncestors:ancestors)??[],
         };
-        if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         done();
       }catch(error){fail(error);}
@@ -296,14 +298,17 @@ export async function readVault() {
     tx.onabort=()=>reject(tx.error);tx.onerror=()=>{};
   });
 }
-export function recordExport(expected,rev,hash,{signal}={}) {
+export function recordExport(expected,rev,hash,{signal,ancestors=[]}={}) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||current.exportRev!==expected.exportRev||current.exportParent!==expected.exportParent||current.folderConnectionId!==expected.folderConnectionId)throw new Error('backup.concurrent');
-      meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
+      meta.put({key:'exportRev',value:rev});
+      meta.put({key:'exportParent',value:hash});
+      meta.put({key:'exportAncestors',value:ancestors});
+      done();
     }catch(error){fail(error);}};
   });
 }

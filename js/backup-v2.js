@@ -4,6 +4,7 @@ import { UUID } from './note-model.js';
 import { MAX_TOMBSTONES } from './folder-merge.js';
 
 export const BACKUP_PROFILES=Object.freeze([Object.freeze({id:2,iterations:600000})]);
+const MAX_ANCESTORS=32;
 export function validateProfile(profile) {
   if(!Number.isSafeInteger(profile.id)||profile.id<1||profile.id>255||!Number.isSafeInteger(profile.iterations)||profile.iterations<600000||profile.iterations>5000000)throw new Error('backup.profile');
 }
@@ -16,12 +17,15 @@ export function validatePayload(payload,profile) {
   if(!Array.isArray(payload.notes)||payload.notes.length>MAX_BACKUP_NOTES||payload.notes.some(n=>!n||typeof n!=='object'))throw new Error('backup.invalidFile');
   const manifest=payload.manifest,ids=payload.notes.map(n=>n.id);
   if(!manifest||manifest.count!==ids.length||JSON.stringify(manifest.ids)!==JSON.stringify(ids))throw new Error('backup.manifest');
-  if(!Object.hasOwn(payload,'tombstones'))return {...payload,tombstones:[]};
-  const rows=payload.tombstones;
+  const hasTombstones=Object.hasOwn(payload,'tombstones'),hasAncestors=Object.hasOwn(payload,'ancestors');
+  const rows=hasTombstones?payload.tombstones:[];
+  const ancestors=hasAncestors?payload.ancestors:[];
   if(!Array.isArray(rows)||rows.length>MAX_TOMBSTONES||Array.from(rows).some(row=>
     !row||typeof row.id!=='string'||!UUID.test(row.id)||!Number.isSafeInteger(row.deletedAt)||row.deletedAt<0))
     throw new Error('backup.invalidFile');
-  return payload;
+  if(!Array.isArray(ancestors)||ancestors.length>MAX_ANCESTORS||Array.from(ancestors).some(hash=>
+    typeof hash!=='string'||hash.length!==64||!/^[a-f0-9]{64}$/.test(hash)))throw new Error('backup.invalidFile');
+  return hasTombstones&&hasAncestors?payload:{...payload,tombstones:rows,ancestors};
 }
 export async function encodeV2(key,salt,payload,profile=BACKUP_PROFILES[0]) {
   validateProfile(profile);validatePayload(payload,profile);
@@ -52,9 +56,10 @@ export async function decodeV2(bytes,password) {
   }
   throw new Error('backup.wrongPasswordOrCorrupted');
 }
-export function makePayload(notes,preferences,rev=0,parent=null,tombstones=[]){
+export function makePayload(notes,preferences,rev=0,parent=null,tombstones=[],parentAncestors=[]){
   return {v:2,profile:BACKUP_PROFILES[0].id,rev,parent,exportedAt:new Date().toISOString(),preferences,notes,
-    manifest:{count:notes.length,ids:notes.map(n=>n.id)},tombstones:tombstones.toSorted((left,right)=>left.id.localeCompare(right.id))};
+    manifest:{count:notes.length,ids:notes.map(n=>n.id)},tombstones:tombstones.toSorted((left,right)=>left.id.localeCompare(right.id)),
+    ancestors:[parent,...parentAncestors].filter(hash=>hash!==null).slice(0,MAX_ANCESTORS)};
 }
 
 export async function payloadHash(text){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)));return Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');}

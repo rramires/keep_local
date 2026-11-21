@@ -69,14 +69,14 @@ async function makeBackupDownload({recovery=false}={}) {
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
-  const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]));
+  const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors);
   const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
   let receiptMeta=meta;
   if(!readOnly){
     const hash=await payloadHash(JSON.stringify(payload));
     await assertCurrent();
-    await recordExport(meta,rev,hash,{signal});
-    receiptMeta={...meta,exportRev:rev,exportParent:hash};
+    await recordExport(meta,rev,hash,{signal,ancestors:payload.ancestors});
+    receiptMeta={...meta,exportRev:rev,exportParent:hash,exportAncestors:payload.ancestors};
   }
   await assertCurrent();
   const blob=new Blob([bytes],{type:'application/octet-stream'}),url=URL.createObjectURL(blob);
@@ -101,7 +101,8 @@ export async function importBackup(file, password) {
   let decoded;
   try{decoded=await decodeV2(bytes,password);}catch(error){throw new Error(t(error.message));}
   const key=decoded.key,backup={notes:decoded.payload.notes};
-  const meta={...decoded.payload.preferences,tombstones:decoded.payload.tombstones,salt:arrayToBase64(decoded.salt),exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText)};
+  const meta={...decoded.payload.preferences,tombstones:decoded.payload.tombstones,salt:arrayToBase64(decoded.salt),
+    exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText),exportAncestors:decoded.payload.ancestors};
   try{validateRecords(backup.notes);await decryptRecords(backup.notes,key);}
   catch{throw new Error(t('backup.unreadableRecords'));}
   meta.keyCheck=await createKeyCheck(key);

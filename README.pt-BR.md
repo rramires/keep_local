@@ -166,9 +166,14 @@ pasta do cofre da extensão compara revisões.
 exportação (primeira: 1). `parent` começa `null`; depois é o SHA-256 hexadecimal
 minúsculo dos **bytes UTF-8 exatos do JSON em claro** da exportação anterior,
 antes de cifrar (não do envelope). `meta.exportParent` guarda o hash do payload
-atual para a próxima. Contador e hash são gravados juntos, recusando pontas
-concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
-importado como próximo pai. Exportações manuais e gravações na pasta do cofre
+atual para a próxima. O campo cifrado opcional `ancestors` guarda até 32 hashes
+hexadecimais minúsculos de 64 caracteres, do mais recente para o mais antigo.
+Cada novo payload acrescenta seu `parent` não nulo ao início da lista desse pai
+e mantém os primeiros 32. Campo ausente equivale a uma lista vazia. O leitor de
+recuperação pode ignorar o campo ao listar as notas.
+Contador, hash e `meta.exportAncestors` são gravados juntos, recusando pontas
+concorrentes. Importar v2 retoma seu contador e grava o hash exato e a lista de
+ancestrais do payload importado. Exportações manuais e gravações na pasta do cofre
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação
 manual não faz merge nem protege contra rollback.
 

@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { COLORS } from '../../js/note-model.js';
 import { ROOT, PASSWORD, create, add, launchExtension, note } from './harness.mjs';
 import { backupFixture, importExpression } from './backup-fixture.mjs';
-import { decodeV2 } from '../../js/backup-v2.js';
+import { decodeV2, payloadHash } from '../../js/backup-v2.js';
 import { folderFixtureSource } from './folder-fixture.mjs';
 import { readFolderFixture } from './folder-transfer.mjs';
 import { submitExtensionLogin } from './extension.mjs';
@@ -382,11 +382,11 @@ export async function run({ browser, check, assert }) {
     });
   });
 
-  await check('H2a.1 manual export and import carry deletions without displaying them in the recovery reader', async () => {
+  await check('H2a.7a manual exports and imports carry lineage and deletions through the detached reader', async () => {
     const spa = await browser.page(), target = await browser.page();
     const title = 'Fictitious survivor', content = 'Only the live note is listed';
     const removed = note({title:'Fictitious removed note',deletedAt:1});
-    let base64;
+    let base64, ancestors;
     try {
       await create(spa);
       await add(spa,title,content);
@@ -396,16 +396,30 @@ export async function run({ browser, check, assert }) {
         await app.permanentDeleteNote(${JSON.stringify(removed.id)});
         return (await import('./js/db.js')).getMeta('tombstones');
       })()`);
+      const decode = base64 => decodeV2(Buffer.from(base64,'base64'),PASSWORD);
+      const first = await decode(await exportFromApp(spa));
+      const second = await decode(await exportFromApp(spa));
       base64 = await exportFromApp(spa);
-      const {payload} = await decodeV2(Buffer.from(base64,'base64'),PASSWORD);
+      const {payload,payloadText} = await decode(base64);
+      ancestors = [await payloadHash(second.payloadText),await payloadHash(first.payloadText)];
+      assert.deepEqual(payload.ancestors,ancestors);
+      assert.equal(payload.parent,ancestors[0]);
       assert.deepEqual(payload.tombstones,rows);
+      const lineage = async page => {
+        const {meta} = await page.eval("(await import('./js/db.js')).readVault()");
+        return [meta.exportParent,meta.exportAncestors];
+      };
+      const hash = await payloadHash(payloadText);
+      assert.deepEqual(await lineage(spa),[hash,ancestors]);
       await target.eval(importExpression(base64));
+      assert.deepEqual(await lineage(target),[hash,ancestors]);
       assert.deepEqual(await target.eval("(await import('./js/db.js')).getMeta('tombstones')"),rows);
       const golden=await readFile(GOLDEN);
       const empty=await browser.page();
       try {
         await empty.eval(importExpression(golden.toString('base64'),GOLDEN_PASSWORD));
         assert.deepEqual(await empty.eval("(await import('./js/db.js')).getMeta('tombstones')"),[]);
+        assert.deepEqual((await lineage(empty))[1],[]);
       } finally {await empty.close();}
     } finally {await target.close();await spa.close();}
     await assertReadsCopy({browser,assert,base64,name:'manual-with-deletions.keeplocal',title,content});
@@ -416,7 +430,7 @@ export async function run({ browser, check, assert }) {
       await submit(page,PASSWORD);
       await page.until("!document.querySelector('#results').hidden");
       assert.deepEqual(await page.eval("[...document.querySelectorAll('#notes .note-title')].map(row=>row.textContent)"),[title]);
-      assert.equal(await page.eval(`document.body.textContent.includes(${JSON.stringify(removed.id)})`),false);
+      assert.equal(await page.eval(`${JSON.stringify([removed.id,...ancestors])}.some(value=>document.body.textContent.includes(value))`),false);
     });
   });
 

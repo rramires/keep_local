@@ -66,7 +66,7 @@ async function applyFolderCopy(copy,snapshot,key,signal) {
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
     ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
-    exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,
+    exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,exportAncestors:copy.payload.ancestors,
     folderSyncedHash:copy.hash,folderSyncedRevision:revision,
     ...folderVersionState(previous,copy.payload.notes,copy.parent),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
@@ -119,7 +119,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   let target=head;
   if(!equalsHead){
     await assertCurrent();
-    const selected={hash:head.hash,payload:{notes:records,preferences,tombstones}};
+    const selected={hash:head.hash,payload:{notes:records,preferences,tombstones,ancestors:head.payload.ancestors}};
     target=await writer.writeChosen(snapshot,state,selected,{allowReadOnly});
   }else{
     target=await readReviewedCopy(handle,head,key,meta.salt);
@@ -127,7 +127,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   await assertCurrent();
   if(equalsLocal){
     const {rev,hash,parent,exportedAt}=target;
-    await recordFolderWrite(meta,{rev,hash,parent,writtenAt:Date.parse(exportedAt),records:target.payload.notes},{signal,adopt:true});
+    await recordFolderWrite(meta,{rev,hash,parent,ancestors:target.payload.ancestors,writtenAt:Date.parse(exportedAt),records:target.payload.notes},{signal,adopt:true});
   }else{
     await applyFolderCopy(target,snapshot,key,signal);
   }
@@ -164,11 +164,12 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   if(!['valid','emptyMain'].includes(main?.status))throw folderFailure('folder.changed');
   const copies=main.status==='valid'?(main.name===head.name?[main]:[main,head]):[];
   const preserved=await preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal);
+  const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
   await requireFolderSession(snapshot,key,signal);
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
-    const result=await writer.write(snapshot,{...state,head},{replace:true});
+    const result=await writer.write(snapshot,{...state,head:chosen},{replace:true});
     return {status:'saved',result,preserved,replacedEmptyMain:result.replacedEmptyMain};
   }catch(error){
     if(reading&&!signal.aborted)setWriteMode('readOnly');

@@ -19,3 +19,23 @@ test('H2a.1 the optional deletion list is sorted and validated independently of 
     assert.throws(()=>validatePayload({...legacy,tombstones:invalid},BACKUP_PROFILES[0]),/backup.invalidFile/);
   }
 });
+
+test('H2a.7a profile 2 links up to 32 ancestors, newest first',()=>{
+  const hashes=Array.from({length:34},(_,i)=>i.toString(16).padStart(64,'0'));
+  const [parent,...older]=hashes;
+  const payload=makePayload(records,{},40,parent,[],[null,...older]);
+  assert.deepEqual(payload.ancestors,hashes.slice(0,32));
+  assert.equal(validatePayload(payload,BACKUP_PROFILES[0]),payload);
+  const {ancestors,tombstones,...legacy}=payload;
+  assert.deepEqual(validatePayload(legacy,BACKUP_PROFILES[0]).ancestors,[]);
+  assert.deepEqual(makePayload([],{}).ancestors,[]);
+});
+
+test('H2a.7a profile 2 rejects malformed ancestor lists',()=>{
+  const payload=makePayload([],{});
+  const hash='a'.repeat(64);
+  for(const ancestors of [null,undefined,{},hash,[null],[42],[hash.toUpperCase()],[hash.slice(1)],
+    Array(1),Array(33).fill(hash)]){
+    assert.throws(()=>validatePayload({...payload,ancestors},BACKUP_PROFILES[0]),/backup.invalidFile/);
+  }
+});
