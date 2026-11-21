@@ -5,7 +5,8 @@ import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { COLORS } from '../../js/note-model.js';
 import { ROOT, PASSWORD, create, add, launchExtension, note } from './harness.mjs';
-import { backupFixture } from './backup-fixture.mjs';
+import { backupFixture, importExpression } from './backup-fixture.mjs';
+import { decodeV2, payloadHash } from '../../js/backup-v2.js';
 import { folderFixtureSource } from './folder-fixture.mjs';
 import { readFolderFixture } from './folder-transfer.mjs';
 import { submitExtensionLogin } from './extension.mjs';
@@ -44,7 +45,7 @@ async function submit(page, password) {
     document.querySelector('#open-backup').click()`);
 }
 
-function exportFromApp(page) {
+export function exportFromApp(page) {
   return page.eval(`(async () => {
     let snapshot;
     URL.createObjectURL = blob => { snapshot = blob; return 'blob:fixture'; };
@@ -148,6 +149,24 @@ async function assertReadsCopy({ browser, assert, name, base64, title, content }
     assert.equal(await page.eval("document.querySelector('.note-content').textContent"), content);
     assert.deepEqual(page.errors, []);
     assert.ok(page.requests.every(request => request === url), page.requests.join('\n'));
+  });
+}
+
+export async function assertReadsMergedCopy({browser,assert,base64,titles,secrets}) {
+  await withRecovery(browser,async({page,directory,url})=>{
+    const path=join(directory,'merged-vault.keeplocal');
+    await writeFile(path,Buffer.from(base64,'base64'));
+    await selectFile(page,path);
+    await submit(page,PASSWORD);
+    await page.until("!document.querySelector('#results').hidden");
+    const shown=await page.eval("[...document.querySelectorAll('#notes .note-title')].map(title=>title.textContent)");
+    assert.deepEqual(shown.sort(),titles.toSorted());
+    await page.eval("document.querySelectorAll('#notes details').forEach(card=>{card.open=true})");
+    await page.until("document.querySelectorAll('#notes .field-value').length===4");
+    assert.ok(await page.eval("[...document.querySelectorAll('#notes .field-value')].every(field=>/^•+$/.test(field.textContent))"));
+    assert.equal(await page.eval(`${JSON.stringify(secrets)}.some(value=>document.body.innerHTML.includes(value))`),false);
+    assert.deepEqual(page.errors,[]);
+    assert.ok(page.requests.every(request=>request===url));
   });
 }
 
@@ -363,17 +382,81 @@ export async function run({ browser, check, assert }) {
     });
   });
 
+  await check('H2a.7a manual exports and imports carry lineage and deletions through the detached reader', async () => {
+    const spa = await browser.page(), target = await browser.page();
+    const title = 'Fictitious survivor', content = 'Only the live note is listed';
+    const removed = note({title:'Fictitious removed note',deletedAt:1});
+    let base64, ancestors;
+    const clock={[crypto.randomUUID()]:9};
+    try {
+      await create(spa);
+      await add(spa,title,content);
+      const rows = await spa.eval(`(async()=>{
+        const app=await import('./js/app.js');
+        await app.saveNote(${JSON.stringify(removed)});
+        await app.permanentDeleteNote(${JSON.stringify(removed.id)});
+        return (await import('./js/db.js')).getMeta('tombstones');
+      })()`);
+      const decode = base64 => decodeV2(Buffer.from(base64,'base64'),PASSWORD);
+      await spa.eval(`(await import('./js/db.js')).saveMeta('exportClock',${JSON.stringify(clock)})`);
+      const first = await decode(await exportFromApp(spa));
+      const second = await decode(await exportFromApp(spa));
+      base64 = await exportFromApp(spa);
+      const {payload,payloadText} = await decode(base64);
+      ancestors = [await payloadHash(second.payloadText),await payloadHash(first.payloadText)];
+      assert.deepEqual(payload.ancestors,ancestors);
+      assert.equal(payload.parent,ancestors[0]);
+      assert.deepEqual(payload.tombstones,rows);
+      assert.deepEqual(payload.clock,clock);
+      const lineage = async page => {
+        const {meta} = await page.eval("(await import('./js/db.js')).readVault()");
+        return [meta.exportParent,meta.exportAncestors,meta.exportClock];
+      };
+      const hash = await payloadHash(payloadText);
+      assert.deepEqual(await lineage(spa),[hash,ancestors,clock]);
+      await target.eval(importExpression(base64));
+      assert.deepEqual(await lineage(target),[hash,ancestors,clock]);
+      assert.equal(await target.eval("(await import('./js/db.js')).getMeta('writerId')"),null);
+      assert.deepEqual(await target.eval("(await import('./js/db.js')).getMeta('tombstones')"),rows);
+      const golden=await readFile(GOLDEN);
+      const empty=await browser.page();
+      try {
+        await empty.eval(importExpression(golden.toString('base64'),GOLDEN_PASSWORD));
+        assert.deepEqual(await empty.eval("(await import('./js/db.js')).getMeta('tombstones')"),[]);
+        assert.deepEqual((await lineage(empty))[1],[]);
+        assert.deepEqual((await lineage(empty))[2],{});
+      } finally {await empty.close();}
+    } finally {await target.close();await spa.close();}
+    await assertReadsCopy({browser,assert,base64,name:'manual-with-deletions.keeplocal',title,content});
+    await withRecovery(browser,async({page,directory})=>{
+      const path=join(directory,'deleted-identifiers.keeplocal');
+      await writeFile(path,Buffer.from(base64,'base64'));
+      await selectFile(page,path);
+      await submit(page,PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.deepEqual(await page.eval("[...document.querySelectorAll('#notes .note-title')].map(row=>row.textContent)"),[title]);
+      assert.equal(await page.eval(`${JSON.stringify([removed.id,...ancestors,...Object.keys(clock)])}.some(value=>document.body.textContent.includes(value))`),false);
+    });
+  });
+
   await check('H1.2 extension OPFS writes open in the detached file reader', async () => {
     const extension = await launchExtension();
     assert.ok(extension);
     const title = 'Cópia da extensão 🧪';
     const content = 'Conteúdo gravado na pasta fictícia ✅';
     const name = 'keeplocal-vault.keeplocal';
-    let base64;
+    const removed = note({title:'Fictitious deletion in the folder',deletedAt:1});
+    let base64, tombstones;
     try {
       const page = await extension.page(undefined, folderFixtureSource('KL-TEST-RECOVERY-H1'));
       await create(page);
       await add(page, title, content);
+      tombstones = await page.eval(`(async()=>{
+        const app=await import('./js/app.js');
+        await app.saveNote(${JSON.stringify(removed)});
+        await app.permanentDeleteNote(${JSON.stringify(removed.id)});
+        return (await import('./js/db.js')).getMeta('tombstones');
+      })()`);
       await page.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
       await page.reload();
       await page.eval("folderTest.permission = 'granted'");
@@ -382,6 +465,7 @@ export async function run({ browser, check, assert }) {
       base64 = await readFolderFixture(page, name);
       assert.deepEqual(page.errors, []);
     } finally { await extension.close(); }
+    assert.deepEqual((await decodeV2(Buffer.from(base64,'base64'),PASSWORD)).payload.tombstones,tombstones);
     await assertReadsCopy({ browser, assert, base64, name, title, content });
   });
 

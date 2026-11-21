@@ -1,5 +1,8 @@
 // db.js — IndexedDB wrapper for KeepLocal
 
+import {pruneTombstones,folderVersionState,reserveFolderVersion} from './folder-merge.js';
+import {folderWriterState} from './folder-clock.js';
+
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
 
@@ -212,19 +215,32 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
   return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
-export function replaceVaultFromFolder({notes,meta},expected,{signal}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true);
+export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true,head&&{head,mergedHeads,resetBases});
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false) {
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReceipt) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
-    const replace=()=>{notes.clear();meta.clear();for(const r of records)notes.put(r);for(const[key,value]of Object.entries(values))meta.put({key,value});done();};
+    const replace=(current={})=>{
+      let next=values;
+      if(folderReceipt){
+        const {head}=folderReceipt;
+        next={...values,...folderVersionState(current,head,folderReceipt),...folderWriterState(current,head.payload)};
+        if(current.writerId)next.writerId=current.writerId;
+        delete next.folderPendingWrite;
+        delete next.folderSyncedBase;
+      }
+      notes.clear();meta.clear();
+      for(const record of records)notes.put(record);
+      for(const[key,value]of Object.entries(next))meta.put({key,value});
+      done();
+    };
     if(!expected){replace();return;}
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       assertVaultSnapshot(current,expected);
-      replace();
+      replace(current);
     }catch(error){fail(error);}};
   },explicitTransition);
 }
@@ -245,7 +261,8 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('syncFolder');
           meta.delete('folderConnectionId');
         }
-        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
+          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -265,7 +282,24 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=false}={}) {
+export function reserveFolderWrite(expected,records,heads,{signal,replace=false,replaceLocal=false,allowReadOnly=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{try{
+      const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+      assertVaultSnapshot(current,expected,{allowNewEdits:!replaceLocal});
+      const id=current.writerId??crypto.randomUUID();
+      const state=reserveFolderVersion({...current,exportClock:expected.exportClock,writerId:id},records,heads,{replace});
+      meta.put({key:'writerId',value:id});
+      for(const [key,value] of Object.entries(state))meta.put({key,value});
+      done(state.folderPendingWrite.clock);
+    }catch(error){fail(error);}};
+  },allowReadOnly);
+}
+
+export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,resetBases}={}) {
+  const {rev,hash,exportedAt,payload}=head;
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -275,11 +309,17 @@ export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=fa
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,
-          folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
+          folderSyncedHash:hash,folderSyncedClock:payload.clock??{},...folderVersionState(current,head,{mergedHeads,resetBases}),
+          folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:Date.parse(exportedAt),
+          exportRev:keepLineage?current.exportRev:rev,
+          exportParent:keepLineage?current.exportParent:hash,
+          exportAncestors:(keepLineage?current.exportAncestors:payload.ancestors)??[],
+          exportClock:(keepLineage?current.exportClock:payload.clock)??{},
+          ...folderWriterState(current,payload),
         };
-        if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
         for(const [key,value] of Object.entries(state))meta.put({key,value});
+        meta.delete('folderPendingWrite');
+        meta.delete('folderSyncedBase');
         done();
       }catch(error){fail(error);}
     };
@@ -294,14 +334,18 @@ export async function readVault() {
     tx.onabort=()=>reject(tx.error);tx.onerror=()=>{};
   });
 }
-export function recordExport(expected,rev,hash,{signal}={}) {
+export function recordExport(expected,rev,hash,{signal,ancestors=[],clock={}}={}) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       if(current.salt!==expected.salt||current.vaultId!==expected.vaultId||current.exportRev!==expected.exportRev||current.exportParent!==expected.exportParent||current.folderConnectionId!==expected.folderConnectionId)throw new Error('backup.concurrent');
-      meta.put({key:'exportRev',value:rev});meta.put({key:'exportParent',value:hash});done();
+      meta.put({key:'exportRev',value:rev});
+      meta.put({key:'exportParent',value:hash});
+      meta.put({key:'exportAncestors',value:ancestors});
+      meta.put({key:'exportClock',value:clock});
+      done();
     }catch(error){fail(error);}};
   });
 }
@@ -329,6 +373,15 @@ export function markVaultDirty(meta,values) {
   meta.put({key:'dirtySinceBackup',value:true});
   meta.put({key:'revision',value:(values.revision||0)+1});
 }
+function recordDeletions(meta, values, records) {
+  if (!records.length) return;
+  const now = Date.now();
+  const deleted = records.map(({id, updatedAt}) => ({
+    id, deletedAt: Number.isSafeInteger(updatedAt) ? Math.max(now, updatedAt) : now,
+  }));
+  meta.put({key:'tombstones',value:pruneTombstones([...(values.tombstones??[]), ...deleted], now)});
+}
+
 export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signal}) {
   return vaultTransaction(({tx,meta,notes},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
@@ -337,7 +390,11 @@ export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signa
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
       if(n.result ? (knownUpdatedAt===undefined||n.result.updatedAt>knownUpdatedAt) : knownUpdatedAt!==undefined)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
-      if(record)notes.put(record);else notes.delete(id);
+      if(record)notes.put(record);
+      else if(n.result){
+        recordDeletions(meta,values,[n.result]);
+        notes.delete(id);
+      }
       markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
@@ -374,6 +431,7 @@ export function discardPreservedRecord(record,expected,{signal,snapshotJSON}={})
     const finish=()=>{if(++ready!==2)return;try{
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(typeof snapshotJSON!=='string'||JSON.stringify({notes:n.result,meta:values})!==snapshotJSON||values.vaultId!==expected.vaultId||!n.result.some(r=>JSON.stringify(r)===JSON.stringify(record)))throw Object.assign(Error('recovery.changed'),{code:'recovery.changed'});
+      recordDeletions(meta,values,[record]);
       notes.delete(record.id);markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
@@ -388,7 +446,13 @@ export function guardedNoteBatch(changes,{expectedVaultId,signal}) {
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(Error('vault.changed'),{code:'vault.changed'});
       changes.forEach((change,i)=>{const stored=requests[i].result;if(stored?(change.knownUpdatedAt===undefined||stored.updatedAt>change.knownUpdatedAt):change.knownUpdatedAt!==undefined)throw Object.assign(Error('note.conflict'),{code:'note.conflict'});});
-      changes.forEach(change=>notes.put(change.record));markVaultDirty(meta,values);done();
+      const deleted=changes.flatMap((change,i)=>!change.record&&requests[i].result?[requests[i].result]:[]);
+      recordDeletions(meta,values,deleted);
+      for(const {id,record} of changes){
+        if(record)notes.put(record);
+        else notes.delete(id);
+      }
+      markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;requests.forEach(request=>request.onsuccess=finish);
   });

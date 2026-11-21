@@ -34,10 +34,20 @@ test('G3 reconciliation distinguishes dirty data, previous revisions and foreign
   const {decideFolderAction}=await import('../../js/folder-reconcile.js');
   const one={id:'one',iv:'iv',ciphertext:'cipher',updatedAt:42};
   const two={...one,id:'two'};
-  const head={hash:'head',rev:3,payload:{notes:[one,two]}};
+  const head={hash:'head',parent:'prior',rev:3,payload:{notes:[one,two]}};
   const state={head,candidates:[{name:'keeplocal-vault.keeplocal',status:'valid'}],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
   const clean={notes:[{}],meta:{revision:4,folderSyncedRevision:4,folderSeenRev:2,folderSyncedHash:'prior'}};
   assert.equal(decideFolderAction(clean,state),'pull');
+  const unrelated={...state,head:{...head,parent:'other'}};
+  const tracked={...clean,meta:{...clean.meta,folderSyncedVersions:{one:42}}};
+  assert.equal(decideFolderAction(clean,unrelated),'conflict');
+  assert.equal(decideFolderAction(tracked,unrelated),'merge');
+  assert.equal(decideFolderAction({...tracked,meta:{...tracked.meta,revision:5}},state),'merge');
+  assert.equal(decideFolderAction(tracked,{...state,divergent:true}),'merge');
+  assert.equal(decideFolderAction({...tracked,meta:{...tracked.meta,folderSeenRev:4}},unrelated),'rollback');
+  const tombstones=[{id:'70caa265-a88c-43d5-9ff6-5737bd436609',deletedAt:Date.now()}];
+  assert.equal(decideFolderAction({notes:[],meta:{tombstones}},state),'conflict');
+  assert.equal(decideFolderAction({notes:[one,two],meta:{tombstones}},state),'conflict');
   assert.equal(decideFolderAction({...clean,meta:{...clean.meta,revision:5}},state),'conflict');
   assert.equal(decideFolderAction({...clean,meta:{...clean.meta,folderSeenRev:4}},state),'rollback');
   assert.equal(decideFolderAction(clean,{...state,divergent:true}),'conflict');
@@ -108,4 +118,20 @@ test('G1.5 an unreadable local snapshot stops before creating a preservation fil
   const handle={async getDirectoryHandle(){creates++;throw Error('Directory creation attempted');}};
   await assert.rejects(preserveLocalChoice(handle,snapshot,key,new AbortController().signal),{code:'folder.preserveFailed'});
   assert.equal(creates,0);
+});
+
+
+test('H2a.8b a vector proves a common base after its hash leaves the ancestry list',async()=>{
+  const {decideFolderAction}=await import('../../js/folder-reconcile.js');
+  const {baseForFolderHead,folderVersionState}=await import('../../js/folder-merge.js');
+  const writer=crypto.randomUUID();
+  const versions={note:42};
+  const meta={folderSyncedHash:'shared',folderSyncedClock:{[writer]:1},folderSyncedVersions:versions,
+    revision:4,folderSyncedRevision:4,folderSeenRev:1};
+  const head={hash:'new',parent:'unrelated',rev:101,payload:{notes:[],ancestors:[],clock:{[writer]:101}}};
+  assert.equal(baseForFolderHead(meta,head),versions);
+  assert.deepEqual(folderVersionState(meta,head).folderSyncedBases[1],{hash:'shared',clock:{[writer]:1},versions});
+  const state={head,candidates:[],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
+  assert.equal(decideFolderAction({notes:[],meta},state),'pull');
+  assert.equal(decideFolderAction({notes:[],meta:{...meta,revision:5}},state),'merge');
 });

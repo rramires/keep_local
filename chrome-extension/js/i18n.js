@@ -172,6 +172,8 @@ const en = {
   "folder.diskSummary": "Folder: revision {rev}, written at {time}, {notes}.",
   "folder.chooseCopy": "Choose a file for the folder version",
   "folder.exportLocal": "Export local backup",
+  "folder.joinBoth": "Merge both",
+  "folder.preserveBoth": "Merging saves both versions in keeplocal-preserved/ before replacing any data.",
   "folder.useFolder": "Use folder version",
   "folder.useLocal": "Write local data to folder",
   "folder.exportReady": "Local backup download started. Verify the saved file.",
@@ -183,6 +185,18 @@ const en = {
   "folder.replaceWord": "REPLACE",
   "folder.replaceTitle": "Replace vault data",
   "folder.replacePrompt": "Type {word} to confirm this replacement.",
+  "folder.mergeSummary": "Changes from another computer were merged: {details}.",
+  "folder.mergeUpdated": "{count} updated",
+  "folder.mergeUpdatedPlural": "{count} updated",
+  "folder.mergeDeleted": "{count} deleted",
+  "folder.mergeDeletedPlural": "{count} deleted",
+  "folder.mergeConflicts": "{count} conflict (copy created)",
+  "folder.mergeConflictsPlural": "{count} conflicts (copies created)",
+  "folder.mergeRestored": "A note deleted on another computer was kept because it was edited here.",
+  "folder.mergeRestoredPlural": "{count} notes deleted on another computer were kept because they were edited here.",
+  "folder.mergeKeptEdited": "A note you deleted was kept because it was edited on another computer.",
+  "folder.mergeKeptEditedPlural": "{count} notes you deleted were kept because they were edited on another computer.",
+  "folder.conflictSuffix": " (conflict {date})",
   "folder.loaded": "Loaded revision {rev} written at {time}.",
   "folder.replaceEmptyMain": "The main file is empty and will be replaced with the data from this browser. The other copies in the folder will stay as they are.",
   "folder.emptyMainReplaced": "The empty main file was replaced with a verified vault copy.",
@@ -544,6 +558,8 @@ const ptBR = {
   "folder.diskSummary": "Na pasta: revisão {rev}, gravada às {time}, {notes}.",
   "folder.chooseCopy": "Escolha o arquivo da versão da pasta",
   "folder.exportLocal": "Exportar backup local",
+  "folder.joinBoth": "Juntar as duas",
+  "folder.preserveBoth": "Juntar salva as duas versões em keeplocal-preserved/ antes de substituir qualquer dado.",
   "folder.useFolder": "Usar a versão da pasta",
   "folder.useLocal": "Gravar os dados locais na pasta",
   "folder.exportReady": "Download do backup local iniciado. Confira o arquivo salvo.",
@@ -555,6 +571,18 @@ const ptBR = {
   "folder.replaceWord": "SUBSTITUIR",
   "folder.replaceTitle": "Substituir dados do cofre",
   "folder.replacePrompt": "Digite {word} para confirmar a substituição.",
+  "folder.mergeSummary": "Alterações de outro computador foram juntadas: {details}.",
+  "folder.mergeUpdated": "{count} atualizada",
+  "folder.mergeUpdatedPlural": "{count} atualizadas",
+  "folder.mergeDeleted": "{count} excluída",
+  "folder.mergeDeletedPlural": "{count} excluídas",
+  "folder.mergeConflicts": "{count} em conflito (cópia criada)",
+  "folder.mergeConflictsPlural": "{count} em conflito (cópias criadas)",
+  "folder.mergeRestored": "Uma nota apagada em outro computador foi mantida porque foi editada aqui.",
+  "folder.mergeRestoredPlural": "{count} notas apagadas em outro computador foram mantidas porque foram editadas aqui.",
+  "folder.mergeKeptEdited": "Uma nota que você apagou foi mantida porque foi editada em outro computador.",
+  "folder.mergeKeptEditedPlural": "{count} notas que você apagou foram mantidas porque foram editadas em outro computador.",
+  "folder.conflictSuffix": " (conflito {date})",
   "folder.loaded": "Carregada a revisão {rev} gravada às {time}.",
   "folder.replaceEmptyMain": "O arquivo principal está vazio e será substituído pelos dados deste navegador. As outras cópias da pasta ficam como estão.",
   "folder.emptyMainReplaced": "O arquivo principal vazio foi substituído por uma cópia conferida do cofre.",
@@ -756,7 +784,11 @@ const dictionaries = { en, 'pt-BR': ptBR };
  * For plurals, append 'Plural' to the key when count !== 1.
  */
 export function t(key, params) {
-  const dict = dictionaries[currentLang] || en;
+  return translateFor(currentLang, key, params);
+}
+
+export function translateFor(lang, key, params) {
+  const dict = dictionaries[lang] || en;
   let str = dict[key] ?? en[key] ?? key;
 
   if (params) {

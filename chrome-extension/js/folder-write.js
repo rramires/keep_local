@@ -1,7 +1,8 @@
 import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
-import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
+import {assertWritable,reserveFolderWrite,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
+import {pruneTombstones} from './folder-merge.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -30,11 +31,11 @@ export function unsafeFolder(state) {
 export function createFolderWriter(handle,key,signal) {
   const scan=salt=>readFolderState(handle,key,salt);
 
-  async function writeFile(snapshot,state,{replace,selected}={}) {
+  async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected}={}) {
     const {meta}=snapshot;
     const notes=selected?selected.payload.notes:snapshot.notes;
     const assertCurrent=()=>{
-      if(!selected)assertWritable();
+      if(!allowReadOnly)assertWritable();
       if(signal?.aborted)throw folderFailure('session.ended');
     };
     assertCurrent();
@@ -43,11 +44,11 @@ export function createFolderWriter(handle,key,signal) {
     catch {throw folderFailure('folder.unreadable');}
     const rev=Math.max(meta.exportRev||0,meta.folderSeenRev||0,state.head?.rev||0)+1;
     if(!Number.isSafeInteger(rev))throw folderFailure('backup.invalidFile');
-    const parent=selected?.hash??(replace?state.head?.hash??null:meta.exportParent||null);
+    const parentCopy=selected??state.head;
+    const parent=replace?parentCopy?.hash??null:meta.exportParent||null;
+    const parentAncestors=replace?parentCopy?.payload.ancestors:meta.exportAncestors;
     const preferences=selected?.payload.preferences??Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
-    const payload=makePayload(notes,preferences,rev,parent);
-    const hash=await payloadHash(JSON.stringify(payload));
-    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
+    const tombstones=pruneTombstones(selected?.payload.tombstones??meta.tombstones??[]);
     const expected=folderStamp(state);
     const verify=async(created)=>{
       assertCurrent();
@@ -61,6 +62,12 @@ export function createFolderWriter(handle,key,signal) {
       await verifyFolderWrite(meta,{signal,replaceLocal:!!selected});
     };
     await verify();
+    const heads=[state.head,selected,...sourceHeads].filter(Boolean);
+    const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
+      replaceLocal:!!selected,allowReadOnly});
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
+    const hash=await payloadHash(JSON.stringify(payload));
+    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     let file,created;
     try {file=await handle.getFileHandle(MAIN_FILE);}
     catch(error){
@@ -87,13 +94,14 @@ export function createFolderWriter(handle,key,signal) {
   }
 
   async function write(snapshot,state,options) {
-    const {rev,hash,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
+    const head=await writeFile(snapshot,state,options);
+    const {rev,hash,exportedAt,replacedEmptyMain}=head;
     const writtenAt=Date.parse(exportedAt);
-    await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt},{signal});
+    await recordFolderWrite(snapshot.meta,head,{signal,resetBases:options?.resetBases});
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.
-  const writeChosen=(snapshot,state,selected)=>writeFile(snapshot,state,{replace:true,selected});
+  const writeChosen=(snapshot,state,selected,options)=>writeFile(snapshot,state,{...options,replace:true,selected});
   return {scan,write,writeChosen};
 }

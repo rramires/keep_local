@@ -80,6 +80,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   if(state.divergent)folderWarnings.push(t('folder.preserveTiedMain'));
   if(canChoose){
     const warnings=tag('div',undefined,'folder-review-warnings');
+    warnings.append(tag('p',t('folder.preserveBoth')));
     for(const message of folderWarnings)warnings.append(tag('p',message));
     if(canOverwrite)warnings.append(tag('p',useLocalWarning));
     panel.append(warnings);
@@ -99,20 +100,23 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
       }
     }finally{busy=false;for(const button of buttons)button.disabled=false;}
   };
-  const button=(name,work)=>{
-    const node=tag('button',t('folder.'+name),'btn-secondary');
+  const button=(name,work,className='btn-secondary')=>{
+    const node=tag('button',t('folder.'+name),className);
     node.type='button';
     node.dataset.folderAction=name;
     node.addEventListener('click',()=>void run(work));
     controls.append(node);
     return node;
   };
-  button('exportLocal',async()=>{
-    if(await exportBackup())report.textContent=t('folder.exportReady');
-  });
   const confirm=async message=>await wordDialog(message+' '+t('folder.replacePrompt',{word:t('folder.replaceWord')}),{
     title:t('folder.replaceTitle'),word:t('folder.replaceWord'),danger:true,signal,
   })===t('folder.replaceWord');
+  if(canChoose)button('joinBoth',async()=>{
+    if(await confirm(t('folder.preserveBoth')))await resolve('merge',selection?.value??head.name);
+  },'btn-primary');
+  button('exportLocal',async()=>{
+    if(await exportBackup())report.textContent=t('folder.exportReady');
+  });
   if(canChoose)button('useFolder',async()=>{
     if(await confirm(folderWarnings.join(' ')))await resolve('remote',selection?.value??head.name);
   });
@@ -125,5 +129,5 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   container.append(panel);
   wrap.append(container);
   root.replaceChildren(wrap);
-  focusPanel(panel,{signal,titleId:heading.id,initial:'[data-folder-action=exportLocal]'});
+  focusPanel(panel,{signal,titleId:heading.id,initial:canChoose?'[data-folder-action=joinBoth]':'[data-folder-action=exportLocal]'});
 }

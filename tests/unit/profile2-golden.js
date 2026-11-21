@@ -17,6 +17,8 @@ test('H1.0 the frozen profile 2 export passes the real import readers', async ()
   assert.equal(key.extractable, false);
   assert.equal(payload.rev, 1);
   assert.equal(payload.parent, null);
+  assert.deepEqual(payload.ancestors, []);
+  assert.deepEqual(payload.clock, {});
   assert.equal(payload.exportedAt, '2026-01-02T03:04:05.000Z');
   assert.deepEqual(payload.preferences, { lang: 'pt-BR', theme: 'dark' });
   validateRecords(payload.notes);

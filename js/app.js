@@ -9,6 +9,7 @@ import { planNoteChange,persistNoteBatch,replaceExistingNotes } from './note-act
 import { requestPersistence } from './storage.js';
 import { setDraftDirty, clearDrafts, refreshBackupState, setUnsaved } from './backup.js';
 import { purgeTrash } from './trash.js';
+import { folderMergeMessages } from './folder-merge.js';
 import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
@@ -174,12 +175,17 @@ async function showApp({reload=true}={}) {
   }
   renderCurrentView();
   if(folderLoaded){
-    const {rev,exportedAt}=folderLoaded;
+    const {rev,exportedAt,stats}=folderLoaded;
     folderLoaded=null;
-    showToast(t('folder.loaded',{rev,time:folderTime(exportedAt)}));
+    if(stats)showMergeNotice(stats);
+    else showToast(t('folder.loaded',{rev,time:folderTime(exportedAt)}));
   }
   if(!isReadOnly()) await requestPersistence();
   if(generation===sessionGeneration&&!isReadOnly()&&folderKey!==cryptoKey) await configureFolderSync();
+}
+
+function showMergeNotice(stats) {
+  for(const message of folderMergeMessages(stats))showToast(message,undefined,undefined,12000);
 }
 
 function folderGateFor(handle,status,key,signal) {
@@ -199,17 +205,20 @@ async function configureFolderSync({admit=false,selected}={}) {
   const handle=selected??await readSyncFolder();
   if(signal?.aborted||key!==cryptoKey)return false;
   if(!handle){setFolderStatus(null);return false;}
-  const rerenderPulled=async head=>{
+  const rerenderPulled=async(head,stats)=>{
     modalController?.abort();modalController=null;
     if(activeEdit){activeEdit.cancel();activeEdit.cleanup?.();activeEdit=null;}
     await initI18n({persistDefault:false});await initTheme();
     document.title=t('app.title');
     if(signal.aborted)return;
-    folderLoaded=head;
+    folderLoaded={...head,stats};
     if(document.querySelector('.app-view'))await showApp();
   };
   const sync=createFolderSync({
-    handle,key,signal,onPulled:rerenderPulled,onIgnored:()=>showToast(t('folder.ignoredCopies')),
+    handle,key,signal,onPulled:rerenderPulled,onMerged:stats=>{
+      if(document.querySelector('.app-view'))showMergeNotice(stats);
+      else folderLoaded={stats};
+    },onIgnored:()=>showToast(t('folder.ignoredCopies')),
     onEmptyMainReplaced:()=>showToast(t('folder.emptyMainReplaced')),
     onUnavailable:(folder,status)=>{
       folderGate=folderGateFor(folder,status,key,signal);

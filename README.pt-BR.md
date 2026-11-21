@@ -141,6 +141,10 @@ exportações dele. O comprimento total do arquivo permanece observável.
 Decifre os bytes a partir do offset 28 com o nonce do offset 16. O JSON UTF-8
 cifrado contém `v:2`, `profile:2`, `rev`, `exportedAt`, `preferences`, `notes` e
 `manifest:{count,ids}`. Os IDs devem corresponder à ordem exata do array de notas.
+O campo cifrado opcional `tombstones` contém até 10000 registros de exclusão
+definitiva `{id,deletedAt}`, com UUID e data em milissegundos como inteiro
+seguro não negativo. Campo ausente equivale a uma lista vazia. O leitor de
+recuperação lista os registros de `notes`.
 As notas são registros cifrados originais `{id,iv,ciphertext,updatedAt}`; IV e
 ciphertext internos são Base64, decifrados com a mesma chave, e ID/timestamp
 internos devem coincidir. Isso preserva registros ilegíveis na exportação; será
@@ -162,9 +166,19 @@ pasta do cofre da extensão compara revisões.
 exportação (primeira: 1). `parent` começa `null`; depois é o SHA-256 hexadecimal
 minúsculo dos **bytes UTF-8 exatos do JSON em claro** da exportação anterior,
 antes de cifrar (não do envelope). `meta.exportParent` guarda o hash do payload
-atual para a próxima. Contador e hash são gravados juntos, recusando pontas
-concorrentes. Importar v2 retoma seu contador e usa o hash exato do payload
-importado como próximo pai. Exportações manuais e gravações na pasta do cofre
+atual para a próxima. O campo cifrado opcional `ancestors` guarda até 32 hashes
+hexadecimais minúsculos de 64 caracteres, do mais recente para o mais antigo.
+Cada novo payload acrescenta seu `parent` não nulo ao início da lista desse pai
+e mantém os primeiros 32. Campo ausente equivale a uma lista vazia. O leitor de
+recuperação pode ignorar o campo ao listar as notas.
+O campo cifrado opcional `clock` é um mapa de até 64 UUIDs de gravadores com
+contadores inteiros seguros positivos. Campo ausente equivale a um mapa vazio.
+Gravar na pasta incrementa o contador deste PC. Uma junção leva os maiores
+contadores das fontes. O export manual leva o clock local. O leitor de
+recuperação pode ignorar esse mapa.
+Contador, hash, `meta.exportAncestors` e `meta.exportClock` são gravados juntos, recusando pontas
+concorrentes. Importar v2 retoma seu contador e grava o hash exato e a lista de
+ancestrais do payload importado. Exportações manuais e gravações na pasta do cofre
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação
 manual não faz merge nem protege contra rollback.
 
@@ -229,21 +243,59 @@ obrigatória a cada abertura.
   máximo 32, 64 MiB cada; cópias de conflito do Mega incluídas) é autenticado com
   a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
   nunca a data do arquivo. Outros arquivos são ignorados.
-- **Decisão:** gravar as alterações locais, carregar uma cabeça mais nova da
-  pasta ou parar e perguntar quando os dois lados mudaram, quando a pasta está
-  mais antiga que uma revisão já vista, quando há cópia de outra frase-senha ou
-  cofre, ou cópia ilegível. Na primeira conexão, um cofre local vazio carrega a
-  pasta e um conjunto idêntico de registros é adotado sem gravar; qualquer outro
-  caso pergunta. Cópias alheias ou ilegíveis nunca são sobrescritas. A pasta
-  exige zero registros locais ilegíveis.
-- **Conflitos:** escolher um lado exige digitar SUBSTITUIR. Antes, o lado que
-  perde é copiado para a subpasta `keeplocal-preserved/`, relido e conferido; se
-  falhar, nada é substituído. Os arquivos preservados abrem pelo "Importar"
-  normal. O app nunca limpa essa subpasta e lê só a raiz, então as cópias
-  preservadas nunca viram candidatas.
+- **Decisão:** um navegador sem alterações locais carrega diretamente um
+  arquivo mais novo quando o hash ou o clock cifrado comprova descendência
+  da última versão em comum. Um clock não vazio comprova descendência quando
+  todos os contadores dessa versão estão presentes com valor igual ou maior.
+  O pai e os hashes de ancestrais também comprovam descendência, inclusive
+  para arquivos antigos sem clock. Depois da primeira cópia em comum,
+  alterações divergentes e cabeças empatadas são comparadas por nota ao entrar
+  e ao focar. A revisão continua
+  para revisões antigas, primeira conexão com dados diferentes e uma cópia
+  principal incompatível ou ilegível. Na primeira conexão, um cofre vazio
+  sem registros de exclusão carrega a pasta. Um conjunto idêntico é adotado
+  sem gravar.
+- **Mesclagem:** o pai cifrado, a lista opcional `ancestors` e o campo opcional
+  `clock` identificam estados em comum para comparar as alterações. Cada
+  cofre local recebe um UUID de gravador na primeira escrita na pasta. Antes
+  de abrir o arquivo para escrever, uma transação local guardada reserva o
+  próximo contador e uma base pendente com as versões das notas locais usadas
+  nessa gravação. Uma interrupção pode deixar uma lacuna, e a próxima tentativa
+  sempre avança o contador reservado. O export manual leva o clock sem somar.
+  A junção leva os maiores contadores de todas as fontes e incrementa o deste
+  PC. O clock guarda até 64 gravadores. Ao ultrapassar esse limite, uma escrita
+  remove entradas de outros gravadores pelo menor contador e depois pelo ID,
+  mantendo a própria entrada.
+  A base pendente e um histórico de até quatro estados ficam só no navegador.
+  A mesclagem usa a pendente quando comprovada, depois a primeira entrada
+  comprovada desse histórico, com o último estado registrado da pasta como
+  reserva.
+  Uma pendente anterior entra na frente do histórico antes de outra gravação
+  substituí-la. O registro da gravação conferida leva histórico e clocks com
+  os hashes correspondentes e remove a pendente em uma única transação.
+  Escolher explicitamente um dos lados conserva só o estado escolhido como
+  base. Um reset do cofre gera outro UUID de gravador. Edições em notas
+  diferentes podem ser juntadas a partir de uma base comprovada. Se a mesma
+  nota tem edições de conteúdo concorrentes ou conteúdo diferente sem base
+  conhecida, a versão mais recente mantém o ID e a outra vira uma cópia de
+  conflito, com a data da edição em UTC. A poda do clock também pode deixar
+  uma versão sem prova e exigir uma cópia de conflito.
+  Ao criar uma cópia de conflito ou ao escolher **Juntar as duas**, o app guarda
+  os originais da pasta e do navegador em `keeplocal-preserved/` e os relê antes
+  da substituição. Participam a maior revisão cifrada e as outras cópias com a
+  mesma revisão. O aviso lista as alterações que ocorreram.
+- **Exclusões definitivas:** as cópias cifradas guardam até 10000 registros
+  de exclusão por 365 dias. A exclusão vence quando a outra versão está igual
+  à cópia em comum. Uma versão alterada ou sem base conhecida é mantida. Cada
+  computador mostra um aviso conforme a nota tenha sido editada ou apagada nele.
+- **Revisão:** Juntar as duas preserva as duas fontes antes da mesclagem.
+  As escolhas de usar um dos lados continuam disponíveis. Toda substituição
+  exige digitar SUBSTITUIR. Os arquivos preservados abrem pelo Importar normal.
+  O app mantém esses arquivos na subpasta e consulta só a raiz. Gravar na
+  pasta exige zero registros locais ilegíveis.
 - **Pasta indisponível:** uma tela de bloqueio oferece Tentar de novo, Escolher
   outra pasta, Abrir só leitura, Começar do zero… e Sair. O somente leitura é
-  imposto na camada de dados (nenhuma gravação). Leituras da pasta têm prazo
+  imposto na camada de dados (nenhuma gravação ou mesclagem). Leituras da pasta têm prazo
   (15 s para metadados, 60 s por arquivo): uma pasta que não responde leva à tela
   "A pasta não respondeu", sem travar o login. Se continuar, escolha a mesma pasta
   de novo, ou use Configurações → Desconectar pasta → Escolher pasta. Gravações
@@ -253,8 +305,8 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
-Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha e abrir
-outra pasta para recuperação ainda aguardam implementação.
+As próximas etapas incluem pastas gravadas com outra frase-senha, abertura
+de outra pasta para recuperação e cópias rotativas.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).

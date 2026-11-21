@@ -85,6 +85,74 @@ taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
 Build once before running the browser suite when the app sources have changed.
 Repeat the browser suite three times at phase closing.
 
+## Per-note vault-folder merge
+
+The unit tests cover the per-note decision table, lineage selection, snapshot
+reuse, deterministic conflict IDs and UTC titles. The fuzz test uses seed
+`0x4b4c2026` and verifies at least 5,000 distinct schedules with one to six
+notes, randomized timestamps, edits, metadata changes, trash and permanent
+deletions. It checks preservation of edits, symmetry, idempotence and note
+validation. Seed `0x5eed2026` varies the ancestry of folder revisions.
+
+The two-profile OPFS tests exchange only fictional encrypted files. E1 and E2
+discard PC B's revision 5 and verify preservation of edits to the same note
+in both timestamp orders. E3 and E4 check an unseen edit against permanent
+deletion and verify the appropriate notice on both computers. Other cases
+cover direct pulls across intervening writes and manual exports, guarded
+application when a local edit arrives mid-write, and zero writes after the
+profiles converge or while a session is read only.
+
+Browser tests open profile 2 with optional `tombstones`, `ancestors` and `clock`
+in the independent `file://` recovery reader. `node tests/build/profile2-compat.mjs` checks
+compatibility in both directions with `a968ee2` extracted by `git archive`.
+The golden file continues to use the frozen bytes and SHA-256.
+
+Writer-clock unit tests cover optional payload validation through 64 writers,
+clock dominance, base selection, direct pulls, overflow and counter recovery.
+The simulation uses seed `0x4b4c2028` for 240 sequences with two or three PCs,
+dropped writes, pulls, merges and bursts of up to 101 writes. It checks that
+edited content survives and that disjoint edits produce zero conflict copies.
+The per-note fuzz above continues to cover permanent deletions and trash.
+
+The two-profile E6 regressions perform 34 and 100 separate folder writes while
+the other PC is closed. Sign-in must load the new file directly with zero
+folder writes, preservation files or conflict copies. Other checks pause a
+merge after the file closes, then reload with or without an intervening write
+from another tab. The sign-in race expects two contents. Normal writes also
+pause before their local receipt, exercising both retained and lost files,
+counter continuation and a new writer identity after reset.
+
+The recovery regressions C1, C3a and C3b use the production reservation, base
+selection, receipt and merge functions. C1 covers an unsaved local edit in an
+interrupted merge. C3a/C3b use three PCs to verify unique reserved counters,
+retention of the reopened edit and the real concurrent conflict in C3a.
+The lost-file case requires the next reserved count, even when the earlier file
+has disappeared. Injected reservation failures leave the database and file
+unchanged with zero file-write attempts.
+
+C5 uses seeds `0x0c10c4a8` and `0x0c10c4a9`, 600 sequences per variant,
+two or three PCs, 40 randomized steps and final convergence. Each PC edits
+only its own note. A delivery is dropped only when two PCs write over the same
+head and one file wins. One variant also closes after writing and before the
+local receipt or application. Both require zero lost final edits, generated
+conflicts and conflict copies. A separate regression checks that a proven
+archived B:2 pending base precedes the older B:1 receipt when B:3 is unproven.
+
+E8/E9 repeat unsaved-edit interruptions with two real extension profiles and
+OPFS, using an intervening guarded write from another tab. E8c is the control.
+E10 drops a merge while the other PC writes again, then checks both contents
+on both PCs without conflict copies or preservation files. Explicit source
+choices keep only their chosen base, and disconnect clears the history.
+A real 65th writer also writes a file successfully. Unit tests check stable
+clock trimming and conservative conflict preservation when proof is trimmed.
+
+The full gate uses a disposable profile for every test. At phase closing, run
+the complete browser runner three consecutive times and stop on the first
+failure. Setting `KEEPLOCAL_H2A_CAPTURES` to an existing output directory
+captures the merge notice, conflict copy and review choice in both themes at
+1100 and 390 px. Set `KEEPLOCAL_H2A7_CAPTURES` to an existing directory for
+the four captures of the kept-edit notice in E4.
+
 ## Phase 2c verification
 
 `tests/unit/note-write-queue.js` forces both action/editor orders for pin, color,

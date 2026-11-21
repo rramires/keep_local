@@ -150,7 +150,10 @@ data is exactly **29 bytes**: `[0x02] || salt[16] || iv[12]`. Decrypt bytes `[28
 with nonce `[16,28)`. Decode the authenticated plaintext as UTF-8 JSON.
 The payload contains `v:2`, `profile:2`, `rev`, ISO `exportedAt`, `preferences`
 (`lang`, `theme`), `notes`, and `manifest:{count,ids}`. `ids` must equal note IDs
-in their exact array order. Notes are the original encrypted IndexedDB records
+in their exact array order. The optional encrypted `tombstones` array contains
+up to 10,000 permanent deletion markers `{id,deletedAt}`, with a UUID and a
+nonnegative safe integer timestamp in milliseconds. An absent array means no
+markers. Recovery tools can ignore this field when listing live records. Notes are the original encrypted IndexedDB records
 `{id,iv,ciphertext,updatedAt}` (Base64 inner IV/ciphertext); decrypt each using the
 same derived key and no additional authenticated data. Validate each note
 and its matching ID/timestamp. Keeping
@@ -185,9 +188,17 @@ export (first export: 1). `parent` is `null` for the first export, otherwise the
 lowercase hexadecimal SHA-256 of the **exact UTF-8 JSON plaintext bytes** of the
 previous export, before encryption (not the envelope, not the ciphertext).
 `meta.exportParent` stores the current export's plaintext hash for the next one.
-The counter and parent are committed together, with a compare-and-swap that
-rejects concurrent export tips. A v2 import resumes its counter and records the
-imported payload's exact hash as the next parent. Manual exports and vault-folder
+The optional encrypted `ancestors` array stores up to 32 lowercase, 64-character
+hexadecimal hashes of previous payloads, newest first. A new payload prepends its
+non-null `parent` to that parent's list and keeps the first 32 hashes. An absent
+list is empty. Recovery tools can ignore it when listing live records.
+The optional encrypted `clock` map has up to 64 UUID writer IDs with positive
+safe integer counters. An absent map is empty. Folder writes advance the local
+writer's counter and merged writes carry the maximum counters of their sources.
+Manual exports carry the local clock. Recovery readers can ignore this map.
+The counter, parent, `meta.exportAncestors` and `meta.exportClock` are committed together, with a
+compare-and-swap that rejects concurrent export tips. A v2 import resumes its counter
+and records the imported payload's exact hash and ancestor list. Manual exports and vault-folder
 writes share this lineage, so gaps in `rev` are normal. Manual import performs no
 merge or rollback protection.
 
@@ -246,20 +257,56 @@ is still required at every opening.
   (at most 32, 64 MiB each; Mega conflict copies included) is authenticated with
   the session key when it shares the vault salt. The head is the highest
   encrypted `rev`, never a file date. Other files are ignored.
-- **Decision:** write local changes, load a newer folder head, or stop and ask
-  when both sides changed, the folder is older than a revision already seen, a
-  copy uses another passphrase or vault, or a copy is unreadable. On first
-  connection an empty local vault loads the folder and an identical record set
-  is adopted without writing; anything else asks. Foreign and unreadable copies
-  are never overwritten. The folder requires zero unreadable local records.
-- **Conflicts:** choosing a side requires typing REPLACE. The losing side is
-  first copied to the `keeplocal-preserved/` subfolder, read back and verified;
-  if that fails, nothing is replaced. Preserved files open with the normal
-  Import. The app never cleans that subfolder and reads only the root, so
-  preserved copies never become candidates.
+- **Decision:** a browser with no local changes loads a newer file directly
+  when the hash or encrypted clock proves descent from its last shared file.
+  A nonempty clock proves descent when every writer counter from the shared
+  file is present with an equal or greater value. The parent and ancestor
+  hashes also prove descent, including for older files without a clock. After
+  the first shared snapshot, divergent changes and tied heads are compared
+  one note at a time on sign-in and focus. Reviews are still required for older
+  revisions, a first connection with different data and an incompatible or
+  unreadable main copy. An empty local vault without deletion markers loads the
+  folder on first connection. An identical set is adopted without writing.
+- **Merging:** the encrypted parent, optional `ancestors` list and optional
+  `clock` identify known shared snapshots for comparing edits. Each local
+  vault creates a UUID writer ID at its first folder write. Before opening
+  the file for writing, a guarded local transaction reserves its next counter
+  and a pending base with the versions of the local notes used in that write.
+  An interruption can leave a gap, and the next attempt always advances the
+  reserved counter. Manual exports carry the clock without advancing it.
+  A merged file carries the maximum counters of all its sources and advances
+  the current writer. Clocks keep at most 64 writers. A new write trims other
+  writers with the smallest counters first, then by ID, and keeps its own entry.
+  The pending base and a history of up to four known snapshots stay in the
+  browser. Reconciliation uses the pending base when proven, then the first
+  proven entry in that history, with the last recorded folder state as a
+  fallback.
+  An older pending base is kept at the front of the history before another
+  write replaces it. The verified receipt records the history and clocks
+  with their hashes and clears the pending base in one transaction. Choosing
+  one side explicitly keeps only the chosen snapshot as a base. Resetting the
+  vault gives it a new writer ID. Edits to different notes can be
+  combined from a proven snapshot. When the same note has competing content
+  edits or has differing content without a known base, the newer version keeps its
+  ID and the other becomes a conflict copy with its edit time in UTC. Clock
+  trimming can also leave a version without proof and require a conflict copy.
+  The app keeps the folder and local originals in `keeplocal-preserved/` and
+  reads them back before replacing either source when it creates a conflict copy or you
+  choose **Merge both**. The highest encrypted revision and other copies at
+  that revision take part. The notice lists changes that occurred.
+- **Permanent deletions:** encrypted backups carry up to 10,000 deletion
+  markers for 365 days. A deletion wins when the other version is unchanged
+  from the known shared snapshot. A changed version or a version without a
+  known base survives. Each computer shows a notice based on whether you
+  edited or deleted the note there.
+- **Review:** Merge both preserves the two sources before combining them.
+  Choosing either source is still available. Every replacement choice
+  requires typing REPLACE. Preserved files open with normal Import. The app
+  leaves those files in place and scans only the folder root. Folder writes
+  require zero unreadable local records.
 - **Unavailable folder:** a blocking screen offers Try again, Choose another
   folder, Open read only, Start over… and Sign out. Read only is enforced in the
-  data layer (no writes). Folder reads have deadlines (15 s for metadata, 60 s
+  data layer (no writes or merging). Folder reads have deadlines (15 s for metadata, 60 s
   per file): a folder that does not answer leads to "The folder did not
   respond" instead of a stuck sign-in. If it persists, select the same folder
   again, or use Settings → Disconnect folder → Choose folder. Writes have no
@@ -269,9 +316,8 @@ is still required at every opening.
   the folder copy. Import on the sign-in screen is refused while a folder is
   connected.
 
-Per-note merge, rotating copies, folders written with another passphrase,
-and opening another folder for recovery are not
-implemented.
+Planned next are support for folders written with another passphrase and
+opening another folder for recovery, followed by rotating copies.
 
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
 Versions, upstream release review and download integrity are recorded in
