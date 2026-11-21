@@ -31,9 +31,9 @@ export function folderLineage(head) {
 
 export function folderVersionState(meta, head) {
   const lineage=folderLineage(head);
-  const {folderSyncedHash:hash,folderSyncedVersions:versions,folderSyncedBase:base}=meta;
+  const {folderSyncedHash:hash,folderSyncedClock:clock={},folderSyncedVersions:versions,folderSyncedBase:base}=meta;
   const previous=versions&&lineage.includes(hash)
-    ? {hash,versions}
+    ? {hash,versions,clock}
     : lineage.includes(base?.hash) ? base : null;
   return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous};
 }

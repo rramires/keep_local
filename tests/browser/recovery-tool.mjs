@@ -387,6 +387,7 @@ export async function run({ browser, check, assert }) {
     const title = 'Fictitious survivor', content = 'Only the live note is listed';
     const removed = note({title:'Fictitious removed note',deletedAt:1});
     let base64, ancestors;
+    const clock={[crypto.randomUUID()]:9};
     try {
       await create(spa);
       await add(spa,title,content);
@@ -397,6 +398,7 @@ export async function run({ browser, check, assert }) {
         return (await import('./js/db.js')).getMeta('tombstones');
       })()`);
       const decode = base64 => decodeV2(Buffer.from(base64,'base64'),PASSWORD);
+      await spa.eval(`(await import('./js/db.js')).saveMeta('exportClock',${JSON.stringify(clock)})`);
       const first = await decode(await exportFromApp(spa));
       const second = await decode(await exportFromApp(spa));
       base64 = await exportFromApp(spa);
@@ -405,14 +407,16 @@ export async function run({ browser, check, assert }) {
       assert.deepEqual(payload.ancestors,ancestors);
       assert.equal(payload.parent,ancestors[0]);
       assert.deepEqual(payload.tombstones,rows);
+      assert.deepEqual(payload.clock,clock);
       const lineage = async page => {
         const {meta} = await page.eval("(await import('./js/db.js')).readVault()");
-        return [meta.exportParent,meta.exportAncestors];
+        return [meta.exportParent,meta.exportAncestors,meta.exportClock];
       };
       const hash = await payloadHash(payloadText);
-      assert.deepEqual(await lineage(spa),[hash,ancestors]);
+      assert.deepEqual(await lineage(spa),[hash,ancestors,clock]);
       await target.eval(importExpression(base64));
-      assert.deepEqual(await lineage(target),[hash,ancestors]);
+      assert.deepEqual(await lineage(target),[hash,ancestors,clock]);
+      assert.equal(await target.eval("(await import('./js/db.js')).getMeta('writerId')"),null);
       assert.deepEqual(await target.eval("(await import('./js/db.js')).getMeta('tombstones')"),rows);
       const golden=await readFile(GOLDEN);
       const empty=await browser.page();
@@ -420,6 +424,7 @@ export async function run({ browser, check, assert }) {
         await empty.eval(importExpression(golden.toString('base64'),GOLDEN_PASSWORD));
         assert.deepEqual(await empty.eval("(await import('./js/db.js')).getMeta('tombstones')"),[]);
         assert.deepEqual((await lineage(empty))[1],[]);
+        assert.deepEqual((await lineage(empty))[2],{});
       } finally {await empty.close();}
     } finally {await target.close();await spa.close();}
     await assertReadsCopy({browser,assert,base64,name:'manual-with-deletions.keeplocal',title,content});
@@ -430,7 +435,7 @@ export async function run({ browser, check, assert }) {
       await submit(page,PASSWORD);
       await page.until("!document.querySelector('#results').hidden");
       assert.deepEqual(await page.eval("[...document.querySelectorAll('#notes .note-title')].map(row=>row.textContent)"),[title]);
-      assert.equal(await page.eval(`${JSON.stringify([removed.id,...ancestors])}.some(value=>document.body.textContent.includes(value))`),false);
+      assert.equal(await page.eval(`${JSON.stringify([removed.id,...ancestors,...Object.keys(clock)])}.some(value=>document.body.textContent.includes(value))`),false);
     });
   });
 

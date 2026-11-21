@@ -171,7 +171,12 @@ hexadecimais minúsculos de 64 caracteres, do mais recente para o mais antigo.
 Cada novo payload acrescenta seu `parent` não nulo ao início da lista desse pai
 e mantém os primeiros 32. Campo ausente equivale a uma lista vazia. O leitor de
 recuperação pode ignorar o campo ao listar as notas.
-Contador, hash e `meta.exportAncestors` são gravados juntos, recusando pontas
+O campo cifrado opcional `clock` é um mapa de até 64 UUIDs de gravadores com
+contadores inteiros seguros positivos. Campo ausente equivale a um mapa vazio.
+Gravar na pasta incrementa o contador deste PC. Uma junção leva os maiores
+contadores das fontes. O export manual leva o clock local. O leitor de
+recuperação pode ignorar esse mapa.
+Contador, hash, `meta.exportAncestors` e `meta.exportClock` são gravados juntos, recusando pontas
 concorrentes. Importar v2 retoma seu contador e grava o hash exato e a lista de
 ancestrais do payload importado. Exportações manuais e gravações na pasta do cofre
 compartilham essa linhagem, então lacunas de `rev` são normais. A importação

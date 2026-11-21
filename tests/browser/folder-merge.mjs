@@ -187,6 +187,72 @@ async function decodedNotes(bytes) {
 }
 
 async function integration({check,assert}) {
+  await check('H2a.8a folder clocks commit with their hashes and keep each writer local',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Fictitious clock fixture'});
+      await connectBoth(a,b,[item]);
+      const snapshot=page=>page.eval("(await import('./js/db.js')).readVault()");
+      const first=(await snapshot(a)).meta;
+      const adopted=(await snapshot(b)).meta;
+      assert.match(first.writerId,/^[a-f0-9-]{36}$/);
+      assert.equal(first.writerCount,1);
+      assert.deepEqual(first.exportClock,{[first.writerId]:1});
+      assert.deepEqual(first.folderSyncedClock,first.exportClock);
+      assert.deepEqual(adopted.exportClock,first.exportClock);
+      assert.deepEqual(adopted.folderSyncedClock,first.exportClock);
+      assert.equal(adopted.writerId,undefined);
+
+      await editNote(b,item.id,{content:'PC B made a fictional change'});
+      await settleFocus(b);
+      await waitForRev(b,2);
+      const written=(await snapshot(b)).meta;
+      assert.match(written.writerId,/^[a-f0-9-]{36}$/);
+      assert.notEqual(written.writerId,first.writerId);
+      assert.equal(written.writerCount,1);
+      const expected={[first.writerId]:1,[written.writerId]:1};
+      const file=await readFolderFixture(b,primary);
+      const {payload,payloadText}=await decodeV2(Buffer.from(file,'base64'),PASSWORD);
+      assert.deepEqual(payload.clock,expected);
+      assert.equal(written.exportParent,await payloadHash(payloadText));
+      assert.deepEqual(written.exportClock,expected);
+      assert.deepEqual(written.folderSyncedClock,expected);
+
+      const exported=await exportFromApp(b);
+      assert.deepEqual((await decodeV2(Buffer.from(exported,'base64'),PASSWORD)).payload.clock,expected);
+      assert.equal((await snapshot(b)).meta.writerCount,1);
+      await writeFolderFixture(a,primary,file);
+      await relogin(a);
+      await ready(a);
+      const pulled=(await snapshot(a)).meta;
+      assert.equal(pulled.writerId,first.writerId);
+      assert.equal(pulled.writerCount,1);
+      assert.deepEqual(pulled.exportClock,expected);
+      assert.deepEqual(pulled.folderSyncedClock,expected);
+
+      const rollback=await a.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const snapshot=await db.readVault();
+        const head=(await import('./js/folder-vault.js')).readFolderState;
+        const current=(await head(await folderTest.directory(),(await import('./js/app.js')).getCryptoKey(),snapshot.meta.salt)).head;
+        const put=IDBObjectStore.prototype.put;
+        const results=[];
+        try{
+          for(const key of ['exportClock','folderSyncedClock','writerCount']){
+            IDBObjectStore.prototype.put=function(row){
+              if(row.key===key)throw Error('Fictional clock transaction failure');
+              return put.call(this,row);
+            };
+            let failed=false;
+            try{await db.recordFolderWrite(snapshot.meta,current,{adopt:true});}catch{failed=true;}
+            results.push(failed&&JSON.stringify(snapshot)===JSON.stringify(await db.readVault()));
+          }
+        }finally{IDBObjectStore.prototype.put=put;}
+        return results;
+      })()`);
+      assert.deepEqual(rollback,[true,true,true]);
+    });
+  });
+
   for(const [scenario,aLater] of [['E1',true],['E2',false]]){
     await check(`H2a.7b ${scenario} preserves both edits after the folder drops PC B's revision`,async()=>{
       await withTwoProfiles(async(a,b)=>{
@@ -270,7 +336,7 @@ async function integration({check,assert}) {
       assert.equal(payload.parent,manualHash);
       assert.deepEqual(payload.ancestors,[manualHash,shared.folderSyncedHash]);
       const {meta:written}=await a.eval("(await import('./js/db.js')).readVault()");
-      assert.deepEqual(written.folderSyncedBase,{hash:shared.folderSyncedHash,versions:shared.folderSyncedVersions});
+      assert.deepEqual(written.folderSyncedBase,{hash:shared.folderSyncedHash,versions:shared.folderSyncedVersions,clock:shared.folderSyncedClock});
       await writeFolderFixture(b,primary,final);
       await relogin(b);
       await ready(b);

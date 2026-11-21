@@ -1,6 +1,7 @@
 // db.js — IndexedDB wrapper for KeepLocal
 
 import {pruneTombstones,folderVersionState} from './folder-merge.js';
+import {folderWriterState} from './folder-clock.js';
 
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
@@ -247,7 +248,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('syncFolder');
           meta.delete('folderConnectionId');
         }
-        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSyncedVersions','folderSyncedBase','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions','folderSyncedBase','folderSeenRev','folderWrittenAt'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -267,6 +268,21 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
+export function ensureFolderWriter(expected,{signal,transition=false}={}) {
+  if(expected.writerId)return Promise.resolve(expected.writerId);
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{try{
+      const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+      assertVaultSnapshot(current,expected);
+      const id=current.writerId??crypto.randomUUID();
+      meta.put({key:'writerId',value:id});
+      done(id);
+    }catch(error){fail(error);}};
+  },transition);
+}
+
 export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
   const {rev,hash,exportedAt,payload}=head;
   return transactVault(({tx,meta},done,fail)=>{
@@ -278,11 +294,13 @@ export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,...folderVersionState(current,head),
+          folderSyncedHash:hash,folderSyncedClock:payload.clock??{},...folderVersionState(current,head),
           folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:Date.parse(exportedAt),
           exportRev:keepLineage?current.exportRev:rev,
           exportParent:keepLineage?current.exportParent:hash,
           exportAncestors:(keepLineage?current.exportAncestors:payload.ancestors)??[],
+          exportClock:(keepLineage?current.exportClock:payload.clock)??{},
+          ...folderWriterState(current,payload),
         };
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         done();
@@ -299,7 +317,7 @@ export async function readVault() {
     tx.onabort=()=>reject(tx.error);tx.onerror=()=>{};
   });
 }
-export function recordExport(expected,rev,hash,{signal,ancestors=[]}={}) {
+export function recordExport(expected,rev,hash,{signal,ancestors=[],clock={}}={}) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -309,6 +327,7 @@ export function recordExport(expected,rev,hash,{signal,ancestors=[]}={}) {
       meta.put({key:'exportRev',value:rev});
       meta.put({key:'exportParent',value:hash});
       meta.put({key:'exportAncestors',value:ancestors});
+      meta.put({key:'exportClock',value:clock});
       done();
     }catch(error){fail(error);}};
   });

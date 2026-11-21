@@ -39,3 +39,19 @@ test('H2a.7a profile 2 rejects malformed ancestor lists',()=>{
     assert.throws(()=>validatePayload({...payload,ancestors},BACKUP_PROFILES[0]),/backup.invalidFile/);
   }
 });
+
+test('H2a.8a profile 2 accepts optional UUID clocks and rejects malformed counters',()=>{
+  const writer=crypto.randomUUID();
+  const clock={[writer]:7};
+  const payload=makePayload([],{},8,null,[],[],clock);
+  assert.deepEqual(payload.clock,clock);
+  const {clock:omitted,...legacy}=payload;
+  assert.deepEqual(validatePayload(legacy,BACKUP_PROFILES[0]).clock,{});
+  const full=Object.fromEntries(Array.from({length:64},()=>[crypto.randomUUID(),Number.MAX_SAFE_INTEGER]));
+  assert.deepEqual(validatePayload({...payload,clock:full},BACKUP_PROFILES[0]).clock,full);
+  for(const invalid of [null,undefined,[],1,'clock',{bad:1},{[writer]:0},{[writer]:-1},
+    {[writer]:1.5},{[writer]:'1'},{[writer]:Number.MAX_SAFE_INTEGER+1},
+    {...full,[crypto.randomUUID()]:1}]){
+    assert.throws(()=>validatePayload({...payload,clock:invalid},BACKUP_PROFILES[0]),/backup.invalidFile/);
+  }
+});

@@ -26,17 +26,20 @@ try {
   const legacy=await decodeV2(oldBytes,password);
   assert.deepEqual(legacy.payload.ancestors,[]);
   assert.deepEqual(legacy.payload.tombstones,[]);
+  assert.deepEqual(legacy.payload.clock,{});
   assert.deepEqual(await decryptRecords(legacy.payload.notes,legacy.key),[note]);
 
   const parent=await payloadHash(legacy.payloadText);
   const tombstones=[{id:crypto.randomUUID(),deletedAt:now}];
-  const payload=makePayload(records,{},2,parent,tombstones);
+  const clock={[crypto.randomUUID()]:12};
+  const payload=makePayload(records,{},2,parent,tombstones,[],clock);
   const newer=await old.decodeV2(await encodeV2(key,salt,payload),password);
   assert.deepEqual(newer.payload.ancestors,[parent]);
   assert.deepEqual(newer.payload.tombstones,tombstones);
+  assert.deepEqual(newer.payload.clock,clock);
   oldFormat.validateRecords(newer.payload.notes);
   assert.deepEqual(await oldFormat.decryptRecords(newer.payload.notes,newer.key),[note]);
-  console.log('PASS archived master a968ee2 opens profile 2 with ancestors and tombstones in both reader directions');
+  console.log('PASS archived master a968ee2 opens profile 2 with ancestors, tombstones and clock in both reader directions');
 } finally {
   await rm(directory,{recursive:true,force:true});
 }

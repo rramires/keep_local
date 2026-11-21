@@ -1,8 +1,9 @@
 import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
-import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
+import {assertWritable,ensureFolderWriter,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
 import {pruneTombstones} from './folder-merge.js';
+import {nextFolderClock} from './folder-clock.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -31,7 +32,7 @@ export function unsafeFolder(state) {
 export function createFolderWriter(handle,key,signal) {
   const scan=salt=>readFolderState(handle,key,salt);
 
-  async function writeFile(snapshot,state,{replace,selected,allowReadOnly=!!selected}={}) {
+  async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected}={}) {
     const {meta}=snapshot;
     const notes=selected?selected.payload.notes:snapshot.notes;
     const assertCurrent=()=>{
@@ -49,7 +50,10 @@ export function createFolderWriter(handle,key,signal) {
     const parentAncestors=replace?parentCopy?.payload.ancestors:meta.exportAncestors;
     const preferences=selected?.payload.preferences??Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const tombstones=pruneTombstones(selected?.payload.tombstones??meta.tombstones??[]);
-    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors);
+    const writerId=await ensureFolderWriter(meta,{signal,transition:allowReadOnly});
+    const heads=[state.head,selected,...sourceHeads].filter(Boolean);
+    const clock=nextFolderClock({...meta,writerId},heads,{replace});
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
     const hash=await payloadHash(JSON.stringify(payload));
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     const expected=folderStamp(state);

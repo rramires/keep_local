@@ -192,7 +192,11 @@ The optional encrypted `ancestors` array stores up to 32 lowercase, 64-character
 hexadecimal hashes of previous payloads, newest first. A new payload prepends its
 non-null `parent` to that parent's list and keeps the first 32 hashes. An absent
 list is empty. Recovery tools can ignore it when listing live records.
-The counter, parent and `meta.exportAncestors` are committed together, with a
+The optional encrypted `clock` map has up to 64 UUID writer IDs with positive
+safe integer counters. An absent map is empty. Folder writes advance the local
+writer's counter and merged writes carry the maximum counters of their sources.
+Manual exports carry the local clock. Recovery readers can ignore this map.
+The counter, parent, `meta.exportAncestors` and `meta.exportClock` are committed together, with a
 compare-and-swap that rejects concurrent export tips. A v2 import resumes its counter
 and records the imported payload's exact hash and ancestor list. Manual exports and vault-folder
 writes share this lineage, so gaps in `rev` are normal. Manual import performs no
