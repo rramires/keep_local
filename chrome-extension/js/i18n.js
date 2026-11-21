@@ -183,6 +183,7 @@ const en = {
   "folder.replaceWord": "REPLACE",
   "folder.replaceTitle": "Replace vault data",
   "folder.replacePrompt": "Type {word} to confirm this replacement.",
+  "folder.conflictSuffix": " (conflict {date})",
   "folder.loaded": "Loaded revision {rev} written at {time}.",
   "folder.replaceEmptyMain": "The main file is empty and will be replaced with the data from this browser. The other copies in the folder will stay as they are.",
   "folder.emptyMainReplaced": "The empty main file was replaced with a verified vault copy.",
@@ -555,6 +556,7 @@ const ptBR = {
   "folder.replaceWord": "SUBSTITUIR",
   "folder.replaceTitle": "Substituir dados do cofre",
   "folder.replacePrompt": "Digite {word} para confirmar a substituição.",
+  "folder.conflictSuffix": " (conflito {date})",
   "folder.loaded": "Carregada a revisão {rev} gravada às {time}.",
   "folder.replaceEmptyMain": "O arquivo principal está vazio e será substituído pelos dados deste navegador. As outras cópias da pasta ficam como estão.",
   "folder.emptyMainReplaced": "O arquivo principal vazio foi substituído por uma cópia conferida do cofre.",
@@ -756,7 +758,11 @@ const dictionaries = { en, 'pt-BR': ptBR };
  * For plurals, append 'Plural' to the key when count !== 1.
  */
 export function t(key, params) {
-  const dict = dictionaries[currentLang] || en;
+  return translateFor(currentLang, key, params);
+}
+
+export function translateFor(lang, key, params) {
+  const dict = dictionaries[lang] || en;
   let str = dict[key] ?? en[key] ?? key;
 
   if (params) {
