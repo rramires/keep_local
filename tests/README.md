@@ -85,6 +85,27 @@ taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
 Build once before running the browser suite when the app sources have changed.
 Repeat the browser suite three times at phase closing.
 
+## Per-note vault-folder merge
+
+The unit tests cover the per-note decision table, snapshot reuse, deterministic
+conflict IDs, UTC titles, idempotence and 5,000 schedules with seed `0x4b4c2026`.
+Browser tests verify permanent-deletion transactions, rollback on storage
+failure, read-only access, optional profile-2 tombstones and opening a
+merged vault with the independent `file://` recovery reader.
+
+The two-profile OPFS tests exchange only fictional encrypted files. They
+reproduce a lost revision 5 followed by an unrelated revision 6, exercise
+sibling heads and overlapping edits, and check preservation before replacement.
+One test edits locally after the merged file is committed and checks that a
+later pass keeps the edit. Once the profiles converge, repeated sign-in and
+focus leave the folder's file and revision stable.
+
+The full gate uses a disposable profile for every test. At phase closing, run
+the complete browser runner three consecutive times and stop on the first
+failure. Setting `KEEPLOCAL_H2A_CAPTURES` to an existing output directory
+captures the merge notice, conflict copy and review choice in both themes at
+1100 and 390 px.
+
 ## Phase 2c verification
 
 `tests/unit/note-write-queue.js` forces both action/editor orders for pin, color,

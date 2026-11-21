@@ -233,21 +233,32 @@ obrigatória a cada abertura.
   máximo 32, 64 MiB cada; cópias de conflito do Mega incluídas) é autenticado com
   a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
   nunca a data do arquivo. Outros arquivos são ignorados.
-- **Decisão:** gravar as alterações locais, carregar uma cabeça mais nova da
-  pasta ou parar e perguntar quando os dois lados mudaram, quando a pasta está
-  mais antiga que uma revisão já vista, quando há cópia de outra frase-senha ou
-  cofre, ou cópia ilegível. Na primeira conexão, um cofre local vazio carrega a
-  pasta e um conjunto idêntico de registros é adotado sem gravar; qualquer outro
-  caso pergunta. Cópias alheias ou ilegíveis nunca são sobrescritas. A pasta
-  exige zero registros locais ilegíveis.
-- **Conflitos:** escolher um lado exige digitar SUBSTITUIR. Antes, o lado que
-  perde é copiado para a subpasta `keeplocal-preserved/`, relido e conferido; se
-  falhar, nada é substituído. Os arquivos preservados abrem pelo "Importar"
-  normal. O app nunca limpa essa subpasta e lê só a raiz, então as cópias
-  preservadas nunca viram candidatas.
+- **Decisão:** um navegador sem alterações locais carrega diretamente um
+  arquivo mais novo quando o pai cifrado coincide com o último arquivo em
+  comum. Depois da primeira cópia em comum, alterações divergentes e cabeças
+  empatadas são comparadas por nota ao entrar e ao focar. A revisão continua
+  para revisões antigas, primeira conexão com dados diferentes e uma cópia
+  principal incompatível ou ilegível. Na primeira conexão, um cofre vazio
+  sem registros de exclusão carrega a pasta. Um conjunto idêntico é adotado
+  sem gravar.
+- **Mesclagem:** edições em notas diferentes podem ser juntadas. Se o
+  conteúdo da mesma nota foi editado nos dois computadores, a versão mais
+  recente mantém o ID e a outra vira uma cópia de conflito, com a data da
+  edição em UTC. Um aviso informa as contagens. Os originais da pasta e do
+  navegador são conferidos em `keeplocal-preserved/` antes da substituição.
+  Participam a maior revisão cifrada e as outras cópias com a mesma revisão.
+- **Exclusões definitivas:** as cópias cifradas guardam o registro de até
+  10000 exclusões por 365 dias. Uma nota sem alterações pode ser removida
+  no outro computador. Uma edição posterior pode mantê-la, com um aviso
+  no computador onde foi editada.
+- **Revisão:** Juntar as duas preserva as duas fontes antes da mesclagem.
+  As escolhas de usar um dos lados continuam disponíveis. Toda substituição
+  exige digitar SUBSTITUIR. Os arquivos preservados abrem pelo Importar normal.
+  O app mantém esses arquivos na subpasta e consulta só a raiz. Gravar na
+  pasta exige zero registros locais ilegíveis.
 - **Pasta indisponível:** uma tela de bloqueio oferece Tentar de novo, Escolher
   outra pasta, Abrir só leitura, Começar do zero… e Sair. O somente leitura é
-  imposto na camada de dados (nenhuma gravação). Leituras da pasta têm prazo
+  imposto na camada de dados (nenhuma gravação ou mesclagem). Leituras da pasta têm prazo
   (15 s para metadados, 60 s por arquivo): uma pasta que não responde leva à tela
   "A pasta não respondeu", sem travar o login. Se continuar, escolha a mesma pasta
   de novo, ou use Configurações → Desconectar pasta → Escolher pasta. Gravações
@@ -257,8 +268,8 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
-Merge por nota, cópias rotativas, pastas gravadas com outra frase-senha e abrir
-outra pasta para recuperação ainda aguardam implementação.
+As próximas etapas incluem pastas gravadas com outra frase-senha, abertura
+de outra pasta para recuperação e cópias rotativas.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).

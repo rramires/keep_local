@@ -478,8 +478,13 @@ async function captureMergeEvidence(page,label,assert) {
     for(const theme of ['light','dark']){
       for(const width of [1100,390]){
         await page.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width===390});
-        await page.eval(`document.documentElement.dataset.theme=${JSON.stringify(theme)};
-          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`);
+        await page.eval(`(async()=>{
+          document.documentElement.dataset.theme=${JSON.stringify(theme)};
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+          const transitions=document.getAnimations().filter(animation=>
+            animation.playState==='running'&&Number.isFinite(animation.effect.getComputedTiming().endTime));
+          await Promise.allSettled(transitions.map(animation=>animation.finished));
+        })()`);
         assert.equal(await page.eval('innerWidth'),width);
         assert.equal(await page.eval('document.documentElement.scrollWidth<=innerWidth'),true);
         const {data}=await page.send('Page.captureScreenshot',{format:'png',fromSurface:true});

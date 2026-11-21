@@ -249,20 +249,31 @@ is still required at every opening.
   (at most 32, 64 MiB each; Mega conflict copies included) is authenticated with
   the session key when it shares the vault salt. The head is the highest
   encrypted `rev`, never a file date. Other files are ignored.
-- **Decision:** write local changes, load a newer folder head, or stop and ask
-  when both sides changed, the folder is older than a revision already seen, a
-  copy uses another passphrase or vault, or a copy is unreadable. On first
-  connection an empty local vault loads the folder and an identical record set
-  is adopted without writing; anything else asks. Foreign and unreadable copies
-  are never overwritten. The folder requires zero unreadable local records.
-- **Conflicts:** choosing a side requires typing REPLACE. The losing side is
-  first copied to the `keeplocal-preserved/` subfolder, read back and verified;
-  if that fails, nothing is replaced. Preserved files open with the normal
-  Import. The app never cleans that subfolder and reads only the root, so
-  preserved copies never become candidates.
+- **Decision:** a browser with no local changes loads a newer file directly
+  when its encrypted parent matches the last known shared file. After the
+  first shared snapshot, divergent changes and tied heads are compared one
+  note at a time on sign-in and focus. Reviews are still required for older
+  revisions, a first connection with different data and an incompatible or
+  unreadable main copy. An empty local vault without deletion markers loads the
+  folder on first connection. An identical set is adopted without writing.
+- **Merging:** edits to different notes can be combined. When the same note
+  has competing content edits, the newer version keeps its ID and the other
+  becomes a conflict copy with its edit time in UTC. A notice reports the
+  counts. The folder and local originals are verified in `keeplocal-preserved/`
+  before replacement. Only the highest encrypted revision and other copies
+  at that revision take part.
+- **Permanent deletions:** encrypted backups carry deletion markers for up to
+  365 days and at most 10,000 entries. An unchanged note can be removed on
+  the other computer. A later edit can keep it, with a notice on the editing
+  computer.
+- **Review:** Merge both preserves the two sources before combining them.
+  Choosing either source is still available. Every replacement choice
+  requires typing REPLACE. Preserved files open with normal Import. The app
+  leaves those files in place and scans only the folder root. Folder writes
+  require zero unreadable local records.
 - **Unavailable folder:** a blocking screen offers Try again, Choose another
   folder, Open read only, Start over… and Sign out. Read only is enforced in the
-  data layer (no writes). Folder reads have deadlines (15 s for metadata, 60 s
+  data layer (no writes or merging). Folder reads have deadlines (15 s for metadata, 60 s
   per file): a folder that does not answer leads to "The folder did not
   respond" instead of a stuck sign-in. If it persists, select the same folder
   again, or use Settings → Disconnect folder → Choose folder. Writes have no
@@ -272,9 +283,8 @@ is still required at every opening.
   the folder copy. Import on the sign-in screen is refused while a folder is
   connected.
 
-Per-note merge, rotating copies, folders written with another passphrase,
-and opening another folder for recovery are not
-implemented.
+Planned next are support for folders written with another passphrase and
+opening another folder for recovery, followed by rotating copies.
 
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
 Versions, upstream release review and download integrity are recorded in
