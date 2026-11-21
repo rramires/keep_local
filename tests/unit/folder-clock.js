@@ -60,7 +60,7 @@ test('H2a.8c counters resume from every observed source and never overflow or mu
   assert.equal(JSON.stringify([meta,heads]),before);
   assert.throws(()=>clock.nextFolderClock({...meta,writerCount:Number.MAX_SAFE_INTEGER}),/backup.invalidFile/);
   const full=Object.fromEntries(Array.from({length:64},(_,i)=>[writer(100+i),1]));
-  assert.throws(()=>clock.nextFolderClock({writerId:a,exportClock:full}),/backup.invalidFile/);
+  assert.equal(Object.keys(clock.nextFolderClock({writerId:a,exportClock:full})).length,64);
 });
 
 function randomSource(seed) {
@@ -170,4 +170,40 @@ test('H2a.8c seeded sequences retain edits across dropped writes, pulls, merges 
   }
   assert.ok(evidence.pulls>0&&evidence.merges>0&&evidence.dropped>0);
   assert.ok(evidence.twoPCs>0&&evidence.threePCs>0&&evidence.longest>=100);
+});
+
+test('H2a.9c the 65th writer prunes the smallest other counter with a deterministic ID tie break',()=>{
+  const others=Object.fromEntries(Array.from({length:64},(_,i)=>[writer(100+i),1]));
+  const before=JSON.stringify(others);
+  const meta={writerId:a,writerCount:0,exportClock:others};
+  const result=clock.nextFolderClock(meta);
+  assert.equal(Object.keys(result).length,64);
+  assert.equal(result[a],1);
+  assert.equal(Object.hasOwn(result,writer(100)),false);
+  for(let i=101;i<164;i++)assert.equal(result[writer(i)],1);
+  assert.equal(JSON.stringify(others),before);
+  const reversed={...meta,exportClock:Object.fromEntries(Object.entries(others).reverse())};
+  assert.deepEqual(clock.nextFolderClock(reversed),result);
+  assert.throws(()=>clock.validateClock({...others,[a]:1}),/backup.invalidFile/);
+});
+
+test('H2a.9c pruning a merged union keeps its writer and fails conservative descent for removed entries',async()=>{
+  const localClock=Object.fromEntries(Array.from({length:64},(_,i)=>[writer(100+i),2]));
+  const remoteClock={[a]:10,...Object.fromEntries(Array.from({length:63},(_,i)=>[writer(200+i),4]))};
+  const result=clock.nextFolderClock({writerId:a,writerCount:3,exportClock:localClock},[head({clock:remoteClock})],{replace:true});
+  assert.equal(Object.keys(result).length,64);
+  assert.equal(result[a],11);
+  for(let i=100;i<164;i++)assert.equal(Object.hasOwn(result,writer(i)),false);
+  for(let i=200;i<263;i++)assert.equal(result[writer(i)],4);
+  const current=head({clock:result});
+  const reference={hash:hash(1),clock:{[writer(100)]:2}};
+  assert.equal(clock.descends(current,reference),false);
+  const item=fixture(0),left={...item,content:'Fictitious local edit',updatedAt:NOW+1};
+  const right={...item,content:'Fictitious remote edit',updatedAt:NOW+2};
+  const base=baseForFolderHead({folderSyncedHash:reference.hash,folderSyncedClock:reference.clock,
+    folderSyncedVersions:{[item.id]:item.updatedAt}},current);
+  assert.equal(base,undefined);
+  const merged=await mergeVaults({local:side([left]),remote:side([right]),base,now:NOW});
+  assert.equal(merged.stats.conflicts,1);
+  assert.deepEqual(merged.notes.map(note=>note.content).sort(),[left.content,right.content].sort());
 });

@@ -20,7 +20,8 @@ export function mergeClocks(...clocks) {
       result[id]=Math.max(result[id]??0,count);
     }
   }
-  return validateClock(result);
+  // Each input keeps the read bound. The writer trims the assembled union.
+  return result;
 }
 
 export function nextFolderClock(meta,heads=[],{replace=false}={}) {
@@ -32,6 +33,10 @@ export function nextFolderClock(meta,heads=[],{replace=false}={}) {
   const count=Math.max(writerCount,observed[writerId]??0)+1;
   const clock=replace?observed:{...exportClock};
   clock[writerId]=count;
+  const overflow=Math.max(0,Object.keys(clock).length-MAX_WRITERS);
+  const removable=Object.entries(clock).filter(([id])=>id!==writerId)
+    .sort(([leftId,leftCount],[rightId,rightCount])=>leftCount-rightCount||leftId.localeCompare(rightId,'en'));
+  for(const [id] of removable.slice(0,overflow))delete clock[id];
   return validateClock(clock);
 }
 

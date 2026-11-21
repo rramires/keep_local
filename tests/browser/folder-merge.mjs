@@ -205,6 +205,35 @@ async function decodedNotes(bytes) {
 }
 
 async function integration({check,assert}) {
+  await check('H2a.9c a new 65th writer writes a valid pruned file through the folder controller',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await browser.page(undefined,folderFixtureSource('KL-TEST-H29-PRUNE'));
+      const item=note({title:'Fictitious long-lived vault',content:'Fictitious recovered content'});
+      const fixture=await backupFixture([item]);
+      const clock=Object.fromEntries(Array.from({length:64},(_,i)=>[
+        `f0650000-0000-4000-8000-${String(100+i).padStart(12,'0')}`,1,
+      ]));
+      const file=await fixture.seal({...fixture.payload,clock});
+      await page.eval(importExpression(file));
+      await page.reload();
+      await unlock(page);
+      await attach(page);
+      await relogin(page);
+      await settleFocus(page);
+      await waitForRev(page,1);
+      const {payload,notes}=await decodedNotes(await readFolderFixture(page,primary));
+      const meta=await page.eval("(await import('./js/db.js')).readVault().then(snapshot=>snapshot.meta)");
+      assert.equal(Object.keys(payload.clock).length,64);
+      assert.equal(payload.clock[meta.writerId],1);
+      assert.equal(Object.hasOwn(payload.clock,Object.keys(clock)[0]),false);
+      assert.equal(meta.writerCount,1);
+      assert.equal(meta.folderPendingWrite,undefined);
+      assert.deepEqual(meta.exportClock,payload.clock);
+      assert.deepEqual(notes.map(note=>note.content),[item.content]);
+    }finally{await browser.close();}
+  });
+
   await check('H2a.9b E10 discarded merge uses the joined head as a base without a false copy',async()=>{
     await withTwoProfiles(async(a,b)=>{
       const x=note({title:'Fictitious A-only note'}),y=note({title:'Fictitious B-only note'});
