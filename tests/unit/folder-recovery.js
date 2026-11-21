@@ -110,3 +110,103 @@ for(const variant of ['C3a','C3b']){
     }
   });
 }
+
+test('H2a.9b receipts retain joined heads before pending and older bases and reset explicit choices',()=>{
+  const model=scenario(),root=model.root(2);
+  const old={hash:'older',clock:{[uuid(1)]:1},versions:{old:1}};
+  const pending={clock:{[uuid(1)]:2},versions:{pending:2}};
+  const pc=model.pc(1,root);
+  pc.meta.folderPendingWrite=pending;
+  pc.meta.folderSyncedBase=old;
+  const joined={...root,hash:'joined',payload:{...root.payload,clock:{[uuid(2)]:2}}};
+  const file={...root,hash:'written'};
+  const state=versions.folderVersionState(pc.meta,file,{mergedHeads:[joined,joined]});
+  assert.deepEqual(state.folderSyncedBases,[
+    {hash:file.hash,clock:file.payload.clock,versions:versions.recordVersions(file.payload.notes)},
+    {hash:joined.hash,clock:joined.payload.clock,versions:versions.recordVersions(joined.payload.notes)},
+    pending,{hash:root.hash,clock:root.payload.clock,versions:pc.meta.folderSyncedVersions},
+  ]);
+  assert.equal(Object.hasOwn(state,'folderSyncedBase'),false);
+  const replaced=versions.folderVersionState(pc.meta,file,{resetBases:true});
+  assert.deepEqual(replaced.folderSyncedBases,[
+    {hash:file.hash,clock:file.payload.clock,versions:versions.recordVersions(file.payload.notes)},
+  ]);
+  const clock={clock:{[uuid(2)]:1,[uuid(1)]:1},versions:{first:1}};
+  const duplicate={clock:{[uuid(1)]:1,[uuid(2)]:1},versions:{other:2}};
+  assert.deepEqual(versions.retainFolderBases([clock,duplicate,old,pending,old,old,old,old]),[clock,old,pending]);
+  assert.equal(versions.retainFolderBases(Array.from({length:8},(_,i)=>({hash:String(i),versions:{}}))).length,4);
+});
+
+test('H2a.9b an archived pending B2 precedes the older B1 receipt when current B3 is unproven',async()=>{
+  const model=scenario(),root=model.root(1),item=root.notes[0];
+  const local={...item,updatedAt:NOW+3,content:'B latest edit'};
+  const remote={...item,updatedAt:NOW+2,content:'B intermediate edit'};
+  const archived={clock:{[uuid(2)]:2},versions:{[item.id]:remote.updatedAt}};
+  const meta={folderSyncedHash:'receipt',folderSyncedClock:{[uuid(2)]:1},
+    folderSyncedVersions:{[item.id]:NOW+1},folderSyncedBases:[archived],
+    folderPendingWrite:{clock:{[uuid(2)]:3},versions:{[item.id]:local.updatedAt}}};
+  const head={...root,hash:'head',payload:{...root.payload,clock:archived.clock,notes:records([remote])}};
+  const base=versions.baseForFolderHead(meta,head);
+  assert.equal(base,archived.versions);
+  const merged=await versions.mergeVaults({local:side([local]),remote:side([remote]),base,now:NOW});
+  assert.equal(merged.stats.conflicts,0);
+  assert.deepEqual(merged.notes.map(note=>note.content),['B latest edit']);
+});
+
+for(const closes of [false,true]){
+  test(`H2a.9b C5 600 disjoint schedules retain every edit without copies ${closes?'with':'without'} interrupted writes`,async t=>{
+    let seed=0x0c10c4a8+Number(closes);
+    const random=limit=>{
+      seed=(Math.imul(seed,1103515245)+12345)>>>0;
+      return (seed>>>8)%limit;
+    };
+    const totals={sequences:600,steps:40,closes:0,drops:0,merges:0,pulls:0,reviews:0,conflicts:0,copies:0,losses:0};
+    for(let sequence=0;sequence<totals.sequences;sequence++){
+      const model=scenario(),count=2+random(2),root=model.root(count);
+      const computers=Array.from({length:count},(_,index)=>model.pc(index+1,root));
+      const latest=new Map();
+      let published=root;
+      async function cycle(index,head,mayClose=true) {
+        const close=mayClose&&closes&&random(6)===0;
+        const result=await model.sync(computers[index],head,{close});
+        totals.conflicts+=result.conflicts;
+        if(close)totals.closes++;
+        if(result.decision==='merge')totals.merges++;
+        if(result.decision==='pull')totals.pulls++;
+        if(['rollback','conflict'].includes(result.decision))totals.reviews++;
+        return result.file===head?null:result.file;
+      }
+      for(let step=0;step<totals.steps;step++){
+        const operation=random(10);
+        if(operation<4){
+          const index=random(count),content=`PC ${index} step ${step}`;
+          model.edit(computers[index],index,content);
+          latest.set(index,content);
+        }else if(operation<8){
+          published=await cycle(random(count),published)??published;
+        }else{
+          const first=random(count),second=(first+1+random(count-1))%count;
+          const shared=published;
+          const writes=[await cycle(first,shared),await cycle(second,shared)].filter(Boolean);
+          if(writes.length===2)totals.drops++;
+          if(writes.length)published=writes[random(writes.length)];
+        }
+      }
+      for(let round=0;round<6;round++){
+        for(let index=0;index<count;index++)published=await cycle(index,published,false)??published;
+      }
+      for(const computer of computers){
+        totals.copies+=Math.max(0,computer.notes.length-count);
+        for(const [index,content] of latest){
+          if(!computer.notes.some(note=>note.id===uuid(index+100)&&note.content===content))totals.losses++;
+        }
+      }
+    }
+    t.diagnostic(JSON.stringify(totals));
+    assert.equal(totals.losses,0);
+    assert.equal(totals.copies,0);
+    assert.equal(totals.conflicts,0);
+    assert.ok(totals.drops>0&&totals.merges>0&&totals.pulls>0);
+    if(closes)assert.ok(totals.closes>0);
+  });
+}

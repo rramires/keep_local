@@ -130,7 +130,7 @@ test('H2a.8b a vector proves a common base after its hash leaves the ancestry li
     revision:4,folderSyncedRevision:4,folderSeenRev:1};
   const head={hash:'new',parent:'unrelated',rev:101,payload:{notes:[],ancestors:[],clock:{[writer]:101}}};
   assert.equal(baseForFolderHead(meta,head),versions);
-  assert.deepEqual(folderVersionState(meta,head).folderSyncedBase,{hash:'shared',clock:{[writer]:1},versions});
+  assert.deepEqual(folderVersionState(meta,head).folderSyncedBases[1],{hash:'shared',clock:{[writer]:1},versions});
   const state={head,candidates:[],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
   assert.equal(decideFolderAction({notes:[],meta},state),'pull');
   assert.equal(decideFolderAction({notes:[],meta:{...meta,revision:5}},state),'merge');

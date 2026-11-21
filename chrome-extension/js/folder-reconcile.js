@@ -56,13 +56,13 @@ async function readReviewedCopy(handle,head,key,salt) {
   return {name:head.name,...copy};
 }
 
-export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false}={}) {
+export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false}={}) {
   const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
   const stats=notifyDeletions?folderPullNotices(snapshot,copy.payload):undefined;
-  return {...await applyFolderCopy(copy,snapshot,key,signal),stats};
+  return {...await applyFolderCopy(copy,snapshot,key,signal,{resetBases}),stats};
 }
 
-async function applyFolderCopy(copy,snapshot,key,signal) {
+async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases}={}) {
   await requireFolderSession(snapshot,key,signal);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
@@ -74,7 +74,7 @@ async function applyFolderCopy(copy,snapshot,key,signal) {
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
-  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy});
+  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases});
   if(signal.aborted)throw folderFailure('session.ended');
   storeSessionKey(key,vaultId);
   setWriteMode('readWrite');
@@ -129,9 +129,9 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   }
   await assertCurrent();
   if(equalsLocal){
-    await recordFolderWrite(meta,target,{signal,adopt:true});
+    await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads]});
   }else{
-    await applyFolderCopy(target,snapshot,key,signal);
+    await applyFolderCopy(target,snapshot,key,signal,{mergedHeads:[head,...otherHeads]});
   }
   return {status:'merged',head:target,applied:!equalsLocal,stats,preserved,replacedEmptyMain:target.replacedEmptyMain};
 }
@@ -161,7 +161,7 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
     }else if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state)){
       throw folderFailure('folder.changed');
     }
-    return {...await pullFolderHead(handle,target,snapshot,key,signal),preserved,replacedEmptyMain:target.replacedEmptyMain};
+    return {...await pullFolderHead(handle,target,snapshot,key,signal,{resetBases:true}),preserved,replacedEmptyMain:target.replacedEmptyMain};
   }
   if(!['valid','emptyMain'].includes(main?.status))throw folderFailure('folder.changed');
   const copies=main.status==='valid'?(main.name===head.name?[main]:[main,head]):[];
@@ -171,7 +171,7 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
-    const result=await writer.write(snapshot,{...state,head:chosen},{replace:true});
+    const result=await writer.write(snapshot,{...state,head:chosen},{replace:true,resetBases:true});
     return {status:'saved',result,preserved,replacedEmptyMain:result.replacedEmptyMain};
   }catch(error){
     if(reading&&!signal.aborted)setWriteMode('readOnly');

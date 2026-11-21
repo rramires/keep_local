@@ -205,6 +205,35 @@ async function decodedNotes(bytes) {
 }
 
 async function integration({check,assert}) {
+  await check('H2a.9b E10 discarded merge uses the joined head as a base without a false copy',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Fictitious A-only note'}),y=note({title:'Fictitious B-only note'});
+      await connectBoth(a,b,[x,y]);
+      await editNote(a,x.id,{content:'A first edit'});
+      await settleFocus(a);
+      await waitForRev(a,2);
+      await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+      await editNote(b,y.id,{content:'B edit'});
+      await settleFocus(b);
+      await waitForRev(b,3);
+      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),['A first edit','B edit']);
+      await editNote(a,x.id,{content:'A second edit'});
+      await settleFocus(a);
+      await waitForRev(a,3);
+      await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
+      await settleFocus(b);
+      await waitForRev(b,4);
+      const expected=['A second edit','B edit'];
+      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),expected);
+      assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+      await writeFolderFixture(a,primary,await readFolderFixture(b,primary));
+      await settleFocus(a);
+      await waitForRev(a,4);
+      assert.deepEqual((await loaded(a)).map(note=>note.content).sort(),expected);
+      assert.ok(!(await a.eval('folderTest.entries()')).includes('keeplocal-preserved'));
+    });
+  });
+
   for(const mode of ['race','reopen','control']){
     const code=mode==='reopen'?'E9':mode==='control'?'E8c':'E8';
     await check(`H2a.9a ${code} unsaved local edit survives an interrupted merge without a false copy`,async()=>{
@@ -334,7 +363,7 @@ async function integration({check,assert}) {
         const put=IDBObjectStore.prototype.put;
         const results=[];
         try{
-          for(const key of ['exportClock','folderSyncedClock','writerCount']){
+          for(const key of ['exportClock','folderSyncedClock','writerCount','folderSyncedBases']){
             IDBObjectStore.prototype.put=function(row){
               if(row.key===key)throw Error('Fictional clock transaction failure');
               return put.call(this,row);
@@ -346,7 +375,7 @@ async function integration({check,assert}) {
         }finally{IDBObjectStore.prototype.put=put;}
         return results;
       })()`);
-      assert.deepEqual(rollback,[true,true,true]);
+      assert.deepEqual(rollback,[true,true,true,true]);
     });
   });
 
@@ -638,7 +667,7 @@ async function integration({check,assert}) {
       assert.equal(payload.parent,manualHash);
       assert.deepEqual(payload.ancestors,[manualHash,shared.folderSyncedHash]);
       const {meta:written}=await a.eval("(await import('./js/db.js')).readVault()");
-      assert.deepEqual(written.folderSyncedBase,{hash:shared.folderSyncedHash,versions:shared.folderSyncedVersions,clock:shared.folderSyncedClock});
+      assert.deepEqual(written.folderSyncedBases.find(base=>base.hash===shared.folderSyncedHash),{hash:shared.folderSyncedHash,versions:shared.folderSyncedVersions,clock:shared.folderSyncedClock});
       await writeFolderFixture(b,primary,final);
       await relogin(b);
       await ready(b);
@@ -878,6 +907,40 @@ async function typeConfirmation(page) {
 }
 
 async function reviewMerge({check,assert}) {
+  for(const choice of ['remote','local']){
+    await check(`H2a.9b explicit ${choice} replacement keeps only the chosen base and disconnect clears it`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const item=note({title:'Fictitious explicit replacement'});
+        const original=await connectBoth(a,b,[item]);
+        await editNote(b,item.id,{content:'B newer local edit'});
+        await settleFocus(b);
+        await waitForRev(b,2);
+        await writeFolderFixture(b,primary,original);
+        await relogin(b);
+        await b.until("!!document.querySelector('[data-folder-status=rollback]')");
+        const action=choice==='remote'?'useFolder':'useLocal';
+        await b.eval(`document.querySelector('[data-folder-action=${action}]').click()`);
+        await b.until("!!document.querySelector('.app-dialog input')");
+        await typeConfirmation(b);
+        await ready(b);
+        const {meta,notes}=await b.eval("(await import('./js/db.js')).readVault()");
+        assert.deepEqual(meta.folderSyncedBases,[{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock,
+          versions:Object.fromEntries(notes.map(record=>[record.id,record.updatedAt]))}]);
+        assert.equal(meta.folderSyncedBase,undefined);
+        assert.equal(meta.folderPendingWrite,undefined);
+        const disconnected=await b.eval(`(async()=>{
+          const db=await import('./js/db.js'),snapshot=await db.readVault();
+          await db.storeFolderConnection(null,snapshot.meta,snapshot.meta.vaultId);
+          return (await db.readVault()).meta;
+        })()`);
+        assert.equal(disconnected.folderSyncedBases,undefined);
+        assert.equal(disconnected.folderPendingWrite,undefined);
+        assert.equal(disconnected.writerCount,meta.writerCount);
+        assert.equal(disconnected.writerId,meta.writerId);
+      });
+    });
+  }
+
   await check('H2a.4 first connection offers a typed join and preserves both complete sources',async()=>{
     await withTwoProfiles(async(a,b)=>{
       const {item,file}=await withFirstConflict(a,b,{lang:'pt-BR'});

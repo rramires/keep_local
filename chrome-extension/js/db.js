@@ -215,19 +215,21 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
   return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
-export function replaceVaultFromFolder({notes,meta},expected,{signal,head}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,head);
+export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true,head&&{head,mergedHeads,resetBases});
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderHead) {
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReceipt) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=(current={})=>{
       let next=values;
-      if(folderHead){
-        next={...values,...folderVersionState(current,folderHead),...folderWriterState(current,folderHead.payload)};
+      if(folderReceipt){
+        const {head}=folderReceipt;
+        next={...values,...folderVersionState(current,head,folderReceipt),...folderWriterState(current,head.payload)};
         if(current.writerId)next.writerId=current.writerId;
         delete next.folderPendingWrite;
+        delete next.folderSyncedBase;
       }
       notes.clear();meta.clear();
       for(const record of records)notes.put(record);
@@ -259,7 +261,8 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('syncFolder');
           meta.delete('folderConnectionId');
         }
-        for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions','folderSyncedBase','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
+          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -295,7 +298,7 @@ export function reserveFolderWrite(expected,records,heads,{signal,replace=false,
   },allowReadOnly);
 }
 
-export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
+export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,resetBases}={}) {
   const {rev,hash,exportedAt,payload}=head;
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
@@ -306,7 +309,7 @@ export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,folderSyncedClock:payload.clock??{},...folderVersionState(current,head),
+          folderSyncedHash:hash,folderSyncedClock:payload.clock??{},...folderVersionState(current,head,{mergedHeads,resetBases}),
           folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:Date.parse(exportedAt),
           exportRev:keepLineage?current.exportRev:rev,
           exportParent:keepLineage?current.exportParent:hash,
@@ -316,6 +319,7 @@ export function recordFolderWrite(expected,head,{signal,adopt=false}={}) {
         };
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         meta.delete('folderPendingWrite');
+        meta.delete('folderSyncedBase');
         done();
       }catch(error){fail(error);}
     };

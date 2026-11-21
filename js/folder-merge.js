@@ -42,7 +42,7 @@ export function reserveFolderVersion(meta,records,heads,options) {
   const state={writerCount:clock[meta.writerId],folderPendingWrite:{clock,versions:recordVersions(records)}};
   if(meta.folderPendingWrite){
     state.folderSyncedBases=retainFolderBases([meta.folderPendingWrite,
-      ...(meta.folderSyncedBases??[meta.folderSyncedBase])]);
+      ...storedFolderBases(meta)]);
   }
   return state;
 }
@@ -51,22 +51,31 @@ export function folderLineage(head) {
   return [head.parent,...(head.payload?.ancestors??[])].filter(hash=>hash!=null);
 }
 
-export function folderVersionState(meta, head) {
-  const {folderSyncedHash:hash,folderSyncedClock:clock={},folderSyncedVersions:versions,folderSyncedBase:base}=meta;
-  const previous=versions&&descends(head,{hash,clock})
-    ? {hash,versions,clock}
-    : descends(head,base) ? base : null;
-  return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBase:previous,
-    ...(meta.folderSyncedBases?{folderSyncedBases:meta.folderSyncedBases}:{})};
+function storedFolderBases(meta) {
+  return meta.folderSyncedBases??[
+    {hash:meta.folderSyncedHash,clock:meta.folderSyncedClock??{},versions:meta.folderSyncedVersions},
+    meta.folderSyncedBase,
+  ];
+}
+
+function folderBase(head) {
+  return {hash:head.hash,clock:head.payload.clock??{},versions:recordVersions(head.payload.notes)};
+}
+
+export function folderVersionState(meta,head,{mergedHeads=[],resetBases=false}={}) {
+  const previous={hash:meta.folderSyncedHash,clock:meta.folderSyncedClock??{},versions:meta.folderSyncedVersions};
+  const bases=resetBases?[folderBase(head)]:[
+    folderBase(head),...mergedHeads.map(folderBase),meta.folderPendingWrite,previous,...storedFolderBases(meta),
+  ];
+  return {folderSyncedVersions:recordVersions(head.payload.notes),folderSyncedBases:retainFolderBases(bases)};
 }
 
 export function baseForFolderHead(meta, head) {
   const pending=meta.folderPendingWrite;
   if(pending&&descends(head,{clock:pending.clock}))return pending.versions;
-  if (meta.folderSyncedVersions&&descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})) return meta.folderSyncedVersions;
-  const base=meta.folderSyncedBases?.find(base=>descends(head,base));
+  const base=storedFolderBases(meta).find(base=>base?.versions&&descends(head,base));
   if(base)return base.versions;
-  if (descends(head,meta.folderSyncedBase)) return meta.folderSyncedBase.versions;
+  if (meta.folderSyncedVersions&&descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})) return meta.folderSyncedVersions;
   return undefined;
 }
 

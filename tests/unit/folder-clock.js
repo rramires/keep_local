@@ -33,7 +33,7 @@ test('H2a.8c clocks choose the newest proven base and gate direct pulls',()=>{
   const meta={revision:7,folderSyncedRevision:7,folderSeenRev:3,folderSyncedHash:hash(3),
     folderSyncedVersions:versions,folderSyncedClock:{[a]:2,[b]:4},folderSyncedBase:base};
   assert.equal(baseForFolderHead(meta,current),versions);
-  assert.deepEqual(folderVersionState(meta,current).folderSyncedBase,
+  assert.deepEqual(folderVersionState(meta,current).folderSyncedBases[1],
     {hash:meta.folderSyncedHash,clock:meta.folderSyncedClock,versions});
   const state=folderState(current),snapshot={notes:[],meta};
   assert.equal(decideFolderAction(snapshot,state),'pull');
