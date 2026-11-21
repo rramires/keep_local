@@ -3,6 +3,7 @@ import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
+import {recordVersions} from './folder-merge.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {folderFailure,folderStamp,localFolderDirty,unsafeFolder} from './folder-write.js';
 
@@ -59,7 +60,7 @@ export async function pullFolderHead(handle,head,snapshot,key,signal) {
   const meta={
     ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,
-    folderSyncedHash:copy.hash,folderSyncedRevision:revision,
+    folderSyncedHash:copy.hash,folderSyncedRevision:revision,folderSyncedVersions:recordVersions(copy.payload.notes),
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];

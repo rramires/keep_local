@@ -10,3 +10,5 @@ try {
 } finally {await browser.close();}
 const extension=await import('./extension.mjs');
 await extension.run({check,assert});
+const folderMerge=await import('./folder-merge.mjs');
+await folderMerge.run({check,assert});

@@ -715,6 +715,11 @@ export async function run({check,assert}) {
       await p.reload();await p.eval("folderTest.permission='granted'");await submitExtensionLogin(p);
     };
     const rev=p=>p.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+    const hasBase=p=>p.eval(`(async()=>{
+      const {meta,notes}=await(await import('./js/db.js')).readVault();
+      return Object.keys(meta.folderSyncedVersions??{}).length===notes.length&&
+        notes.every(({id,updatedAt})=>meta.folderSyncedVersions[id]===updatedAt);
+    })()`);
     const waitForWrite=(p,n)=>p.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${n})`);
     const hasNote=(p,title)=>p.until(`(await import('./js/app.js')).getNotes().some(note=>note.title===${JSON.stringify(title)})`);
     const confirm=async(p,action)=>{
@@ -739,12 +744,15 @@ export async function run({check,assert}) {
       await attach(pa);await relogin(pa);await waitForWrite(pa,0);
       await attach(pb);await copyFolderFiles(pa,pb);await relogin(pb);
       await hasNote(pb,'Only on A initially');
+      assert.equal(await hasBase(pa),true,'Push records the base');
+      assert.equal(await hasBase(pb),true,'Adopt records the base');
       const first=await rev(pb);
       assert.equal(await pb.eval('folderTest.writeAttempts'),0);
       await harness.add(pb,'Notebook edit','Fictitious B');
       await waitForWrite(pb,first);
       await copyFolderFiles(pb,pa);await relogin(pa);
       await hasNote(pa,'Notebook edit');
+      assert.equal(await hasBase(pa),true,'Pull records the base');
       const old=await readFolderFixture(pa,primary),common=await rev(pa);
       assert.equal(common,await rev(pb));
 

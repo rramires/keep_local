@@ -1,5 +1,7 @@
 // db.js — IndexedDB wrapper for KeepLocal
 
+import {pruneTombstones,recordVersions} from './folder-merge.js';
+
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
 
@@ -245,7 +247,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('syncFolder');
           meta.delete('folderConnectionId');
         }
-        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'])meta.delete(key);
+        for(const key of ['folderSyncedHash','folderSyncedRevision','folderSyncedVersions','folderSeenRev','folderWrittenAt'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -265,7 +267,7 @@ export async function verifyFolderWrite(expected,{signal,replaceLocal=false}={})
   if(signal?.aborted)throw Object.assign(new Error('session.ended'),{code:'session.ended'});
 }
 
-export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=false}={}) {
+export function recordFolderWrite(expected,{rev,hash,writtenAt,records},{signal,adopt=false}={}) {
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -275,7 +277,7 @@ export function recordFolderWrite(expected,{rev,hash,writtenAt},{signal,adopt=fa
         assertVaultSnapshot(current,expected,{allowNewEdits:!adopt});
         const keepLineage=adopt&&(current.exportRev||0)>rev;
         const state={
-          folderSyncedHash:hash,
+          folderSyncedHash:hash,folderSyncedVersions:recordVersions(records),
           folderSyncedRevision:expected.revision||0,folderSeenRev:rev,folderWrittenAt:writtenAt,
         };
         if(!keepLineage){state.exportRev=rev;state.exportParent=hash;}
@@ -329,6 +331,15 @@ export function markVaultDirty(meta,values) {
   meta.put({key:'dirtySinceBackup',value:true});
   meta.put({key:'revision',value:(values.revision||0)+1});
 }
+function recordDeletions(meta, values, records) {
+  if (!records.length) return;
+  const now = Date.now();
+  const deleted = records.map(({id, updatedAt}) => ({
+    id, deletedAt: Number.isSafeInteger(updatedAt) ? Math.max(now, updatedAt) : now,
+  }));
+  meta.put({key:'tombstones',value:pruneTombstones([...(values.tombstones??[]), ...deleted], now)});
+}
+
 export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signal}) {
   return vaultTransaction(({tx,meta,notes},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
@@ -337,7 +348,11 @@ export function guardedNoteWrite({id,record,expectedVaultId,knownUpdatedAt,signa
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
       if(n.result ? (knownUpdatedAt===undefined||n.result.updatedAt>knownUpdatedAt) : knownUpdatedAt!==undefined)throw Object.assign(new Error('note.conflict'),{code:'note.conflict'});
-      if(record)notes.put(record);else notes.delete(id);
+      if(record)notes.put(record);
+      else if(n.result){
+        recordDeletions(meta,values,[n.result]);
+        notes.delete(id);
+      }
       markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
@@ -374,6 +389,7 @@ export function discardPreservedRecord(record,expected,{signal,snapshotJSON}={})
     const finish=()=>{if(++ready!==2)return;try{
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(typeof snapshotJSON!=='string'||JSON.stringify({notes:n.result,meta:values})!==snapshotJSON||values.vaultId!==expected.vaultId||!n.result.some(r=>JSON.stringify(r)===JSON.stringify(record)))throw Object.assign(Error('recovery.changed'),{code:'recovery.changed'});
+      recordDeletions(meta,values,[record]);
       notes.delete(record.id);markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
@@ -388,7 +404,13 @@ export function guardedNoteBatch(changes,{expectedVaultId,signal}) {
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(!expectedVaultId||values.vaultId!==expectedVaultId)throw Object.assign(Error('vault.changed'),{code:'vault.changed'});
       changes.forEach((change,i)=>{const stored=requests[i].result;if(stored?(change.knownUpdatedAt===undefined||stored.updatedAt>change.knownUpdatedAt):change.knownUpdatedAt!==undefined)throw Object.assign(Error('note.conflict'),{code:'note.conflict'});});
-      changes.forEach(change=>notes.put(change.record));markVaultDirty(meta,values);done();
+      const deleted=changes.flatMap((change,i)=>!change.record&&requests[i].result?[requests[i].result]:[]);
+      recordDeletions(meta,values,deleted);
+      for(const {id,record} of changes){
+        if(record)notes.put(record);
+        else notes.delete(id);
+      }
+      markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;requests.forEach(request=>request.onsuccess=finish);
   });

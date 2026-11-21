@@ -46,7 +46,7 @@ export function createFolderSync({handle,key,signal,onUnavailable,onStatus=()=>{
       await requireFolderSession(snapshot,key,lifetime);
       const {rev,hash,exportedAt}=state.head;
       const writtenAt=Date.parse(exportedAt);
-      await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt},{signal:lifetime,adopt:true});
+      await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt,records:state.head.payload.notes},{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
       return {status:'saved',writtenAt};
     }

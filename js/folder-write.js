@@ -89,7 +89,7 @@ export function createFolderWriter(handle,key,signal) {
   async function write(snapshot,state,options) {
     const {rev,hash,exportedAt,replacedEmptyMain}=await writeFile(snapshot,state,options);
     const writtenAt=Date.parse(exportedAt);
-    await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt},{signal});
+    await recordFolderWrite(snapshot.meta,{rev,hash,writtenAt,records:snapshot.notes},{signal});
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
