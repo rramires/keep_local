@@ -258,14 +258,23 @@ is still required at every opening.
   the session key when it shares the vault salt. The head is the highest
   encrypted `rev`, never a file date. Other files are ignored.
 - **Decision:** a browser with no local changes loads a newer file directly
-  when its encrypted parent or ancestor list includes the last known shared
-  file. After the first shared snapshot, divergent changes and tied heads are
-  compared one note at a time on sign-in and focus. Reviews are still required for older
+  when the hash or encrypted clock proves descent from its last shared file.
+  A nonempty clock proves descent when every writer counter from the shared
+  file is present with an equal or greater value. The parent and ancestor
+  hashes also prove descent, including for older files without a clock. After
+  the first shared snapshot, divergent changes and tied heads are compared
+  one note at a time on sign-in and focus. Reviews are still required for older
   revisions, a first connection with different data and an incompatible or
   unreadable main copy. An empty local vault without deletion markers loads the
   folder on first connection. An identical set is adopted without writing.
-- **Merging:** the encrypted parent and optional `ancestors` list identify a
-  known shared snapshot for comparing edits. Edits to different notes can be
+- **Merging:** the encrypted parent, optional `ancestors` list and optional
+  `clock` identify a known shared snapshot for comparing edits. Each local
+  vault creates a UUID writer ID at its first folder write and advances its
+  counter on folder writes. A merged file carries the maximum counters of
+  all its sources and advances the current writer. This lets the app recognize
+  the merged file after an interrupted local application. The writer counter
+  and clocks are committed with their corresponding hashes. Resetting the
+  vault gives it a new writer ID. Edits to different notes can be
   combined from that snapshot. When the same note has competing content edits
   or has differing content without a known base, the newer version keeps its
   ID and the other becomes a conflict copy with its edit time in UTC. The app

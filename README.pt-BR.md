@@ -244,15 +244,25 @@ obrigatória a cada abertura.
   a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
   nunca a data do arquivo. Outros arquivos são ignorados.
 - **Decisão:** um navegador sem alterações locais carrega diretamente um
-  arquivo mais novo quando o pai cifrado ou a lista de ancestrais inclui o
-  último arquivo em comum. Depois da primeira cópia em comum, alterações
-  divergentes e cabeças empatadas são comparadas por nota ao entrar e ao focar. A revisão continua
+  arquivo mais novo quando o hash ou o clock cifrado comprova descendência
+  da última versão em comum. Um clock não vazio comprova descendência quando
+  todos os contadores dessa versão estão presentes com valor igual ou maior.
+  O pai e os hashes de ancestrais também comprovam descendência, inclusive
+  para arquivos antigos sem clock. Depois da primeira cópia em comum,
+  alterações divergentes e cabeças empatadas são comparadas por nota ao entrar
+  e ao focar. A revisão continua
   para revisões antigas, primeira conexão com dados diferentes e uma cópia
   principal incompatível ou ilegível. Na primeira conexão, um cofre vazio
   sem registros de exclusão carrega a pasta. Um conjunto idêntico é adotado
   sem gravar.
-- **Mesclagem:** o pai cifrado e a lista opcional `ancestors` identificam
-  uma cópia em comum para comparar as alterações. Edições em notas diferentes
+- **Mesclagem:** o pai cifrado, a lista opcional `ancestors` e o campo opcional
+  `clock` identificam uma cópia em comum para comparar as alterações. Cada
+  cofre local recebe um UUID de gravador na primeira escrita na pasta e
+  incrementa seu contador a cada escrita. A junção leva os maiores contadores
+  de todas as fontes e incrementa o deste PC. Assim, o app reconhece a junção
+  após uma aplicação local interrompida. Contador e clocks são gravados com
+  os hashes correspondentes. Um reset do cofre gera outro UUID de gravador.
+  Edições em notas diferentes
   podem ser juntadas a partir dessa base. Se a mesma nota tem edições de conteúdo
   concorrentes ou conteúdo diferente sem base conhecida, a versão mais recente
   mantém o ID e a outra vira uma cópia de conflito, com a data da edição em UTC.

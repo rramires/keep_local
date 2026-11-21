@@ -102,10 +102,25 @@ cover direct pulls across intervening writes and manual exports, guarded
 application when a local edit arrives mid-write, and zero writes after the
 profiles converge or while a session is read only.
 
-Browser tests open profile 2 with both optional fields in the independent
-`file://` recovery reader. `node tests/build/profile2-compat.mjs` checks
+Browser tests open profile 2 with optional `tombstones`, `ancestors` and `clock`
+in the independent `file://` recovery reader. `node tests/build/profile2-compat.mjs` checks
 compatibility in both directions with `a968ee2` extracted by `git archive`.
 The golden file continues to use the frozen bytes and SHA-256.
+
+Writer-clock unit tests cover optional payload validation through 64 writers,
+clock dominance, base selection, direct pulls, overflow and counter recovery.
+The simulation uses seed `0x4b4c2028` for 240 sequences with two or three PCs,
+dropped writes, pulls, merges and bursts of up to 101 writes. It checks that
+edited content survives and that disjoint edits produce zero conflict copies.
+The per-note fuzz above continues to cover permanent deletions and trash.
+
+The two-profile E6 regressions perform 34 and 100 separate folder writes while
+the other PC is closed. Sign-in must load the new file directly with zero
+folder writes, preservation files or conflict copies. Other checks pause a
+merge after the file closes, then reload with or without an intervening write
+from another tab. The sign-in race expects two contents. Normal writes also
+pause before their local receipt, exercising both retained and lost files,
+counter continuation and a new writer identity after reset.
 
 The full gate uses a disposable profile for every test. At phase closing, run
 the complete browser runner three consecutive times and stop on the first
