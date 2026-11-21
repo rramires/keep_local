@@ -254,22 +254,26 @@ is still required at every opening.
   the session key when it shares the vault salt. The head is the highest
   encrypted `rev`, never a file date. Other files are ignored.
 - **Decision:** a browser with no local changes loads a newer file directly
-  when its encrypted parent matches the last known shared file. After the
-  first shared snapshot, divergent changes and tied heads are compared one
-  note at a time on sign-in and focus. Reviews are still required for older
+  when its encrypted parent or ancestor list includes the last known shared
+  file. After the first shared snapshot, divergent changes and tied heads are
+  compared one note at a time on sign-in and focus. Reviews are still required for older
   revisions, a first connection with different data and an incompatible or
   unreadable main copy. An empty local vault without deletion markers loads the
   folder on first connection. An identical set is adopted without writing.
-- **Merging:** edits to different notes can be combined. When the same note
-  has competing content edits, the newer version keeps its ID and the other
-  becomes a conflict copy with its edit time in UTC. A notice reports the
-  counts. The folder and local originals are verified in `keeplocal-preserved/`
-  before replacement. Only the highest encrypted revision and other copies
-  at that revision take part.
-- **Permanent deletions:** encrypted backups carry deletion markers for up to
-  365 days and at most 10,000 entries. An unchanged note can be removed on
-  the other computer. A later edit can keep it, with a notice on the editing
-  computer.
+- **Merging:** the encrypted parent and optional `ancestors` list identify a
+  known shared snapshot for comparing edits. Edits to different notes can be
+  combined from that snapshot. When the same note has competing content edits
+  or has differing content without a known base, the newer version keeps its
+  ID and the other becomes a conflict copy with its edit time in UTC. The app
+  keeps the folder and local originals in `keeplocal-preserved/` and reads them
+  back before replacing either source when it creates a conflict copy or you
+  choose **Merge both**. The highest encrypted revision and other copies at
+  that revision take part. The notice lists changes that occurred.
+- **Permanent deletions:** encrypted backups carry up to 10,000 deletion
+  markers for 365 days. A deletion wins when the other version is unchanged
+  from the known shared snapshot. A changed version or a version without a
+  known base survives. Each computer shows a notice based on whether you
+  edited or deleted the note there.
 - **Review:** Merge both preserves the two sources before combining them.
   Choosing either source is still available. Every replacement choice
   requires typing REPLACE. Preserved files open with normal Import. The app

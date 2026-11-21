@@ -239,23 +239,26 @@ obrigatória a cada abertura.
   a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
   nunca a data do arquivo. Outros arquivos são ignorados.
 - **Decisão:** um navegador sem alterações locais carrega diretamente um
-  arquivo mais novo quando o pai cifrado coincide com o último arquivo em
-  comum. Depois da primeira cópia em comum, alterações divergentes e cabeças
-  empatadas são comparadas por nota ao entrar e ao focar. A revisão continua
+  arquivo mais novo quando o pai cifrado ou a lista de ancestrais inclui o
+  último arquivo em comum. Depois da primeira cópia em comum, alterações
+  divergentes e cabeças empatadas são comparadas por nota ao entrar e ao focar. A revisão continua
   para revisões antigas, primeira conexão com dados diferentes e uma cópia
   principal incompatível ou ilegível. Na primeira conexão, um cofre vazio
   sem registros de exclusão carrega a pasta. Um conjunto idêntico é adotado
   sem gravar.
-- **Mesclagem:** edições em notas diferentes podem ser juntadas. Se o
-  conteúdo da mesma nota foi editado nos dois computadores, a versão mais
-  recente mantém o ID e a outra vira uma cópia de conflito, com a data da
-  edição em UTC. Um aviso informa as contagens. Os originais da pasta e do
-  navegador são conferidos em `keeplocal-preserved/` antes da substituição.
-  Participam a maior revisão cifrada e as outras cópias com a mesma revisão.
-- **Exclusões definitivas:** as cópias cifradas guardam o registro de até
-  10000 exclusões por 365 dias. Uma nota sem alterações pode ser removida
-  no outro computador. Uma edição posterior pode mantê-la, com um aviso
-  no computador onde foi editada.
+- **Mesclagem:** o pai cifrado e a lista opcional `ancestors` identificam
+  uma cópia em comum para comparar as alterações. Edições em notas diferentes
+  podem ser juntadas a partir dessa base. Se a mesma nota tem edições de conteúdo
+  concorrentes ou conteúdo diferente sem base conhecida, a versão mais recente
+  mantém o ID e a outra vira uma cópia de conflito, com a data da edição em UTC.
+  Ao criar uma cópia de conflito ou ao escolher **Juntar as duas**, o app guarda
+  os originais da pasta e do navegador em `keeplocal-preserved/` e os relê antes
+  da substituição. Participam a maior revisão cifrada e as outras cópias com a
+  mesma revisão. O aviso lista as alterações que ocorreram.
+- **Exclusões definitivas:** as cópias cifradas guardam até 10000 registros
+  de exclusão por 365 dias. A exclusão vence quando a outra versão está igual
+  à cópia em comum. Uma versão alterada ou sem base conhecida é mantida. Cada
+  computador mostra um aviso conforme a nota tenha sido editada ou apagada nele.
 - **Revisão:** Juntar as duas preserva as duas fontes antes da mesclagem.
   As escolhas de usar um dos lados continuam disponíveis. Toda substituição
   exige digitar SUBSTITUIR. Os arquivos preservados abrem pelo Importar normal.

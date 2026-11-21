@@ -87,18 +87,25 @@ Repeat the browser suite three times at phase closing.
 
 ## Per-note vault-folder merge
 
-The unit tests cover the per-note decision table, snapshot reuse, deterministic
-conflict IDs, UTC titles, idempotence and 5,000 schedules with seed `0x4b4c2026`.
-Browser tests verify permanent-deletion transactions, rollback on storage
-failure, read-only access, optional profile-2 tombstones and opening a
-merged vault with the independent `file://` recovery reader.
+The unit tests cover the per-note decision table, lineage selection, snapshot
+reuse, deterministic conflict IDs and UTC titles. The fuzz test uses seed
+`0x4b4c2026` and verifies at least 5,000 distinct schedules with one to six
+notes, randomized timestamps, edits, metadata changes, trash and permanent
+deletions. It checks preservation of edits, symmetry, idempotence and note
+validation. Seed `0x5eed2026` varies the ancestry of folder revisions.
 
-The two-profile OPFS tests exchange only fictional encrypted files. They
-reproduce a lost revision 5 followed by an unrelated revision 6, exercise
-sibling heads and overlapping edits, and check preservation before replacement.
-One test edits locally after the merged file is committed and checks that a
-later pass keeps the edit. Once the profiles converge, repeated sign-in and
-focus leave the folder's file and revision stable.
+The two-profile OPFS tests exchange only fictional encrypted files. E1 and E2
+discard PC B's revision 5 and verify preservation of edits to the same note
+in both timestamp orders. E3 and E4 check an unseen edit against permanent
+deletion and verify the appropriate notice on both computers. Other cases
+cover direct pulls across intervening writes and manual exports, guarded
+application when a local edit arrives mid-write, and zero writes after the
+profiles converge or while a session is read only.
+
+Browser tests open profile 2 with both optional fields in the independent
+`file://` recovery reader. `node tests/build/profile2-compat.mjs` checks
+compatibility in both directions with `a968ee2` extracted by `git archive`.
+The golden file continues to use the frozen bytes and SHA-256.
 
 The full gate uses a disposable profile for every test. At phase closing, run
 the complete browser runner three consecutive times and stop on the first

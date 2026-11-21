@@ -50,10 +50,12 @@ export function sameTombstones(left = [], right = [], now = Date.now()) {
 }
 
 export function folderMergeMessages({fromRemote,deleted,conflicts,restored,keptEdited}) {
-  const details = [tp('folder.mergeUpdated',fromRemote)];
+  const details = [];
+  if (fromRemote) details.push(tp('folder.mergeUpdated',fromRemote));
   if (deleted) details.push(tp('folder.mergeDeleted',deleted));
   if (conflicts) details.push(tp('folder.mergeConflicts',conflicts));
-  const messages = [t('folder.mergeSummary',{details:details.join(', ')})];
+  const messages = [];
+  if (details.length) messages.push(t('folder.mergeSummary',{details:details.join(', ')}));
   if (restored) messages.push(tp('folder.mergeRestored',restored));
   if (keptEdited) messages.push(tp('folder.mergeKeptEdited',keptEdited));
   return messages;

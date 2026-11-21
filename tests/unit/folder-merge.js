@@ -20,6 +20,15 @@ const tombstone=(note,deletedAt)=>({id:note.id,deletedAt});
 const state=({notes,records,tombstones})=>({notes,records,tombstones});
 const wrap={fromRemote:0,deleted:0,conflicts:0,restored:0,keptEdited:0};
 
+test('H2a.7e merge notices omit zero counts and are silent when there is nothing to report',()=>{
+  const messages=stats=>folderMerge.folderMergeMessages({...wrap,...stats});
+  assert.deepEqual(messages({}),[]);
+  assert.deepEqual(messages({conflicts:1}),['Changes from another computer were merged: 1 conflict (copy created).']);
+  assert.deepEqual(messages({fromRemote:2,deleted:1}),['Changes from another computer were merged: 2 updated, 1 deleted.']);
+  assert.deepEqual(messages({restored:1}),['A note deleted on another computer was kept because it was edited here.']);
+  assert.deepEqual(messages({keptEdited:2}),['2 notes you deleted were kept because they were edited on another computer.']);
+});
+
 test('H2a.2 applies every per-note decision to the records for that ID',async()=>{
   const original=fixture();
   const base={[original.id]:original.updatedAt};
