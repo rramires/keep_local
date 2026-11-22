@@ -206,8 +206,9 @@ export async function run({check,assert}) {
       await p.until("document.querySelector('#main-inner').innerText.includes('Expired fictional Trash entry')");
       await p.eval("document.querySelector('#theme-toggle').click();document.querySelector('#lang-toggle').click()");
       await p.until("document.documentElement.lang==='pt-BR'&&document.documentElement.dataset.theme==='light'");
+      await p.until("document.querySelector('#main-inner #empty-trash-btn')?.textContent==='Esvaziar lixeira'");
       await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('[data-vault-layout=list]').click()");
-      await p.until("document.querySelector('.vault-cards').dataset.layout==='list'");
+      await p.until("document.querySelector('.vault-cards')?.dataset.layout==='list'");
       assert.deepEqual(await p.eval('folderTest.writes'),{});
       assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),tested.snapshot);
 
