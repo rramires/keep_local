@@ -257,6 +257,32 @@ is still required at every opening.
   (at most 32, 64 MiB each; Mega conflict copies included) is authenticated with
   the session key when it shares the vault salt. The head is the highest
   encrypted `rev`, never a file date. Other files are ignored.
+- **Changing the passphrase with a connected folder** requires the folder to
+  have finished checking other computers’ changes. KeepLocal preserves the current
+  main file in `keeplocal-preserved/`, writes and verifies the new passphrase in
+  the folder, then replaces the local vault in one guarded transaction. If the
+  folder write succeeds but the local replacement fails, lock and sign in with
+  the new passphrase to finish recovery. Preserved copies, older manual backups
+  and older file versions still use their original passphrase.
+- **A passphrase changed on another computer** can be used at sign-in. KeepLocal
+  first requests folder permission, then checks the main file if the passphrase
+  fails to open this browser. It loads the new copy directly when the browser
+  is clean and the encrypted history proves that its notes are included. When
+  that proof is missing, enter the old local passphrase to compare and join, or
+  open the folder copy read-only. Signing in with the old passphrase offers a
+  dialog for the folder passphrase. Connecting a folder with another passphrase
+  offers the same dialog and compares the notes before replacing anything.
+- **Open a copy from another folder** is available in folder settings and on the
+  unavailable-folder screen. Choose a folder, including `keeplocal-preserved/`,
+  select a `.keeplocal` file and enter its passphrase when needed. The list selects
+  the highest revision it can open and warns about a revision older than the last
+  one seen here. The copy view supports search, sections, reveal and copy, with
+  automatic hiding and clipboard clearing. Its banner identifies the file and
+  revision. Editing, export and folder actions are disabled. This view writes
+  zero data to IndexedDB or either folder and pauses folder writes. Returning
+  restores this browser’s notes and previous mode. Returning, locking and session
+  expiry discard the copy and its key. To use the copy as your vault, connect its
+  folder through **Choose another folder**, which compares and asks first.
 - **Decision:** a browser with no local changes loads a newer file directly
   when the hash or encrypted clock proves descent from its last shared file.
   A nonempty clock proves descent when every writer counter from the shared

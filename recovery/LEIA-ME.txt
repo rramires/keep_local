@@ -12,6 +12,8 @@ mestra separadamente do pen-drive.
    clique em Abrir. A ferramenta só lê o arquivo e permite ler as notas
    e revelar ou copiar um campo por vez. O histórico da área de
    transferência (Win+V) pode reter valores copiados.
+   Se a abertura falhar, tente a senha anterior. A cópia pode ter sido
+   criada antes da troca de senha.
 
 2. Reinstalar o app
    Descompacte o ZIP numa pasta local. Abra chrome://extensions, ative
@@ -45,6 +47,8 @@ separate from the drive.
    latest .keeplocal file, enter the passphrase for that copy, and click
    Open. The tool reads the file and lets you read notes and reveal or
    copy one field at a time. Clipboard history (Win+V) can retain copies.
+   If opening fails, try the previous passphrase. The copy may have been
+   created before the passphrase change.
 
 2. Reinstall the app
    Unzip the archive to a local folder. Open chrome://extensions, enable
