@@ -243,6 +243,32 @@ obrigatória a cada abertura.
   máximo 32, 64 MiB cada; cópias de conflito do Mega incluídas) é autenticado com
   a chave da sessão quando tem o salt do cofre. A cabeça é o maior `rev` cifrado,
   nunca a data do arquivo. Outros arquivos são ignorados.
+- **Trocar a frase-senha com uma pasta conectada** exige que a conferência das
+  mudanças de outros computadores tenha terminado. O KeepLocal preserva o
+  principal atual em `keeplocal-preserved/`, grava e confere a senha nova na pasta
+  e depois substitui o cofre local numa transação única com guarda. Se a gravação
+  da pasta terminar e a aplicação local falhar, bloqueie e entre com a senha nova
+  para concluir a recuperação. As preservadas, os backups manuais antigos e as
+  versões anteriores dos arquivos continuam usando a senha de cada cópia.
+- **Uma frase-senha trocada em outro computador** pode ser usada ao entrar. O app
+  primeiro pede a permissão da pasta e confere o principal se a senha falhar neste
+  navegador. Carrega a cópia nova diretamente quando o local está limpo e o
+  histórico cifrado comprova que suas notas estão incluídas. Quando falta essa
+  prova, digite a senha antiga do local para comparar e juntar, ou abra a cópia
+  da pasta só leitura. Entrar com a senha antiga oferece o diálogo da senha da
+  pasta. Conectar uma pasta de outra senha oferece o mesmo diálogo e compara
+  as notas antes de substituir qualquer coisa.
+- **Abrir cópia de outra pasta** fica nas configurações da pasta e na tela de
+  pasta indisponível. Escolha uma pasta, inclusive `keeplocal-preserved/`,
+  selecione um `.keeplocal` e digite a senha dele quando necessário. A lista
+  seleciona a maior revisão que abre e avisa quando ela é mais antiga que a
+  última vista aqui. A visão permite busca, seções, revelar e copiar, com
+  auto-ocultar e limpeza do clipboard. A faixa identifica o arquivo e a revisão.
+  Editar, exportar e as ações de pasta ficam indisponíveis. A visão grava zero
+  dados no IndexedDB e nas duas pastas e pausa as gravações da pasta. Voltar
+  restaura as notas deste navegador e o modo anterior. Voltar, bloquear e expirar
+  a sessão descartam a cópia e sua chave. Para usar a cópia como cofre, conecte
+  a pasta em **Escolher outra pasta**, que compara e pergunta antes.
 - **Decisão:** um navegador sem alterações locais carrega diretamente um
   arquivo mais novo quando o hash ou o clock cifrado comprova descendência
   da última versão em comum. Um clock não vazio comprova descendência quando

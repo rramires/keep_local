@@ -30,7 +30,7 @@ export async function confirmFolderReset({key,signal,onReset}) {
   await onReset();
 }
 
-export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,onRefresh,onReset}) {
+export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,onRefresh,onReset,onExportLocal,onEnterPassword,onUseLocal}) {
   const wrap=tag('main',undefined,'auth-view folder-block folder-review');
   wrap.dataset.folderStatus=review.status;
   const container=tag('div',undefined,'auth-container');
@@ -114,8 +114,12 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
   if(canChoose)button('joinBoth',async()=>{
     if(await confirm(t('folder.preserveBoth')))await resolve('merge',selection?.value??head.name);
   },'btn-primary');
+  if(review.status==='otherSalt'&&onEnterPassword)button('enterFolderPassword',onEnterPassword,'btn-primary');
+  if(review.status==='otherSalt'&&onUseLocal)button('useLocal',async()=>{
+    if(await confirm(t('folder.useLocalPasswordWarning')))await onUseLocal();
+  });
   button('exportLocal',async()=>{
-    if(await exportBackup())report.textContent=t('folder.exportReady');
+    if(await (onExportLocal?onExportLocal():exportBackup()))report.textContent=t('folder.exportReady');
   });
   if(canChoose)button('useFolder',async()=>{
     if(await confirm(folderWarnings.join(' ')))await resolve('remote',selection?.value??head.name);

@@ -153,6 +153,40 @@ captures the merge notice, conflict copy and review choice in both themes at
 1100 and 390 px. Set `KEEPLOCAL_H2A7_CAPTURES` to an existing directory for
 the four captures of the kept-edit notice in E4.
 
+## Other-passphrase folders and read-only copies
+
+`folder-salt.mjs`, `folder-salt-login.mjs`, `folder-salt-review.mjs` and
+`folder-salt-connect.mjs` cover connected rotation, preservation and readback
+failure, the guarded local-application failure and recovery on the same PC,
+new-passphrase sign-in, unsent edits, delayed old-passphrase writes and first
+connections. Permission remains the first sign-in operation. Tests count KDFs
+and check that a key becomes active after the guarded local replacement.
+
+`folder-copy-view.mjs` checks every entry point, candidate and size bounds,
+read deadlines, a selected preserved subfolder, one derivation per salt,
+masked vault tools, clipboard timers, cross-tab events, cancellation, lock,
+expiry and returning to both previous modes. It compares the complete
+IndexedDB dump and recursive hashes of all OPFS files before and after use.
+OPFS still permits writes after a read-mode picker, so the comparisons and
+transaction spy provide the zero-write proof. G3.2 also opens and cancels the
+copy picker while the connected folder is stalled, with zero new list or
+permission-request events and the same saved folder. G3.2 and F4 check all
+six recovery controls in order and retain the initial retry focus.
+
+`folder-salt-e2e.mjs` runs the complete two-profile passphrase-change cycle,
+validates masked vault items across salts and checks zero file-write attempts
+and stable file hashes after convergence. It opens the real resulting file
+with master `47310be` extracted by `git archive`, then opens the new file and
+exact preserved bytes with their respective passphrases in the detached
+`file://` recovery reader. `tests/build/profile2-compat.mjs` checks both
+reader directions for archived `a968ee2` and `47310be`. The golden file stays
+frozen and `folderSaltClock` stays outside the payload.
+
+At stage closing, run the complete browser runner three consecutive times,
+with the CPU affinity and four unit-test workers described above. Evidence
+covers both themes at 1100 and 390 px for the changed-passphrase gate, folder
+passphrase dialog, typed browser choice, copy list and copy-view banner.
+
 ## Phase 2c verification
 
 `tests/unit/note-write-queue.js` forces both action/editor orders for pin, color,

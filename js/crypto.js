@@ -68,6 +68,11 @@ export function base64ToArrayBuffer(b64) {
   return base64ToArray(b64).buffer;
 }
 
+export async function bytesHash(bytes) {
+  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+  return Array.from(digest,byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+
 const KEY_CHECK_TEXT = 'KeepLocal password key check v1';
 export async function createKeyCheck(key) {
   const { iv, ciphertext } = await encrypt(key, KEY_CHECK_TEXT);

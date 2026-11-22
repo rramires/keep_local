@@ -206,8 +206,9 @@ export async function run({check,assert}) {
       await p.until("document.querySelector('#main-inner').innerText.includes('Expired fictional Trash entry')");
       await p.eval("document.querySelector('#theme-toggle').click();document.querySelector('#lang-toggle').click()");
       await p.until("document.documentElement.lang==='pt-BR'&&document.documentElement.dataset.theme==='light'");
+      await p.until("document.querySelector('#main-inner #empty-trash-btn')?.textContent==='Esvaziar lixeira'");
       await p.eval("document.querySelector('[data-view=vault]').click();document.querySelector('[data-vault-layout=list]').click()");
-      await p.until("document.querySelector('.vault-cards').dataset.layout==='list'");
+      await p.until("document.querySelector('.vault-cards')?.dataset.layout==='list'");
       assert.deepEqual(await p.eval('folderTest.writes'),{});
       assert.equal(await p.eval("JSON.stringify(await(await import('./js/db.js')).readVault())"),tested.snapshot);
 
@@ -360,7 +361,8 @@ export async function run({check,assert}) {
       await p.until("!!document.querySelector('[data-folder-status=notFound]')");
       assert.equal(await p.eval("document.querySelector('.folder-name').textContent"),oldName);
       assert.match(await p.eval("document.querySelector('.folder-reason').textContent"),/renamed, moved or disconnected/i);
-      assert.equal(await p.eval("document.querySelectorAll('[data-folder-action]').length"),5);
+      assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-folder-action]')].map(button=>button.dataset.folderAction)"),
+        ['retry','chooseAnother','openReadOnly','browseCopies','startOver','exit']);
       assert.deepEqual(await p.eval('folderTest.writes'),{});
       await p.send('Page.bringToFront');
       await p.until("document.activeElement.dataset.folderAction==='retry'&&document.hasFocus()");
@@ -1268,8 +1270,22 @@ export async function run({check,assert}) {
             ? 'The folder did not respond. Try again. If the problem continues, select the same folder using “Choose another folder”. The notes in this browser are safe and can be opened read only.'
             : 'A pasta não respondeu. Tente de novo. Se continuar, escolha a mesma pasta em “Escolher outra pasta”. As notas deste navegador estão seguras e podem ser abertas só para leitura.');
         assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-folder-action]')].map(button=>button.dataset.folderAction)"),
-          ['retry','chooseAnother','openReadOnly','startOver','exit']);
+          ['retry','chooseAnother','openReadOnly','browseCopies','startOver','exit']);
         assert.equal(await p.eval("folderTest.events.filter(event=>event.kind==='list').length"),operation==='keys'?1:0);
+        const storedFolder=await p.eval("(await import('./js/folder-store.js')).readSyncFolder().then(handle=>handle.name)");
+        const oldAccessEvents=await p.eval("folderTest.events.filter(event=>['list','request'].includes(event.kind)).length");
+        await p.eval(`window.showDirectoryPicker=options=>{
+          folderTest.events.push({kind:'picker',options});
+          return new Promise((resolve,reject)=>window.cancelCopyPicker=()=>reject(new DOMException('Fictional cancellation','AbortError')));
+        };document.querySelector('[data-folder-action=browseCopies]').click()`);
+        await p.until('!!window.cancelCopyPicker');
+        assert.equal(await p.eval("document.querySelector('[data-folder-action=browseCopies]').disabled"),true);
+        assert.equal(await p.eval("folderTest.events.filter(event=>['list','request'].includes(event.kind)).length"),oldAccessEvents);
+        assert.equal(await p.eval("(await import('./js/folder-store.js')).readSyncFolder().then(handle=>handle.name)"),storedFolder);
+        await p.eval('window.cancelCopyPicker()');
+        await p.until("!document.querySelector('[data-folder-action=browseCopies]').disabled");
+        assert.equal(await p.eval("folderTest.events.filter(event=>['list','request'].includes(event.kind)).length"),oldAccessEvents);
+        assert.equal(await p.eval("(await import('./js/folder-store.js')).readSyncFolder().then(handle=>handle.name)"),storedFolder);
         await openTimedOutVaultReadOnly(p);
         assert.deepEqual(await p.eval("(await import('./js/app.js')).getNotes().map(note=>note.title)"),['Fictitious local note']);
         assert.deepEqual(await p.eval('folderTest.writes'),{});
@@ -1500,7 +1516,16 @@ export async function run({check,assert}) {
       await p.eval("folderTest.name='KL-TEST-FOREIGN'");
       await writeFolderFixture(p,file,foreign);
       await choose('KL-TEST-FOREIGN');
+      await p.until("!!document.querySelector('.app-dialog input[type=password]')");
+      await p.eval(`(()=>{
+        window.cancelledFolderPasswordInput=document.querySelector('.app-dialog input[type=password]');
+        cancelledFolderPasswordInput.value='Fictitious cancelled passphrase';
+        cancelledFolderPasswordInput.dispatchEvent(new Event('input'));
+        document.querySelector('[data-dialog-action=cancel]').click();
+      })()`);
       await p.until("document.querySelector('.folder-block')?.innerText.includes('Copy from another passphrase or vault')");
+      assert.equal(await p.eval("!cancelledFolderPasswordInput.isConnected||cancelledFolderPasswordInput.value===''"),true);
+      assert.equal(await p.eval("[...document.querySelectorAll('.app-dialog input[type=password]')].every(input=>input.value==='')"),true);
       assert.equal(await currentFolder(),'KL-TEST-OLD');
       assert.equal(await readFolderFixture(p,file),foreign);
       assert.deepEqual(await p.eval('folderTest.writes'),{});

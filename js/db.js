@@ -262,7 +262,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('folderConnectionId');
         }
         for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
-          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt'])meta.delete(key);
+          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderSaltClock'])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -298,7 +298,7 @@ export function reserveFolderWrite(expected,records,heads,{signal,replace=false,
   },allowReadOnly);
 }
 
-export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,resetBases}={}) {
+export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,resetBases,saltChanged=false}={}) {
   const {rev,hash,exportedAt,payload}=head;
   return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
@@ -317,6 +317,7 @@ export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,
           exportClock:(keepLineage?current.exportClock:payload.clock)??{},
           ...folderWriterState(current,payload),
         };
+        if(saltChanged)state.folderSaltClock=payload.clock??{};
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         meta.delete('folderPendingWrite');
         meta.delete('folderSyncedBase');

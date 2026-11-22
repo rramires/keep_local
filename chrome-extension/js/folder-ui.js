@@ -24,7 +24,12 @@ function folderReason(status) {
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
-export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset}) {
+function folderActionError(error) {
+  if(error?.name==='TimeoutError')return folderReason('unresponsive');
+  return t(typeof error?.code==='string'?error.code:'folder.actionFailed');
+}
+
+export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset,onOtherSalt,onBrowseCopies}) {
   let busy=false, reading=false, issue=status;
 
   async function run(event,work) {
@@ -35,7 +40,7 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     for(const button of buttons) button.disabled=true;
     try { await work(); }
     catch(error) {
-      if(!signal.aborted&&error?.name!=='AbortError') notify(t(error?.code||'folder.actionFailed'));
+      if(!signal.aborted&&error?.name!=='AbortError') notify(folderActionError(error));
     } finally {
       busy=false;
       for(const button of buttons) button.disabled=false;
@@ -61,6 +66,10 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
   async function choose() {
     const result=await chooseSyncFolder({key,signal,hold:!!onResume});
     if(signal.aborted) return;
+    if(result.status==='otherSalt'&&onOtherSalt){
+      if(await onOtherSalt(result))return;
+      if(signal.aborted)return;
+    }
     if(result.status!=='ok'){
       if(reading)notify(folderReason(result.status));
       else root.querySelector('[data-folder-message]').textContent=folderReason(result.status);
@@ -99,6 +108,7 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
       reading=true;
       await openVault();
     })));
+    if(onBrowseCopies)controls.append(action('browseCopies',event=>void run(event,onBrowseCopies)));
     if(onReset)controls.append(action('startOver',event=>void run(event,onReset)));
     controls.append(action('exit',onExit));
     panel.append(title,element('p','folder-name',handle.name),reason,controls);
@@ -115,11 +125,12 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     status.setAttribute('role','status');
     const controls=element('div','folder-actions');
     controls.append(...recoveryButtons());
+    if(onBrowseCopies)controls.append(action('browseCopies',event=>void run(event,onBrowseCopies)));
     banner.append(status,controls);
     main.prepend(banner);
   }
 
-  return {renderBlock,renderBanner};
+  return {renderBlock,renderBanner,get status(){return issue;}};
 }
 
 export function quietReadOnlyCards(root) {
@@ -178,7 +189,7 @@ export function addFolderSettingsTrigger(anchor,onOpen) {
   anchor.before(trigger);
 }
 
-export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder}) {
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder,onOtherSalt,onBrowseCopies}) {
   const panel=element('section','panel-form folder-settings');
   const header=element('header','panel-header');
   const title=element('h2','',t('folder.settings'));
@@ -210,10 +221,15 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     const choose=action(handle?'change':'choose',()=>void run(async()=>{
       pauseFolder();
       let chosen;
-      try {chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});}
-      finally{
-        await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+      let handled=false;
+      try {
+        chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});
+        if(chosen.status==='otherSalt'&&onOtherSalt)handled=await onOtherSalt(chosen);
       }
+      finally{
+        if(!handled)await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+      }
+      if(handled)return;
       if(signal.aborted)return;
       if(chosen.status!=='ok'){notify(folderReason(chosen.status));return;}
       await refresh(true);
@@ -228,6 +244,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
         await refresh(true);
       })));
     }
+    if(onBrowseCopies)controls.append(action('browseCopies',()=>void run(onBrowseCopies)));
     body.replaceChildren(...groups,controls);
     if(focus) choose.focus();
   }
@@ -239,7 +256,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     for(const button of buttons) button.disabled=true;
     try {await work();}
     catch(error) {
-      if(!signal.aborted&&error?.name!=='AbortError') notify(t(error?.code||'folder.actionFailed'));
+      if(!signal.aborted&&error?.name!=='AbortError') notify(folderActionError(error));
     } finally {
       busy=false;
       for(const button of buttons) button.disabled=false;

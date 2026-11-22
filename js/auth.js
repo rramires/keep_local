@@ -5,6 +5,7 @@ import { generateSalt, deriveKey, createKeyCheck, verifyKeyCheck, arrayToBase64,
 import { getMeta, getAllMetaRecords, isFirstUse, createVault, ensureVaultId } from './db.js';
 import { t } from './i18n.js';
 import {requestFolderAccess} from './folder-store.js';
+import {tryChangedFolderPassword,renderChangedPasswordGate} from './folder-login.js';
 
 import { storeSessionKey } from './session.js';
 export { storeSessionKey, getSessionKey, refreshSession, clearSession, logout, startSessionTimer, stopSessionTimer } from './session.js';
@@ -53,7 +54,7 @@ export async function login(password) {
 
 // --- Auth UI Rendering ---
 
-export function renderAuthView(container,{onAuthenticated,folder}) {
+export function renderAuthView(container,{onAuthenticated,folder,signal,onExit,onOpenCopy}) {
   const firstUse = true; // Will be updated after check
 
   container.innerHTML = `
@@ -135,7 +136,7 @@ export function renderAuthView(container,{onAuthenticated,folder}) {
     </div>
   `;
 
-  initAuthListeners(container,onAuthenticated,folder);
+  initAuthListeners(container,onAuthenticated,folder,{signal,onExit,onOpenCopy});
   checkExistingAccount(container);
 }
 
@@ -160,7 +161,7 @@ function switchTab(container, tabName) {
   container.querySelector('#import-form').classList.toggle('hidden', tabName !== 'import');
 }
 
-function initAuthListeners(container,onAuthenticated,folder) {
+function initAuthListeners(container,onAuthenticated,folder,{signal,onExit,onOpenCopy}) {
   // Tab switching
   container.querySelectorAll('.auth-tab').forEach(tab => {
     tab.addEventListener('click', () => switchTab(container, tab.dataset.tab));
@@ -222,12 +223,26 @@ function initAuthListeners(container,onAuthenticated,folder) {
     loginError.textContent='';
     try {
       const permissionFailure=folder?await requestFolderAccess(folder):null;
-      const key=await login(loginPw.value);
+      let key,outcome;
+      try{key=await login(loginPw.value);}
+      catch(error){
+        if(!folder||error.message!==t('login.wrongPassword'))throw error;
+        outcome=await tryChangedFolderPassword(loginPw.value,folder,permissionFailure,signal);
+        if(!outcome)throw error;
+        if(outcome.status==='needsLocalPassword'){
+          renderChangedPasswordGate(container,outcome,{signal,onAuthenticated,onExit,onOpenCopy});
+          return;
+        }
+        key=outcome.key;
+      }
+      if(signal?.aborted)return;
       loginPw.value='';
-      await onAuthenticated(key,folder?{handle:folder,permissionFailure}:null);
+      await onAuthenticated(key,folder?{handle:folder,permissionFailure,changed:outcome?.changed,head:outcome?.head}:null);
     } catch(err) {
+      if(signal?.aborted)return;
       loginError.textContent=t(typeof err.code==='string'?err.code:err.message);
     } finally {
+      loginPw.value='';
       loginButton.disabled=false;
     }
   });

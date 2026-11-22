@@ -14,7 +14,7 @@ export function withVaultLineage(operation) {
 }
 
 export function folderStamp(state) {
-  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash})=>[name,status,rev,hash])
+  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash,salt,bytesHash})=>[name,status,rev,hash,salt,bytesHash])
     .sort(([left],[right])=>left.localeCompare(right))]);
 }
 
@@ -28,8 +28,8 @@ export function unsafeFolder(state) {
     (!state.head&&(state.otherSalt.length||state.unreadable.length||state.tooLarge.length)));
 }
 
-export function createFolderWriter(handle,key,signal) {
-  const scan=salt=>readFolderState(handle,key,salt);
+export function createFolderWriter(handle,key,signal,access) {
+  const scan=access?.scan??(salt=>readFolderState(handle,key,salt));
 
   async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected}={}) {
     const {meta}=snapshot;
@@ -39,7 +39,9 @@ export function createFolderWriter(handle,key,signal) {
       if(signal?.aborted)throw folderFailure('session.ended');
     };
     assertCurrent();
-    if(unsafeFolder(state)||(!replace&&state.divergent))throw folderFailure('folder.changed');
+    const main=state.candidates.find(copy=>copy.name===MAIN_FILE);
+    const replacingUnknown=access?.replaceUnknown&&replace&&selected&&!state.limitExceeded&&main?.status==='otherSalt';
+    if((unsafeFolder(state)&&!replacingUnknown)||(!replace&&state.divergent))throw folderFailure('folder.changed');
     try {validateRecords(notes);await decryptRecords(notes,key);}
     catch {throw folderFailure('folder.unreadable');}
     const rev=Math.max(meta.exportRev||0,meta.folderSeenRev||0,state.head?.rev||0)+1;
@@ -62,12 +64,14 @@ export function createFolderWriter(handle,key,signal) {
       await verifyFolderWrite(meta,{signal,replaceLocal:!!selected});
     };
     await verify();
+    if(access)await access.preserve(state);
     const heads=[state.head,selected,...sourceHeads].filter(Boolean);
     const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
       replaceLocal:!!selected,allowReadOnly});
     const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
     const hash=await payloadHash(JSON.stringify(payload));
-    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
+    const salt=access?.salt??meta.salt;
+    const bytes=await encodeV2(key,base64ToArray(salt),payload);
     let file,created;
     try {file=await handle.getFileHandle(MAIN_FILE);}
     catch(error){
@@ -88,9 +92,14 @@ export function createFolderWriter(handle,key,signal) {
       await writable.abort().catch(()=>{});
       throw error;
     }
-    const checked=await readFolderCandidate(file,key,meta.salt);
-    if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
-    return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+    try{
+      const checked=await readFolderCandidate(file,key,salt);
+      if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
+      return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+    }catch(error){
+      if(access?.onReadbackFailure)await access.onReadbackFailure(file,bytes);
+      throw error;
+    }
   }
 
   async function write(snapshot,state,options) {

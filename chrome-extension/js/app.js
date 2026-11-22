@@ -12,11 +12,16 @@ import { purgeTrash } from './trash.js';
 import { folderMergeMessages } from './folder-merge.js';
 import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
+import {askFolderPassword,useBrowserFolder} from './folder-other-salt.js';
+import {openSaltReconciliation} from './folder-salt-ui.js';
+import {connectSaltFolder} from './folder-salt-connect.js';
+import {beginFolderCopy,discardFolderCopy,getFolderCopy,pickFolderCopy,renderFolderCopies,renderFolderCopyBanner,selectFolderCopy} from './folder-copy-view.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
-import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode } from './db.js';
-import { getSessionVaultId, setSessionVaultId, setSessionSignal, setIdleTimeout } from './session.js';
+import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode,readVault } from './db.js';
+import {withVaultLineage} from './folder-write.js';
+import { getSessionVaultId, setSessionVaultId, setSessionSignal, setIdleTimeout,startReadOnlySession } from './session.js';
 import { publishVaultEvent, watchVaultEvents } from './vault-events.js';
 import { renderMarkdown } from './markdown.js';
 import { createScope } from './lifecycle.js';
@@ -90,6 +95,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // --- Auth View ---
 
 function teardownSession() {
+  discardFolderCopy();
   secretUI.dispose();
   folderGate=null;
   setFolderStatus(null);
@@ -114,7 +120,9 @@ async function showAuth(message='') {
   const folder=supported?await readSyncFolder():null;
   if(generation!==sessionGeneration)return;
   setWriteMode(folder?'readOnly':'readWrite');
-  renderAuthView(appContainer,{folder,onAuthenticated:async(key,attempt)=>{
+  sessionController=new AbortController();
+  setSessionSignal(sessionController.signal);
+  renderAuthView(appContainer,{folder,signal:sessionController.signal,onExit:showAuth,onOpenCopy:attempt=>openFolderCopies(attempt),onAuthenticated:async(key,attempt)=>{
     if(generation!==sessionGeneration)return;
     cryptoKey=key;storeSessionKey(key);
     if(attempt){
@@ -122,6 +130,12 @@ async function showAuth(message='') {
       setSessionSignal(sessionController.signal);
       const signal=sessionController.signal;
       startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
+      if(attempt.readOnly){
+        folderGate=folderGateFor(attempt.handle,'otherSalt',key,signal);
+        setFolderStatus('readOnly');
+        await showApp();
+        return;
+      }
       const status=await checkFolder(attempt.handle,attempt.permissionFailure);
       if(signal.aborted)return;
       if(status!=='ok'){
@@ -135,6 +149,10 @@ async function showAuth(message='') {
       if(signal.aborted)return;
     }
     await showApp();
+    if(attempt?.changed){
+      showToast(t(attempt.target==='local'?'folder.saltUseLocal':'folder.passwordLoaded',{rev:attempt.head.rev,time:folderTime(attempt.head.exportedAt)}),undefined,undefined,12000);
+      if(attempt.stats)showMergeNotice(attempt.stats);
+    }
   }});
   const error=document.getElementById('login-error');if(error)error.textContent=message;
 }
@@ -152,6 +170,7 @@ async function showApp({reload=true}={}) {
   if(vaultId!==currentId){showAuth(t('vault.changed'));return;}
   loadedVaultId=vaultId;setSessionVaultId(vaultId);
   const unwatch=watchVaultEvents(event=>{
+    if(getFolderCopy())return;
     if(event?.type==='vault-replaced'&&event.vaultId!==loadedVaultId)showAuth(t('vault.changed'));
     else if(event?.type==='note-changed'){void refreshChangedNote(event.id);folderSync?.schedule();}
   });
@@ -193,6 +212,8 @@ function folderGateFor(handle,status,key,signal) {
     handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
     onResume:selected=>configureFolderSync({admit:true,selected}),
     onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
+    onOtherSalt:connectOtherSaltSelection,
+    onBrowseCopies:openFolderCopies,
   });
 }
 
@@ -201,7 +222,7 @@ async function configureFolderSync({admit=false,selected}={}) {
   folderSync=null;
   folderKey=cryptoKey;
   const signal=sessionController?.signal,key=cryptoKey;
-  if(!folderSupported()||!key||(!admit&&isReadOnly()))return false;
+  if(getFolderCopy()||!folderSupported()||!key||(!admit&&isReadOnly()))return false;
   const handle=selected??await readSyncFolder();
   if(signal?.aborted||key!==cryptoKey)return false;
   if(!handle){setFolderStatus(null);return false;}
@@ -231,6 +252,13 @@ async function configureFolderSync({admit=false,selected}={}) {
       folderGate=folderGateFor(handle,review.status,key,signal);
       renderFolderReview(appContainer,review,{
         handle,signal,onExit:logout,onOpenReadOnly:showApp,
+        onEnterPassword:async()=>{
+          const foreign=await askFolderPassword(handle,signal);
+          if(!foreign||signal.aborted)return;
+          await openSaltReconciliation({root:appContainer,handle,snapshot:review.snapshot,key,foreign,signal,
+            onExit:logout,onOpenReadOnly:showApp,onApplied:outcome=>finishSaltReview(outcome,handle,signal)});
+        },
+        onUseLocal:async()=>finishSaltReview(await useBrowserFolder({handle,review,key,signal}),handle,signal),
         onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
         onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
         resolve:async(choice,name)=>{
@@ -252,6 +280,94 @@ async function configureFolderSync({admit=false,selected}={}) {
   if(admit)return sync.admit();
   sync.schedule();
   return true;
+}
+
+async function finishSaltReview(outcome,handle,signal) {
+  if(signal.aborted)return;
+  cryptoKey=outcome.access.key;
+  await closeModal();
+  folderKey=null;
+  if(!await configureFolderSync({admit:true,selected:handle}))return;
+  await showApp();
+  const message=outcome.usedBrowser?'folder.useBrowserConfirmed':outcome.access.target==='folder'?'folder.saltUseFolder':'folder.saltUseLocal';
+  showToast(t(message),undefined,undefined,12000);
+  if(outcome.stats)showMergeNotice(outcome.stats);
+}
+
+function connectOtherSaltSelection(selection) {
+  const signal=sessionController.signal;
+  return connectSaltFolder({root:appContainer,selection,key:cryptoKey,signal,
+    onExit:logout,onOpenReadOnly:async()=>{
+      folderGate=folderGateFor(selection.handle,'otherSalt',cryptoKey,signal);
+      await closeModal();
+      await showApp();
+    },
+    onApplied:outcome=>finishSaltReview(outcome,selection.handle,signal)});
+}
+
+async function openFolderCopies(attempt) {
+  const generation=sessionGeneration;
+  const selection=attempt?Promise.resolve(attempt.handle):pickFolderCopy();
+  const previous={key:cryptoKey,readOnly:isReadOnly(),status:folderGate?.status,
+    view:currentView,label:currentLabel,search:searchText,vaultSearch,vaultLabel,draft:{...newDraft}};
+  folderSync?.dispose();
+  setWriteMode('readOnly');
+  try{
+    const snapshot=attempt?.snapshot??await readVault();
+    const handle=await selection;
+    if(generation!==sessionGeneration)return;
+    if(!handle){
+      setWriteMode(previous.readOnly?'readOnly':'readWrite');
+      if(!previous.readOnly)await configureFolderSync();
+      return;
+    }
+    previous.meta=snapshot.meta;
+    const known=attempt?.foreign??{salt:snapshot.meta.salt,key:previous.key};
+    teardownSession();
+    beginFolderCopy(previous);
+    setWriteMode('readOnly');
+    sessionController=new AbortController();
+    setSessionSignal(sessionController.signal);
+    startReadOnlySession(snapshot.meta.vaultId);
+    startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
+    const signal=sessionController.signal;
+    await withVaultLineage(()=>{});
+    if(signal.aborted)return;
+    await renderFolderCopies(appContainer,{handle,known,seenRev:snapshot.meta.folderSeenRev||0,signal,
+      onBack:returnFromFolderCopy,onOpen:async copy=>{
+        if(signal.aborted)return;
+        selectFolderCopy(copy);cryptoKey=copy.key;
+        currentView='notes';currentLabel=null;searchText='';vaultSearch='';vaultLabel=null;
+        await showApp();
+      }});
+  }catch(error){
+    if(getFolderCopy())await returnFromFolderCopy();
+    else if(generation===sessionGeneration){
+      setWriteMode(previous.readOnly?'readOnly':'readWrite');
+      if(!previous.readOnly)await configureFolderSync();
+    }
+    showToast(t(typeof error.code==='string'?error.code:'copy.readFailed'));
+  }
+}
+
+async function returnFromFolderCopy() {
+  const previous=getFolderCopy()?.previous;
+  teardownSession();
+  appContainer.replaceChildren();
+  const generation=sessionGeneration;
+  if(!previous?.key){await showAuth();return;}
+  setWriteMode('readOnly');
+  const meta=(await readVault()).meta;
+  if(generation!==sessionGeneration)return;
+  if(meta.salt!==previous.meta.salt||meta.vaultId!==previous.meta.vaultId){await showAuth(t('vault.changed'));return;}
+  cryptoKey=previous.key;storeSessionKey(cryptoKey,meta.vaultId);
+  sessionController=new AbortController();setSessionSignal(sessionController.signal);
+  setWriteMode(previous.readOnly?'readOnly':'readWrite');
+  currentView=previous.view;currentLabel=previous.label;searchText=previous.search;
+  vaultSearch=previous.vaultSearch;vaultLabel=previous.vaultLabel;newDraft=previous.draft;
+  setDraftDirty('bar',!!(newDraft.title||newDraft.content));
+  if(previous.readOnly&&meta.syncFolder)folderGate=folderGateFor(meta.syncFolder,previous.status||'denied',cryptoKey,sessionController.signal);
+  await showApp();
 }
 
 function renderAppShell() {
@@ -343,13 +459,17 @@ function renderAppShell() {
   `;
 
   document.getElementById('search-input').value=currentView==='vault'?'':searchText;
+  const copy=getFolderCopy()?.copy;
   if(isReadOnly()){
     appContainer.querySelector('.app-view').setAttribute('data-vault-read-only','');
-    folderGate?.renderBanner(document.getElementById('main-content'));
+    if(copy){
+      appContainer.querySelector('.app-view').setAttribute('data-folder-copy-view','');
+      renderFolderCopyBanner(document.getElementById('main-content'),copy,returnFromFolderCopy);
+    }else folderGate?.renderBanner(document.getElementById('main-content'));
   } else if(folderSupported()){
     addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
-  if(folderSupported())document.getElementById('backup-btn').after(createFolderIndicator());
+  if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator());
   initAppListeners();
 }
 
@@ -362,6 +482,8 @@ async function openFolderSettings(trigger) {
     key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
     trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
     hasUnreadable:()=>unreadableCount>0,pauseFolder:()=>folderSync?.dispose(),
+    onOtherSalt:connectOtherSaltSelection,
+    onBrowseCopies:openFolderCopies,
     onFolderChange:selected=>key===cryptoKey?configureFolderSync({admit:!!selected,selected}):undefined,
   });
   document.getElementById('modal-overlay').classList.add('open');
@@ -403,7 +525,7 @@ function initAppListeners() {
   });
 
   document.getElementById('change-password-btn').addEventListener('click',async()=>{
-    if(!await closeModal())return;
+    if(!await flushNewNoteBar()||!await closeModal())return;
     const {renderPasswordChange}=await import('./account.js');
     const controller=new AbortController();modalController=controller;
     scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});
@@ -463,6 +585,7 @@ function initAppListeners() {
 
   // Backup
   document.getElementById('backup-btn').addEventListener('click', async () => {
+    if(getFolderCopy())return;
     const { exportBackup } = await import('./backup.js');
     if(!await flushNewNoteBar()||activeEdit&&!await activeEdit.flush())return;
     try{const result=await exportBackup();if(result)showToast(t(result.unreadableCount?'backup.unreadableExported':'toast.backupExported'));}catch(error){showToast(t('backup.failed'));}
@@ -516,7 +639,7 @@ async function loadNotes({refreshNotes=true}={}) {
   const generation=sessionGeneration,key=cryptoKey;
   const {getAllNoteRecords}=await import('./db.js');
   const {decrypt,base64ToArray}=await import('./crypto.js');
-  const records=await getAllNoteRecords(),loaded=[],versions=new Map(),failed=[];let failures=0;
+  const records=getFolderCopy()?.copy?.payload.notes??await getAllNoteRecords(),loaded=[],versions=new Map(),failed=[];let failures=0;
   for(const record of records){
     let reason='decrypt';
     try{
@@ -620,7 +743,7 @@ async function deleteFromUI(id){
 }
 
 async function refreshChangedNote(id) {
-  if(!cryptoKey||activeEdit?.id===id||enqueueWrite.has(id))return;
+  if(getFolderCopy()||!cryptoKey||activeEdit?.id===id||enqueueWrite.has(id))return;
   const generation=sessionGeneration,key=cryptoKey;
   try{
     const {getNoteRecord}=await import('./db.js'),{decrypt,base64ToArray}=await import('./crypto.js');

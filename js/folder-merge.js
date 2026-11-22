@@ -262,7 +262,7 @@ export async function mergeVaults({
   };
 }
 
-function sameNotes(left, right) {
+export function sameNotes(left, right) {
   if (left.length !== right.length) return false;
   const byId = new Map(right.map(note => [note.id, note]));
   return left.every(note => canonicalJSON(note) === canonicalJSON(byId.get(note.id)));

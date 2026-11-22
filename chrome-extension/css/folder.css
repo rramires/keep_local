@@ -26,3 +26,13 @@
 .folder-review-warnings p { margin: 0; }
 .folder-review select { min-width: 0; max-width: 100%; color-scheme: dark; }
 [data-theme="light"] .folder-review select { color-scheme: light; }
+
+.folder-copy-browser { padding: 24px 16px; }
+.folder-copy-list { width: min(100%, 760px); min-width: 0; margin: auto; }
+.folder-copy-list h1, .folder-copy-list p { margin: 0; }
+.folder-copy-files { display: grid; gap: 12px; }
+.folder-copy-row { display: grid; gap: 8px; border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; min-width: 0; }
+.folder-copy-label { display: flex; align-items: baseline; gap: 8px; overflow-wrap: anywhere; }
+.folder-copy-row button { justify-self: start; }
+.folder-copy-banner { position: sticky; top: calc(var(--header-height) + 8px); z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; overflow-wrap: anywhere; margin-bottom: 20px; }
+[data-folder-copy-view] #backup-btn { display: none; }

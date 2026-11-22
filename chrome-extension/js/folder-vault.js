@@ -1,4 +1,4 @@
-import {base64ToArray} from './crypto.js';
+import {base64ToArray,arrayToBase64,bytesHash} from './crypto.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {BACKUP_PROFILES,decodePayloadV2,payloadHash} from './backup-v2.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
@@ -31,21 +31,26 @@ export async function decodeV2WithKey(bytes,key,localSaltB64) {
   }catch{return {status:'unreadable'};}
 }
 
-export async function readFolderCandidate(entry,key,salt,{allowEmpty=false}={}) {
+export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secondary}={}) {
   const result=await withFolderReadTimeout(async()=>{
     const file=await entry.getFile();
     if(allowEmpty&&file.size===0)return {status:'emptyMain'};
     if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge'};
     return {bytes:new Uint8Array(await file.arrayBuffer())};
   },'file');
-  return result.status?result:decodeV2WithKey(result.bytes,key,salt);
+  if(result.status)return result;
+  const actualSalt=arrayToBase64(result.bytes.slice(0,16));
+  const selected=secondary?.salt===actualSalt?secondary:{key,salt};
+  const decoded=await decodeV2WithKey(result.bytes,selected.key,selected.salt);
+  if(decoded.status==='otherSalt')decoded.bytesHash=await bytesHash(result.bytes);
+  return {...decoded,salt:actualSalt};
 }
 
-export async function readFolderState(handle,key,salt) {
+export async function readFolderState(handle,key,salt,secondary) {
   const {entries,limitExceeded}=await listCandidates(handle);
   const state={head:null,candidates:[],divergent:false,unreadable:[],otherSalt:[],tooLarge:[],limitExceeded};
   for(const {name,entry} of entries){
-    const result=await readFolderCandidate(entry,key,salt,{allowEmpty:name===MAIN_FILE});
+    const result=await readFolderCandidate(entry,key,salt,{allowEmpty:name===MAIN_FILE,secondary});
     const {payload,...summary}=result;
     state.candidates.push({name,...summary,...(payload?{noteCount:payload.notes.length}:{})});
     if(result.status!=='valid'){
