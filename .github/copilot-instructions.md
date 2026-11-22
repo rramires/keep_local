@@ -185,7 +185,7 @@ unpacked MV3 extension in a fresh profile; folder tests use OPFS directories and
 CDP-installed picker/permission substitutes.
 
 Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the owner's
-roadmap, one sub-stage per owner request: H1 (standalone recovery tool and
+roadmap, one package per owner request (small or same-area items may share a package): H1 (standalone recovery tool and
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
 recovery, merged), H2c (rotating copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
