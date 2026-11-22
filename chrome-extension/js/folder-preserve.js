@@ -8,7 +8,7 @@ import {withFolderReadTimeout} from './folder-timeout.js';
 
 const PRESERVED='keeplocal-preserved';
 
-async function bytesHash(bytes) {
+export async function bytesHash(bytes) {
   const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
   return Array.from(digest,byte=>byte.toString(16).padStart(2,'0')).join('');
 }

@@ -14,7 +14,7 @@ export function withVaultLineage(operation) {
 }
 
 export function folderStamp(state) {
-  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash})=>[name,status,rev,hash])
+  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash,salt})=>[name,status,rev,hash,salt])
     .sort(([left],[right])=>left.localeCompare(right))]);
 }
 
@@ -90,9 +90,14 @@ export function createFolderWriter(handle,key,signal,access) {
       await writable.abort().catch(()=>{});
       throw error;
     }
-    const checked=await readFolderCandidate(file,key,salt);
-    if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
-    return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+    try{
+      const checked=await readFolderCandidate(file,key,salt);
+      if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
+      return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+    }catch(error){
+      if(access?.onReadbackFailure)await access.onReadbackFailure(file,bytes);
+      throw error;
+    }
   }
 
   async function write(snapshot,state,options) {

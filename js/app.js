@@ -403,7 +403,7 @@ function initAppListeners() {
   });
 
   document.getElementById('change-password-btn').addEventListener('click',async()=>{
-    if(!await closeModal())return;
+    if(!await flushNewNoteBar()||!await closeModal())return;
     const {renderPasswordChange}=await import('./account.js');
     const controller=new AbortController();modalController=controller;
     scope.signal.addEventListener('abort',()=>controller.abort(),{once:true});

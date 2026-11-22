@@ -7,23 +7,36 @@ import { storeSessionKey, clearSession, getSessionKey, getSessionVaultId } from 
 import { publishVaultEvent } from './vault-events.js';
 import { t } from './i18n.js';
 import { passwordFeedback,focusPanel } from './form-ui.js';
+import {withVaultLineage} from './folder-write.js';
+import {checkFolderPasswordChange,changeFolderPassword} from './folder-password-change.js';
 
-export async function changePassword(currentPassword,newPassword,{signal}={}) {
+export async function changePassword(currentPassword,newPassword,{signal=new AbortController().signal}={}) {
   assertWritable();
   const policy=validatePassword(newPassword);if(!policy.valid)throw new Error(policy.errors.join(' '));
-  const previous=await readVault(),meta=previous.meta;
-  const current=await deriveKey(currentPassword,base64ToArray(meta.salt),false);
-  if(!await verifyKeyCheck(current,meta.keyCheck))throw new Error(t('login.wrongPassword'));
-  let plain;
-  try{plain=await decryptRecords(previous.notes,current);}catch{throw Object.assign(new Error(t('account.unreadable')),{code:'account.unreadable'});}
-  const salt=generateSalt(),key=await deriveKey(newPassword,salt,false),records=[];
-  for(const note of plain){const {iv,ciphertext}=await encrypt(key,JSON.stringify(note));records.push({id:note.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:note.updatedAt});}
-  const vaultId=crypto.randomUUID();
-  const next={...meta,salt:arrayToBase64(salt),keyCheck:await createKeyCheck(key),vaultId,dirtySinceBackup:true,revision:(meta.revision||0)+1};
-  if(signal?.aborted||!await getSessionKey()||getSessionVaultId()!==meta.vaultId)throw new Error(t('vault.changed'));
-  await replaceVault({notes:records,meta:next},meta,{signal});
-  if(!signal?.aborted&&await getSessionKey()&&getSessionVaultId()===meta.vaultId)storeSessionKey(key,vaultId);publishVaultEvent('vault-replaced',{vaultId});
-  return key;
+  return withVaultLineage(async()=>{
+    assertWritable();
+    const previous=await readVault(),meta=previous.meta;
+    const current=await deriveKey(currentPassword,base64ToArray(meta.salt),false);
+    if(!await verifyKeyCheck(current,meta.keyCheck))throw new Error(t('login.wrongPassword'));
+    let plain;
+    try{plain=await decryptRecords(previous.notes,current);}
+    catch{throw Object.assign(new Error(t('account.unreadable')),{code:'account.unreadable'});}
+    const state=await checkFolderPasswordChange(previous,current,signal);
+    const salt=generateSalt(),key=await deriveKey(newPassword,salt,false);
+    if(state)return changeFolderPassword({snapshot:previous,state,current,key,salt:arrayToBase64(salt),signal});
+    const records=[];
+    for(const note of plain){
+      const {iv,ciphertext}=await encrypt(key,JSON.stringify(note));
+      records.push({id:note.id,iv:arrayToBase64(iv),ciphertext:arrayBufferToBase64(ciphertext),updatedAt:note.updatedAt});
+    }
+    const vaultId=crypto.randomUUID();
+    const next={...meta,salt:arrayToBase64(salt),keyCheck:await createKeyCheck(key),vaultId,dirtySinceBackup:true,revision:(meta.revision||0)+1};
+    if(signal.aborted||!await getSessionKey()||getSessionVaultId()!==meta.vaultId)throw new Error(t('vault.changed'));
+    await replaceVault({notes:records,meta:next},meta,{signal});
+    if(!signal.aborted&&await getSessionKey()&&getSessionVaultId()===meta.vaultId)storeSessionKey(key,vaultId);
+    publishVaultEvent('vault-replaced',{vaultId});
+    return key;
+  });
 }
 export async function resetVault(confirmation) {
   assertWritable();
@@ -53,6 +66,7 @@ export async function resetFromFolder(confirmation,expected,{key,signal}) {
 
 export function renderPasswordChange(container,onChanged,{signal,onRecovery,onClose}={}) {
   const trigger=document.activeElement;
+  let warning=t('account.rotateWarning');
   container.innerHTML=`<form id="change-password-form" class="panel-form">
     <header class="panel-header"><h2 id="change-password-title">${t('account.change')}</h2><button type="button" class="btn-secondary" data-panel-close>${t('modal.close')}</button></header>
     <div class="panel-body form-stack">
@@ -62,11 +76,16 @@ export function renderPasswordChange(container,onChanged,{signal,onRecovery,onCl
       <div class="password-rules" id="change-password-rules"><ul><li data-rule="length">${t('auth.minLength')}</li><li data-rule="common">${t('validation.common')}</li></ul></div>
       <p class="password-strength" id="change-password-strength" data-password-strength role="status"></p>
       <p class="form-error" id="change-password-match" data-password-match role="status"></p>
-      <p class="help-text">${t('auth.passphraseHint')}</p><p class="notice notice-warning">${t('account.rotateWarning')}</p>
+      <p class="help-text">${t('auth.passphraseHint')}</p><p class="notice notice-warning" data-rotation-warning>${warning}</p>
       <p class="form-error" id="change-password-error" role="alert"></p>
       <button type="submit" class="btn-primary button-full">${t('account.change')}</button>
     </div></form>`;
   const form=container.querySelector('form');
+  void readVault().then(({meta})=>{
+    if(signal?.aborted||!form.isConnected)return;
+    warning=t(meta.syncFolder?'account.rotateFolderWarning':'account.rotateWarning');
+    form.querySelector('[data-rotation-warning]').textContent=warning;
+  });
   form.querySelector('[data-panel-close]').addEventListener('click',onClose);
   const feedback=()=>passwordFeedback(form,form.querySelector('#next-password').value,form.querySelector('#next-confirm').value);
   form.querySelectorAll('#next-password,#next-confirm').forEach(input=>input.addEventListener('input',feedback));feedback();
@@ -78,12 +97,14 @@ export function renderPasswordChange(container,onChanged,{signal,onRecovery,onCl
       if(container.querySelector('#next-password').value!==container.querySelector('#next-confirm').value)throw new Error(t('auth.passwordsNoMatch'));
       const key=await changePassword(container.querySelector('#current-password').value,container.querySelector('#next-password').value,{signal});
       if(signal?.aborted||!form.isConnected)return;
-      await onChanged(key);await noticeDialog(t('account.rotateWarning'),{title:t('account.change'),returnFocus:()=>document.getElementById('change-password-btn')});
+      form.querySelectorAll('input').forEach(input=>input.value='');
+      await onChanged(key);await noticeDialog(warning,{title:t('account.change'),returnFocus:()=>document.getElementById('change-password-btn')});
     }catch(error){
       if(signal?.aborted||!form.isConnected)return;
       const allowed=['auth.passwordsNoMatch','login.wrongPassword','vault.changed','account.unreadable'].map(t);
       allowed.push(validatePassword(container.querySelector('#next-password').value).errors.join(' '));
-      form.querySelector('#change-password-error').textContent=error.code==='vault.readOnly'?t(error.code):allowed.includes(error.message)?error.message:t('account.failed');
+      form.querySelector('#change-password-error').textContent=['vault.readOnly','account.folderPending','account.folderApplyFailed'].includes(error.code)?t(error.code):allowed.includes(error.message)?error.message:t('account.failed');
+      form.querySelectorAll('input').forEach(input=>input.value='');
       button.disabled=false;
       if(error.code==='account.unreadable'&&onRecovery&&!form.querySelector('#account-recovery')){
         const recover=document.createElement('button');recover.type='button';recover.className='btn-secondary';recover.id='account-recovery';recover.textContent=t('recovery.open');recover.addEventListener('click',onRecovery);form.append(recover);

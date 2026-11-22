@@ -101,3 +101,9 @@ test('H2b.0 salt access converts both sides while retaining the original guarded
   assert.deepEqual(Object.keys(access.meta).sort(),['keyCheck','salt']);
   assert.equal(JSON.stringify(access.meta).includes(f.value.title),false);
 });
+
+test('H2b.1 folder stamps detect a salt change even when the plaintext payload hash is unchanged',async()=>{
+  const {folderStamp}=await import('../../js/folder-write.js');
+  const state={candidates:[{name:MAIN_FILE,status:'valid',hash:'same',rev:2,salt:'old'}]};
+  assert.notEqual(folderStamp(state),folderStamp({...state,candidates:[{...state.candidates[0],salt:'new'}]}));
+});
