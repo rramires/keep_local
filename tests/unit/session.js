@@ -29,3 +29,25 @@ test('E5 changing the idle period uses the last activity and resets on lock',asy
     assert.equal(await getSessionKey(),null);
   }finally{clearSession();}
 });
+
+test('H2b.5 a read-only view expires without activating a vault key',async context=>{
+  const {startReadOnlySession,checkDeadline,setIdleTimeout,refreshSession}=await import('../../js/session.js');
+  let now=10_000;
+  context.mock.method(Date,'now',()=>now);
+  try{
+    startReadOnlySession('fictitious-read-only-view');
+    assert.equal(await getSessionKey(),null);
+    assert.equal(checkDeadline(),true);
+    now+=30_000;
+    refreshSession();
+    setIdleTimeout(60_000);
+    now+=59_999;
+    assert.equal(checkDeadline(),true);
+    now++;
+    assert.equal(checkDeadline(),false);
+    assert.equal(getSessionVaultId(),null);
+    startReadOnlySession('fictitious-read-only-view');
+    clearSession();
+    assert.equal(checkDeadline(),false);
+  }finally{clearSession();}
+});

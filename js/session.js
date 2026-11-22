@@ -3,12 +3,14 @@ const keyVaults=new WeakMap();
 let activeSignal=null;
 let vaultId=null;
 let key=null,deadline=0,lastActivity=0,idleTimeout=TIMEOUT,timer=null,controller=null,onExpired=null;
-export function storeSessionKey(value,id=keyVaults.get(value)||null){key=value;vaultId=id;if(id)keyVaults.set(value,id);lastActivity=Date.now();deadline=lastActivity+idleTimeout;}
+let readOnlySession=false;
+export function storeSessionKey(value,id=keyVaults.get(value)||null){readOnlySession=false;key=value;vaultId=id;if(id)keyVaults.set(value,id);lastActivity=Date.now();deadline=lastActivity+idleTimeout;}
+export function startReadOnlySession(id){key=null;readOnlySession=true;vaultId=id;lastActivity=Date.now();deadline=lastActivity+idleTimeout;}
 export async function getSessionKey(){checkDeadline();return key;}
-export function clearSession(){activeSignal=null;key=null;vaultId=null;deadline=0;lastActivity=0;idleTimeout=TIMEOUT;}
+export function clearSession(){activeSignal=null;key=null;readOnlySession=false;vaultId=null;deadline=0;lastActivity=0;idleTimeout=TIMEOUT;}
 export function checkDeadline(){
-  if(key&&Date.now()>=deadline){const callback=onExpired;clearSession();stopSessionTimer();callback?.(true);return false;}
-  return !!key;
+  if((key||readOnlySession)&&Date.now()>=deadline){const callback=onExpired;clearSession();stopSessionTimer();callback?.(true);return false;}
+  return !!(key||readOnlySession);
 }
 export function refreshSession(){
   if(!checkDeadline())return;
@@ -18,7 +20,7 @@ export function refreshSession(){
 export function setIdleTimeout(ms=TIMEOUT){
   if(!Number.isFinite(ms)||ms<=0)throw new RangeError('Invalid idle timeout');
   idleTimeout=ms;
-  if(key)deadline=lastActivity+idleTimeout;
+  if(key||readOnlySession)deadline=lastActivity+idleTimeout;
 }
 
 export function stopSessionTimer(){clearInterval(timer);controller?.abort();controller=null;onExpired=null;}

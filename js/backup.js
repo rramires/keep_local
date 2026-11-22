@@ -2,6 +2,7 @@ import {confirmDialog} from './dialogs.js';
 import {pruneTombstones} from './folder-merge.js';
 import {folderUnloadWarning} from './folder-status.js';
 import {withVaultLineage} from './folder-write.js';
+import {getFolderCopy} from './folder-copy-view.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity,verifyFolderWrite } from './db.js';
@@ -52,6 +53,7 @@ export async function initBeforeUnload() {
 }
 
 export function exportBackup(options) {
+  if(getFolderCopy())return Promise.reject(new Error(t('vault.readOnly')));
   if(globalThis.location?.protocol==='chrome-extension:')return withVaultLineage(()=>makeBackupDownload(options));
   return makeBackupDownload(options);
 }
