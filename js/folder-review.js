@@ -30,7 +30,7 @@ export async function confirmFolderReset({key,signal,onReset}) {
   await onReset();
 }
 
-export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,onRefresh,onReset}) {
+export function renderFolderReview(root,review,{handle,signal,resolve,onOpenReadOnly,onExit,onRefresh,onReset,onExportLocal}) {
   const wrap=tag('main',undefined,'auth-view folder-block folder-review');
   wrap.dataset.folderStatus=review.status;
   const container=tag('div',undefined,'auth-container');
@@ -115,7 +115,7 @@ export function renderFolderReview(root,review,{handle,signal,resolve,onOpenRead
     if(await confirm(t('folder.preserveBoth')))await resolve('merge',selection?.value??head.name);
   },'btn-primary');
   button('exportLocal',async()=>{
-    if(await exportBackup())report.textContent=t('folder.exportReady');
+    if(await (onExportLocal?onExportLocal():exportBackup()))report.textContent=t('folder.exportReady');
   });
   if(canChoose)button('useFolder',async()=>{
     if(await confirm(folderWarnings.join(' ')))await resolve('remote',selection?.value??head.name);

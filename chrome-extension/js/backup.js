@@ -4,7 +4,7 @@ import {folderUnloadWarning} from './folder-status.js';
 import {withVaultLineage} from './folder-write.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
-import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity } from './db.js';
+import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity,verifyFolderWrite } from './db.js';
 import { createKeyCheck, base64ToArray, arrayToBase64 } from './crypto.js';
 import { encodeV2, decodeV2, makePayload, payloadHash } from './backup-v2.js';
 import { publishVaultEvent } from './vault-events.js';
@@ -56,12 +56,17 @@ export function exportBackup(options) {
   return makeBackupDownload(options);
 }
 
-async function makeBackupDownload({recovery=false}={}) {
-  const key=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
+async function makeBackupDownload({recovery=false,source}={}) {
+  const sessionKey=await getSessionKey(),vaultId=getSessionVaultId(),signal=getSessionSignal();
+  const key=source?.key??sessionKey;
   if(!key)throw new Error(t('login.noAccount'));
-  const assertCurrent=async()=>{if(signal?.aborted||key!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));};
-  const {notes,meta}=await readVault();
-  if(vaultIdentity(meta)!==vaultId)throw new Error(t('vault.changed'));
+  if(source&&!isReadOnly())throw new Error(t('vault.changed'));
+  const assertCurrent=async()=>{
+    if(signal?.aborted||sessionKey!==await getSessionKey()||vaultId!==getSessionVaultId())throw new Error(t('session.exportCancelled'));
+    if(source)await verifyFolderWrite(source.snapshot.meta,{signal,replaceLocal:true});
+  };
+  const {notes,meta}=source?.snapshot??await readVault();
+  if(!source&&vaultIdentity(meta)!==vaultId)throw new Error(t('vault.changed'));
   const readOnly=isReadOnly();
   const unreadableCount=(await unreadableRecords(notes,key)).length;
   await assertCurrent();

@@ -57,6 +57,11 @@ async function readReviewedCopy(handle,head,key,salt,access) {
   return {name:head.name,...copy};
 }
 
+async function requireAccess(snapshot,key,signal,access) {
+  if(!access?.login)return requireFolderSession(snapshot,access?.sessionKey??key,signal);
+  if(signal.aborted||await getSessionKey())throw folderFailure('session.ended');
+}
+
 export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false,access}={}) {
   const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
   const stats=notifyDeletions?folderPullNotices(snapshot,copy.payload):undefined;
@@ -64,7 +69,7 @@ export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDele
 }
 
 export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases,access}={}) {
-  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
+  await requireAccess(snapshot,key,signal,access);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
@@ -100,12 +105,12 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   const {records,tombstones,stats,now,sameLocalNotes,sameHeadNotes}=await reconcileFolderNotes(snapshot,head,otherHeads,key);
   const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
   const samePreferences=['theme','lang'].every(name=>preferences[name]===head.payload.preferences[name]);
-  const equalsLocal=(!access||access.salt===meta.salt)&&sameLocalNotes&&sameTombstones(tombstones,meta.tombstones,now);
+  const equalsLocal=(!access||access.salt===meta.salt&&!access.login)&&sameLocalNotes&&sameTombstones(tombstones,meta.tombstones,now);
   const equalsHead=(!access||access.salt===head.salt)&&samePreferences&&sameHeadNotes&&
     sameTombstones(tombstones,head.payload.tombstones,now);
   const assertCurrent=async()=>{
     if(!allowReadOnly)assertWritable();
-    await requireFolderSession(snapshot,access?.sessionKey??key,signal);
+    await requireAccess(snapshot,key,signal,access);
     if(hasPendingDrafts())throw folderFailure('folder.changed');
     await verifyFolderWrite(meta,{signal,replaceLocal:true});
   };
@@ -141,7 +146,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
 export async function resolveFolderReview({handle,writer,review,choice,name,key,signal,access}) {
   const original=await readVault();
   const snapshot=access?await access.convertSnapshot(original):original;
-  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
+  await requireAccess(snapshot,key,signal,access);
   if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))throw folderFailure('folder.changed');
   const state=await writer.scan(snapshot.meta.salt);
   if(folderLocalStamp(snapshot)!==folderLocalStamp(review.snapshot)||folderStamp(state)!==folderStamp(review.state))
@@ -159,7 +164,7 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
     if(state.divergent||(access&&head.salt!==access.salt)){
       if(main?.status==='valid'&&!access)preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
       const selected=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
-      await requireFolderSession(snapshot,access?.sessionKey??key,signal);
+      await requireAccess(snapshot,key,signal,access);
       target=await writer.writeChosen(snapshot,state,selected);
     }else if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state)){
       throw folderFailure('folder.changed');
@@ -170,7 +175,7 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const copies=main.status==='valid'?(main.name===head.name?[main]:[main,head]):[];
   const preserved=await (access?access.preserve(state):preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal));
   const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
-  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
+  await requireAccess(snapshot,key,signal,access);
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {

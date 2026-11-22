@@ -56,8 +56,9 @@ export async function createSaltAccess({handle,snapshot,key,foreign,target,signa
   };
 }
 
-export async function reconcileSaltFolder({handle,snapshot,key,foreign,signal,target}) {
+export async function reconcileSaltFolder({handle,snapshot,key,foreign,signal,target,login=false}) {
   const access=await createSaltAccess({handle,snapshot,key,foreign,signal,target});
+  access.login=login;
   const state=await access.scan();
   const prepared=access.snapshot;
   const decision=await decideSaltAction(prepared,state,access.key,access.key);

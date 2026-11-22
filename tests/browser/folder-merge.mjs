@@ -122,7 +122,7 @@ export async function run({check,assert}) {
 }
 
 const primary='keeplocal-vault.keeplocal';
-export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,ready,focus};
+export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,editFromOtherTab,ready,focus};
 const attach=page=>page.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
 
 async function relogin(page,{granted=true}={}) {

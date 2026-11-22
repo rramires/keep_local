@@ -107,3 +107,21 @@ test('H2b.1 folder stamps detect a salt change even when the plaintext payload h
   const state={candidates:[{name:MAIN_FILE,status:'valid',hash:'same',rev:2,salt:'old'}]};
   assert.notEqual(folderStamp(state),folderStamp({...state,candidates:[{...state.candidates[0],salt:'new'}]}));
 });
+
+test('H2b.2 direct replacement requires every receipt, version and lineage proof',async()=>{
+  const {canLoadChangedFolder}=await import('../../js/folder-login.js');
+  const snapshot={notes:[{id:'one',updatedAt:42}],meta:{salt:'local',revision:4,folderSyncedRevision:4,
+    folderSyncedHash:'shared',folderSyncedClock:{[writer]:1},folderSyncedVersions:{one:42},folderSeenRev:2}};
+  const state={head:{hash:'new',parent:'shared',rev:3,payload:{clock:{[writer]:2}}},
+    candidates:[{name:MAIN_FILE,status:'valid',salt:'foreign'}],otherSalt:[],unreadable:[],tooLarge:[],divergent:false};
+  assert.equal(canLoadChangedFolder(snapshot,state),true);
+  for(const patch of [
+    {folderSyncedHash:undefined},{folderSyncedVersions:undefined},{revision:5},
+    {folderSyncedVersions:{one:41}},{folderSyncedVersions:{two:42}},{folderSeenRev:4},
+  ])assert.equal(canLoadChangedFolder({...snapshot,meta:{...snapshot.meta,...patch}},state),false);
+  assert.equal(canLoadChangedFolder({...snapshot,notes:[]},state),false);
+  assert.equal(canLoadChangedFolder(snapshot,{...state,divergent:true}),false);
+  assert.equal(canLoadChangedFolder(snapshot,{...state,limitExceeded:true}),false);
+  assert.equal(canLoadChangedFolder(snapshot,{...state,head:{...state.head,parent:null,payload:{}}}),false);
+  assert.equal(canLoadChangedFolder(snapshot,{...state,candidates:[...state.candidates,{name:'local-copy.keeplocal',status:'otherSalt',salt:'local'}]}),false);
+});

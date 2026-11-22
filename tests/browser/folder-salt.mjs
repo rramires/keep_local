@@ -7,7 +7,7 @@ import {decodeV2} from '../../js/backup-v2.js';
 
 export const NEW_PASSWORD='Fictional river lantern garden';
 
-async function rotate(page) {
+export async function rotate(page) {
   await page.eval("document.querySelector('#change-password-btn').click()");
   await page.until("!!document.querySelector('#change-password-form')");
   await page.eval(`document.querySelector('#current-password').value=${JSON.stringify(PASSWORD)};

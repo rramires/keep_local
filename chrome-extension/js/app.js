@@ -114,7 +114,9 @@ async function showAuth(message='') {
   const folder=supported?await readSyncFolder():null;
   if(generation!==sessionGeneration)return;
   setWriteMode(folder?'readOnly':'readWrite');
-  renderAuthView(appContainer,{folder,onAuthenticated:async(key,attempt)=>{
+  sessionController=new AbortController();
+  setSessionSignal(sessionController.signal);
+  renderAuthView(appContainer,{folder,signal:sessionController.signal,onExit:showAuth,onAuthenticated:async(key,attempt)=>{
     if(generation!==sessionGeneration)return;
     cryptoKey=key;storeSessionKey(key);
     if(attempt){
@@ -122,6 +124,12 @@ async function showAuth(message='') {
       setSessionSignal(sessionController.signal);
       const signal=sessionController.signal;
       startSessionTimer(expired=>showAuth(expired?t('toast.sessionExpired'):''));
+      if(attempt.readOnly){
+        folderGate=folderGateFor(attempt.handle,'otherSalt',key,signal);
+        setFolderStatus('readOnly');
+        await showApp();
+        return;
+      }
       const status=await checkFolder(attempt.handle,attempt.permissionFailure);
       if(signal.aborted)return;
       if(status!=='ok'){
@@ -135,6 +143,10 @@ async function showAuth(message='') {
       if(signal.aborted)return;
     }
     await showApp();
+    if(attempt?.changed){
+      showToast(t('folder.passwordLoaded',{rev:attempt.head.rev,time:folderTime(attempt.head.exportedAt)}),undefined,undefined,12000);
+      if(attempt.stats)showMergeNotice(attempt.stats);
+    }
   }});
   const error=document.getElementById('login-error');if(error)error.textContent=message;
 }
