@@ -2,7 +2,9 @@ import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {backupFixture} from './backup-fixture.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
-import {NEW_PASSWORD} from './folder-salt.mjs';
+import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
+import {withTwoProfiles,connectBoth,waitForRev,editNote,editFromOtherTab,focus,ready} from './folder-merge.mjs';
+import {signIn} from './folder-salt-login.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 
@@ -15,12 +17,92 @@ async function choose(page,assert) {
   assert.equal(await page.eval("!!document.querySelector('.app-dialog input[type=password]')"),true);
 }
 
-async function password(page) {
+async function password(page,value=NEW_PASSWORD) {
   await page.eval(`(async()=>{const input=document.querySelector('.app-dialog input[type=password]');
-    input.value=${JSON.stringify(NEW_PASSWORD)};input.dispatchEvent(new Event('input',{bubbles:true}));input.closest('form').requestSubmit();})()`);
+    input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.closest('form').requestSubmit();})()`);
+}
+
+async function chooseConnectedFolder(page,entry='banner') {
+  if(entry==='banner'){
+    await page.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+    await page.until("!!document.querySelector('.folder-banner [data-folder-action=chooseAnother]')");
+  }
+  if(entry==='settings'){
+    await page.until("!!document.querySelector('#folder-settings-btn')");
+    await page.eval("document.querySelector('#folder-settings-btn').click()");
+    await page.until("!!document.querySelector('.folder-settings [data-folder-action=change]')");
+    await page.eval("document.querySelector('.folder-settings [data-folder-action=change]').click()");
+  }else{
+    await page.eval("document.querySelector('[data-folder-action=chooseAnother]').click()");
+  }
+  await page.until("!!document.querySelector('.app-dialog input[type=password]')");
 }
 
 export async function run({check,assert}) {
+  for(const entry of ['banner','gate','settings'])await check(`H2b.8 M1 reselecting the connected folder from ${entry} keeps the receipt and loads without conflicts`,async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Fictional same-folder X'}),y=note({title:'Fictional same-folder Y'});
+      await connectBoth(a,b,[x,y]);
+      await rotate(a);
+      await editNote(a,x.id,{content:'Fictional newer text after the password change'});
+      await waitForRev(a,3);
+      const file=await readFolderFixture(a,'keeplocal-vault.keeplocal');
+      await writeFolderFixture(b,'keeplocal-vault.keeplocal',file);
+      const connection=await b.eval("(await import('./js/db.js')).getMeta('folderConnectionId')");
+      if(entry==='gate'){
+        await b.reload();
+        await b.eval(`folderTest.permission='denied';document.querySelector('#login-password').value=${JSON.stringify(PASSWORD)};document.querySelector('#login-form').requestSubmit()`);
+        await b.until("!!document.querySelector('[data-folder-status=denied]')");
+      }else if(entry==='banner'){
+        await signIn(b,PASSWORD);
+        await b.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      }
+      await chooseConnectedFolder(b,entry);
+      await password(b);
+      await b.until("!document.querySelector('.app-dialog')");
+      await b.until(`!!document.querySelector('.folder-review')||((await import('./js/db.js')).isReadOnly()===false&&
+        (await import('./js/app.js')).getNotes().some(n=>n.id===${JSON.stringify(x.id)}&&n.content==='Fictional newer text after the password change'))`);
+      assert.equal(await b.eval("!!document.querySelector('.folder-review')"),false,'the existing receipt must allow a direct load');
+      await ready(b);
+      assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderConnectionId')"),connection);
+      assert.ok(await b.eval("(await import('./js/db.js')).getMeta('folderSyncedHash')"));
+      assert.deepEqual(await b.eval("(await import('./js/app.js')).getNotes()"),await a.eval("(await import('./js/app.js')).getNotes()"));
+      assert.equal(await readFolderFixture(b,'keeplocal-vault.keeplocal'),file);
+    });
+  });
+
+  await check('H2b.8 M1 reselecting the connected folder keeps the newer passphrase during a delayed old-password write',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const x=note({title:'Fictional same-folder race X'}),y=note({title:'Fictional same-folder race Y'});
+      await connectBoth(a,b,[x,y]);
+      await editFromOtherTab(a,x.id,'Fictional edit included in the password change');
+      await rotate(a);
+      const before=await a.eval("(await import('./js/db.js')).readVault().then(({meta})=>({salt:meta.salt,clock:meta.folderSaltClock,connection:meta.folderConnectionId}))");
+      await editNote(b,y.id,{content:'Fictional delayed edit under the old passphrase'});
+      await waitForRev(b,2);
+      const delayed=await readFolderFixture(b,'keeplocal-vault.keeplocal');
+      await writeFolderFixture(a,'keeplocal-vault.keeplocal',delayed);
+      await focus(a);
+      await a.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await chooseConnectedFolder(a);
+      await password(a,PASSWORD);
+      await a.until("!document.querySelector('.app-dialog')");
+      await a.until(`!!document.querySelector('.folder-review')||((await import('./js/db.js')).isReadOnly()===false&&
+        (await import('./js/app.js')).getNotes().some(n=>n.id===${JSON.stringify(y.id)}&&n.content==='Fictional delayed edit under the old passphrase'))`);
+      assert.equal(await a.eval("!!document.querySelector('.folder-review')"),false);
+      await ready(a);
+      assert.equal(await a.eval("(await import('./js/db.js')).getMeta('salt')"),before.salt,'the lineage must keep the newer passphrase');
+      assert.equal(await a.eval("(await import('./js/db.js')).getMeta('folderConnectionId')"),before.connection);
+      assert.deepEqual(await a.eval("(await import('./js/db.js')).getMeta('folderSaltClock')"),before.clock);
+      const current=await a.eval("(await import('./js/app.js')).getNotes()");
+      assert.deepEqual(current.map(n=>n.content).sort(),['Fictional delayed edit under the old passphrase','Fictional edit included in the password change']);
+      const copy=await decodeV2(Buffer.from(await readFolderFixture(a,'keeplocal-vault.keeplocal'),'base64'),NEW_PASSWORD);
+      assert.deepEqual(await decryptRecords(copy.payload.notes,copy.key),current);
+      assert.ok(await a.eval(`(async()=>{const directory=await(await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+        for await(const handle of directory.values())if(new Uint8Array(await(await handle.getFile()).arrayBuffer()).toBase64()===${JSON.stringify(delayed)})return true;return false;})()`));
+    });
+  });
+
   await check('H2b.4 an empty new browser connects another-passphrase folder and adopts its passphrase',async()=>{
     const browser=await launchExtension();
     try{
