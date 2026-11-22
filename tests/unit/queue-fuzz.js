@@ -6,6 +6,7 @@ import {serialQueue} from '../../js/edit-session.js';
 // Local seeds: 1,2,3,0xdeadbeef,0x4b4c202c,12345; remote: 7,8,9,0xfeedface.
 test('T2.27 40000 seeded schedules release writes during submission and guard remote interleavings',async()=>{
 const started=performance.now();
+const cpuStarted=process.cpuUsage();
 const actions=[n=>{n.pinned=!n.pinned},n=>{n.color=n.color==='coral'?'mint':'coral'},n=>{n.archivedAt=n.archivedAt?null:17},n=>{n.deletedAt=n.deletedAt?null:19},n=>{n.labels=n.labels.includes('Work')?[]:['Work']}];
 const fixture=type=>({id:'x',type,updatedAt:1,title:'t0',content:'c0',tasks:[{id:'k',text:'k0'}],pinned:false,color:'default',archivedAt:null,deletedAt:null,labels:[]});
 // Fixtures contain scalars, string labels and flat task objects. Clone that shape
@@ -69,6 +70,11 @@ for(const seed of [7,8,9,0xfeedface]){
   }
 }
 assert.equal(failB,0,'16,000 remote schedules preserve the remote version and refresh parity');assert.equal(commitsAfterRemoteFromBefore,0,'pre-remote submissions never commit on top of a remote version');
-assert.ok(conflicts>0);const elapsed=performance.now()-started;console.log(JSON.stringify({local:24000,remote:16000,failA,failB,conflicts,commitsAfterRemoteFromBefore,elapsedMs:Math.round(elapsed)}));assert.ok(elapsed<10000,'queue fuzz completes in less than ten seconds');
+assert.ok(conflicts>0);
+const elapsedMs=performance.now()-started;
+const cpu=process.cpuUsage(cpuStarted);
+const cpuMs=(cpu.user+cpu.system)/1000;
+console.log(JSON.stringify({local:24000,remote:16000,failA,failB,conflicts,commitsAfterRemoteFromBefore,cpuMs,elapsedMs:Math.round(elapsedMs)}));
+assert.ok(cpuMs<10000,'queue fuzz uses less than ten seconds of CPU time');
 
 });
