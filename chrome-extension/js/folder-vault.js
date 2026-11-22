@@ -1,4 +1,4 @@
-import {base64ToArray,arrayToBase64} from './crypto.js';
+import {base64ToArray,arrayToBase64,bytesHash} from './crypto.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {BACKUP_PROFILES,decodePayloadV2,payloadHash} from './backup-v2.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
@@ -41,7 +41,9 @@ export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secon
   if(result.status)return result;
   const actualSalt=arrayToBase64(result.bytes.slice(0,16));
   const selected=secondary?.salt===actualSalt?secondary:{key,salt};
-  return {...await decodeV2WithKey(result.bytes,selected.key,selected.salt),salt:actualSalt};
+  const decoded=await decodeV2WithKey(result.bytes,selected.key,selected.salt);
+  if(decoded.status==='otherSalt')decoded.bytesHash=await bytesHash(result.bytes);
+  return {...decoded,salt:actualSalt};
 }
 
 export async function readFolderState(handle,key,salt,secondary) {

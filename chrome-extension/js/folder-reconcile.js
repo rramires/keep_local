@@ -79,7 +79,7 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
     folderSyncedHash:copy.hash,folderSyncedClock:copy.payload.clock??{},folderSyncedRevision:revision,
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
-  if(access)meta.folderSaltClock=copy.payload.clock??{};
+  if(access&&(previous.salt!==meta.salt||access.recordSaltClock))meta.folderSaltClock=copy.payload.clock??{};
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
   await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases});
   if(signal.aborted)throw folderFailure('session.ended');
@@ -136,7 +136,8 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   }
   await assertCurrent();
   if(equalsLocal){
-    await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads],saltChanged:!!access});
+    await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads],saltChanged:!!access?.recordSaltClock});
+    if(access)setWriteMode('readWrite');
   }else{
     await applyFolderCopy(target,snapshot,key,signal,{mergedHeads:[head,...otherHeads],access});
   }
@@ -180,6 +181,7 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   setWriteMode('readWrite');
   try {
     if(access){
+      access.recordSaltClock=true;
       const selected={...chosen,payload:{...chosen.payload,notes:snapshot.notes,tombstones:snapshot.meta.tombstones??[]}};
       const target=await writer.writeChosen(snapshot,state,selected,{resetBases:true});
       return {...await applyFolderCopy(target,snapshot,key,signal,{resetBases:true,access}),preserved};

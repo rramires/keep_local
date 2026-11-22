@@ -125,3 +125,13 @@ test('H2b.2 direct replacement requires every receipt, version and lineage proof
   assert.equal(canLoadChangedFolder(snapshot,{...state,head:{...state.head,parent:null,payload:{}}}),false);
   assert.equal(canLoadChangedFolder(snapshot,{...state,candidates:[...state.candidates,{name:'local-copy.keeplocal',status:'otherSalt',salt:'local'}]}),false);
 });
+
+test('H2b.3 foreign-envelope changes with the same salt change the folder stamp',async()=>{
+  const {folderStamp}=await import('../../js/folder-write.js');
+  const f=await fixture();
+  const one=await encodeV2(f.folderKey,f.folderSalt,makePayload([],{},3));
+  const two=await encodeV2(f.folderKey,f.folderSalt,makePayload([],{},4));
+  const first=await readFolderState(directory({[MAIN_FILE]:one}),f.localKey,arrayToBase64(f.localSalt));
+  const second=await readFolderState(directory({[MAIN_FILE]:two}),f.localKey,arrayToBase64(f.localSalt));
+  assert.notEqual(folderStamp(first),folderStamp(second));
+});

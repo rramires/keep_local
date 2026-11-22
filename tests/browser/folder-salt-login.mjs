@@ -8,7 +8,7 @@ import {decryptRecords} from '../../js/backup-format.js';
 export async function signIn(page,password) {
   await page.reload();
   await page.until("!!document.querySelector('#login-password')");
-  await page.eval(`folderTest.permission='prompt';folderTest.clear();
+  await page.eval(`(async()=>{folderTest.permission='prompt';folderTest.clear();
     window.loginGateTimers=new Set();
     const setTimer=window.setTimeout.bind(window),clearTimer=window.clearTimeout.bind(window);
     window.setTimeout=(callback,delay,...args)=>{const id=setTimer(callback,delay,...args);if(delay===300000)window.loginGateTimers.add(id);return id;};
@@ -21,8 +21,8 @@ export async function signIn(page,password) {
       return put.call(this,row);
     };
     document.querySelector('#login-password').value=${JSON.stringify(password)};
-    document.querySelector('#login-form').requestSubmit();`);
-  await page.until("!!document.querySelector('.app-view')||!!document.querySelector('[data-folder-changed]')||!!document.querySelector('#login-error')?.textContent");
+    document.querySelector('#login-form').requestSubmit();})()`);
+  await page.until("!!document.querySelector('.app-view')||!!document.querySelector('[data-folder-changed]')||!!document.querySelector('[data-folder-status]')||!!document.querySelector('#login-error')?.textContent");
 }
 
 export async function enterLocalPassword(page,password=PASSWORD) {

@@ -94,7 +94,7 @@ export function renderChangedPasswordGate(root,initial,{signal,onAuthenticated,o
     }finally{password='';}
     if(signal.aborted)return;
     await openSaltReconciliation({root,...attempt,key,signal,login:true,onApplied:outcome=>finish(outcome.access.key,{
-      handle:attempt.handle,changed:true,head:outcome.head,stats:outcome.stats,
+      handle:attempt.handle,changed:true,head:outcome.head,stats:outcome.stats,target:outcome.access.target,
     }),onExit,onOpenReadOnly:()=>finish(key,{handle:attempt.handle,readOnly:true})});
   });
   enter.className='btn-primary';

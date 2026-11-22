@@ -14,7 +14,7 @@ export function withVaultLineage(operation) {
 }
 
 export function folderStamp(state) {
-  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash,salt})=>[name,status,rev,hash,salt])
+  return JSON.stringify([state.limitExceeded,state.candidates.map(({name,status,rev,hash,salt,bytesHash})=>[name,status,rev,hash,salt,bytesHash])
     .sort(([left],[right])=>left.localeCompare(right))]);
 }
 
@@ -39,7 +39,9 @@ export function createFolderWriter(handle,key,signal,access) {
       if(signal?.aborted)throw folderFailure('session.ended');
     };
     assertCurrent();
-    if(unsafeFolder(state)||(!replace&&state.divergent))throw folderFailure('folder.changed');
+    const main=state.candidates.find(copy=>copy.name===MAIN_FILE);
+    const replacingUnknown=access?.replaceUnknown&&replace&&selected&&!state.limitExceeded&&main?.status==='otherSalt';
+    if((unsafeFolder(state)&&!replacingUnknown)||(!replace&&state.divergent))throw folderFailure('folder.changed');
     try {validateRecords(notes);await decryptRecords(notes,key);}
     catch {throw folderFailure('folder.unreadable');}
     const rev=Math.max(meta.exportRev||0,meta.folderSeenRev||0,state.head?.rev||0)+1;

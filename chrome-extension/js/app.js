@@ -12,6 +12,8 @@ import { purgeTrash } from './trash.js';
 import { folderMergeMessages } from './folder-merge.js';
 import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
+import {askFolderPassword,useBrowserFolder} from './folder-other-salt.js';
+import {openSaltReconciliation} from './folder-salt-ui.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
@@ -144,7 +146,7 @@ async function showAuth(message='') {
     }
     await showApp();
     if(attempt?.changed){
-      showToast(t('folder.passwordLoaded',{rev:attempt.head.rev,time:folderTime(attempt.head.exportedAt)}),undefined,undefined,12000);
+      showToast(t(attempt.target==='local'?'folder.saltUseLocal':'folder.passwordLoaded',{rev:attempt.head.rev,time:folderTime(attempt.head.exportedAt)}),undefined,undefined,12000);
       if(attempt.stats)showMergeNotice(attempt.stats);
     }
   }});
@@ -243,6 +245,13 @@ async function configureFolderSync({admit=false,selected}={}) {
       folderGate=folderGateFor(handle,review.status,key,signal);
       renderFolderReview(appContainer,review,{
         handle,signal,onExit:logout,onOpenReadOnly:showApp,
+        onEnterPassword:async()=>{
+          const foreign=await askFolderPassword(handle,signal);
+          if(!foreign||signal.aborted)return;
+          await openSaltReconciliation({root:appContainer,handle,snapshot:review.snapshot,key,foreign,signal,
+            onExit:logout,onOpenReadOnly:showApp,onApplied:outcome=>finishSaltReview(outcome,handle,signal)});
+        },
+        onUseLocal:async()=>finishSaltReview(await useBrowserFolder({handle,review,key,signal}),handle,signal),
         onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
         onRefresh:async()=>{if(await configureFolderSync({admit:true,selected:handle}))await showApp();},
         resolve:async(choice,name)=>{
@@ -264,6 +273,17 @@ async function configureFolderSync({admit=false,selected}={}) {
   if(admit)return sync.admit();
   sync.schedule();
   return true;
+}
+
+async function finishSaltReview(outcome,handle,signal) {
+  if(signal.aborted)return;
+  cryptoKey=outcome.access.key;
+  folderKey=null;
+  if(!await configureFolderSync({admit:true,selected:handle}))return;
+  await showApp();
+  const message=outcome.usedBrowser?'folder.useBrowserConfirmed':outcome.access.target==='folder'?'folder.saltUseFolder':'folder.saltUseLocal';
+  showToast(t(message),undefined,undefined,12000);
+  if(outcome.stats)showMergeNotice(outcome.stats);
 }
 
 function renderAppShell() {

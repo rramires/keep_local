@@ -1,5 +1,6 @@
 import {makePayload,encodeV2} from './backup-v2.js';
-import {base64ToArray} from './crypto.js';
+import {base64ToArray,bytesHash} from './crypto.js';
+export {bytesHash} from './crypto.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
 import {decodeV2WithKey} from './folder-vault.js';
 import {pruneTombstones} from './folder-merge.js';
@@ -7,11 +8,6 @@ import {folderFailure} from './folder-write.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 
 const PRESERVED='keeplocal-preserved';
-
-export async function bytesHash(bytes) {
-  const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
-  return Array.from(digest,byte=>byte.toString(16).padStart(2,'0')).join('');
-}
 
 async function allocateFile(directory,stem) {
   for(let suffix=1;;suffix++){
@@ -44,7 +40,7 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal) {
       return new Uint8Array(await stored.arrayBuffer());
     },'file');
     if(await bytesHash(reread)!==hash||
-       (await decodeV2WithKey(reread,key,salt)).status!=='valid')
+       (key&&(await decodeV2WithKey(reread,key,salt)).status!=='valid'))
       throw folderFailure('folder.preserveFailed');
     return file.name;
   } catch(error) {
@@ -58,6 +54,22 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal) {
       // Keep the original failure if the directory cannot undo this attempt.
     }
     throw error;
+  }
+}
+
+export async function preserveOtherSaltChoice(handle,copy,signal) {
+  try{
+    const entry=await withFolderReadTimeout(()=>handle.getFileHandle(copy.name));
+    const bytes=await withFolderReadTimeout(async()=>{
+      const file=await entry.getFile();
+      if(file.size>MAX_BACKUP_BYTES)throw folderFailure('folder.changed');
+      return new Uint8Array(await file.arrayBuffer());
+    },'file');
+    if(await bytesHash(bytes)!==copy.bytesHash)throw folderFailure('folder.changed');
+    return await preserve(handle,{bytes,side:'folder',rev:'unknown'},null,null,signal);
+  }catch(error){
+    if(error.code==='folder.changed'||error.name==='TimeoutError'||signal.aborted)throw error;
+    throw folderFailure('folder.preserveFailed');
   }
 }
 
