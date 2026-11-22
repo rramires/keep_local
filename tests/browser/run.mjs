@@ -18,3 +18,5 @@ const folderSaltLogin=await import('./folder-salt-login.mjs');
 await folderSaltLogin.run({check,assert});
 const folderSaltReview=await import('./folder-salt-review.mjs');
 await folderSaltReview.run({check,assert});
+const folderSaltConnect=await import('./folder-salt-connect.mjs');
+await folderSaltConnect.run({check,assert});

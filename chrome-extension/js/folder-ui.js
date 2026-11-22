@@ -24,7 +24,7 @@ function folderReason(status) {
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
-export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset}) {
+export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset,onOtherSalt}) {
   let busy=false, reading=false, issue=status;
 
   async function run(event,work) {
@@ -61,6 +61,10 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
   async function choose() {
     const result=await chooseSyncFolder({key,signal,hold:!!onResume});
     if(signal.aborted) return;
+    if(result.status==='otherSalt'&&onOtherSalt){
+      if(await onOtherSalt(result))return;
+      if(signal.aborted)return;
+    }
     if(result.status!=='ok'){
       if(reading)notify(folderReason(result.status));
       else root.querySelector('[data-folder-message]').textContent=folderReason(result.status);
@@ -178,7 +182,7 @@ export function addFolderSettingsTrigger(anchor,onOpen) {
   anchor.before(trigger);
 }
 
-export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder}) {
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder,onOtherSalt}) {
   const panel=element('section','panel-form folder-settings');
   const header=element('header','panel-header');
   const title=element('h2','',t('folder.settings'));
@@ -210,10 +214,15 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     const choose=action(handle?'change':'choose',()=>void run(async()=>{
       pauseFolder();
       let chosen;
-      try {chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});}
-      finally{
-        await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+      let handled=false;
+      try {
+        chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});
+        if(chosen.status==='otherSalt'&&onOtherSalt)handled=await onOtherSalt(chosen);
       }
+      finally{
+        if(!handled)await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+      }
+      if(handled)return;
       if(signal.aborted)return;
       if(chosen.status!=='ok'){notify(folderReason(chosen.status));return;}
       await refresh(true);

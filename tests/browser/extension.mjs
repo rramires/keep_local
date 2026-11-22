@@ -1500,7 +1500,16 @@ export async function run({check,assert}) {
       await p.eval("folderTest.name='KL-TEST-FOREIGN'");
       await writeFolderFixture(p,file,foreign);
       await choose('KL-TEST-FOREIGN');
+      await p.until("!!document.querySelector('.app-dialog input[type=password]')");
+      await p.eval(`(()=>{
+        window.cancelledFolderPasswordInput=document.querySelector('.app-dialog input[type=password]');
+        cancelledFolderPasswordInput.value='Fictitious cancelled passphrase';
+        cancelledFolderPasswordInput.dispatchEvent(new Event('input'));
+        document.querySelector('[data-dialog-action=cancel]').click();
+      })()`);
       await p.until("document.querySelector('.folder-block')?.innerText.includes('Copy from another passphrase or vault')");
+      assert.equal(await p.eval("!cancelledFolderPasswordInput.isConnected||cancelledFolderPasswordInput.value===''"),true);
+      assert.equal(await p.eval("[...document.querySelectorAll('.app-dialog input[type=password]')].every(input=>input.value==='')"),true);
       assert.equal(await currentFolder(),'KL-TEST-OLD');
       assert.equal(await readFolderFixture(p,file),foreign);
       assert.deepEqual(await p.eval('folderTest.writes'),{});

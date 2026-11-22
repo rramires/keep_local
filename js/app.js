@@ -14,6 +14,7 @@ import {checkFolder,folderSupported,readSyncFolder} from './folder-store.js';
 import {createFolderSync} from './folder-sync.js';
 import {askFolderPassword,useBrowserFolder} from './folder-other-salt.js';
 import {openSaltReconciliation} from './folder-salt-ui.js';
+import {connectSaltFolder} from './folder-salt-connect.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
@@ -207,6 +208,7 @@ function folderGateFor(handle,status,key,signal) {
     handle,status,key,signal,onOpen:showApp,onExit:logout,notify:showToast,
     onResume:selected=>configureFolderSync({admit:true,selected}),
     onReset:()=>confirmFolderReset({key,signal,onReset:showAuth}),
+    onOtherSalt:connectOtherSaltSelection,
   });
 }
 
@@ -278,12 +280,24 @@ async function configureFolderSync({admit=false,selected}={}) {
 async function finishSaltReview(outcome,handle,signal) {
   if(signal.aborted)return;
   cryptoKey=outcome.access.key;
+  await closeModal();
   folderKey=null;
   if(!await configureFolderSync({admit:true,selected:handle}))return;
   await showApp();
   const message=outcome.usedBrowser?'folder.useBrowserConfirmed':outcome.access.target==='folder'?'folder.saltUseFolder':'folder.saltUseLocal';
   showToast(t(message),undefined,undefined,12000);
   if(outcome.stats)showMergeNotice(outcome.stats);
+}
+
+function connectOtherSaltSelection(selection) {
+  const signal=sessionController.signal;
+  return connectSaltFolder({root:appContainer,selection,key:cryptoKey,signal,
+    onExit:logout,onOpenReadOnly:async()=>{
+      folderGate=folderGateFor(selection.handle,'otherSalt',cryptoKey,signal);
+      await closeModal();
+      await showApp();
+    },
+    onApplied:outcome=>finishSaltReview(outcome,selection.handle,signal)});
 }
 
 function renderAppShell() {
@@ -394,6 +408,7 @@ async function openFolderSettings(trigger) {
     key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
     trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
     hasUnreadable:()=>unreadableCount>0,pauseFolder:()=>folderSync?.dispose(),
+    onOtherSalt:connectOtherSaltSelection,
     onFolderChange:selected=>key===cryptoKey?configureFolderSync({admit:!!selected,selected}):undefined,
   });
   document.getElementById('modal-overlay').classList.add('open');
