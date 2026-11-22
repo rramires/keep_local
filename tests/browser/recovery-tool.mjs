@@ -152,12 +152,12 @@ async function assertReadsCopy({ browser, assert, name, base64, title, content }
   });
 }
 
-export async function assertReadsMergedCopy({browser,assert,base64,titles,secrets}) {
+export async function assertReadsMergedCopy({browser,assert,base64,titles,secrets,password=PASSWORD}) {
   await withRecovery(browser,async({page,directory,url})=>{
     const path=join(directory,'merged-vault.keeplocal');
     await writeFile(path,Buffer.from(base64,'base64'));
     await selectFile(page,path);
-    await submit(page,PASSWORD);
+    await submit(page,password);
     await page.until("!document.querySelector('#results').hidden");
     const shown=await page.eval("[...document.querySelectorAll('#notes .note-title')].map(title=>title.textContent)");
     assert.deepEqual(shown.sort(),titles.toSorted());

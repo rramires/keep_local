@@ -22,3 +22,5 @@ const folderSaltConnect=await import('./folder-salt-connect.mjs');
 await folderSaltConnect.run({check,assert});
 const folderCopyView=await import('./folder-copy-view.mjs');
 await folderCopyView.run({check,assert});
+const folderSaltE2e=await import('./folder-salt-e2e.mjs');
+await folderSaltE2e.run({check,assert});
