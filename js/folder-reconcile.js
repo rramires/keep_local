@@ -49,30 +49,32 @@ export async function requireFolderSession(snapshot,key,signal) {
      vaultIdentity(snapshot.meta)!==getSessionVaultId())throw folderFailure('session.ended');
 }
 
-async function readReviewedCopy(handle,head,key,salt) {
+async function readReviewedCopy(handle,head,key,salt,access) {
+  if(access)return access.readCopy(head);
   const file=await withFolderReadTimeout(()=>handle.getFileHandle(head.name));
   const copy=await readFolderCandidate(file,key,salt);
   if(copy.status!=='valid'||copy.hash!==head.hash)throw folderFailure('folder.changed');
   return {name:head.name,...copy};
 }
 
-export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false}={}) {
-  const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
+export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false,access}={}) {
+  const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
   const stats=notifyDeletions?folderPullNotices(snapshot,copy.payload):undefined;
-  return {...await applyFolderCopy(copy,snapshot,key,signal,{resetBases}),stats};
+  return {...await applyFolderCopy(copy,snapshot,key,signal,{resetBases,access}),stats};
 }
 
-async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases}={}) {
-  await requireFolderSession(snapshot,key,signal);
+export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases,access}={}) {
+  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
   const meta={
-    ...previous,...prefs,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
+    ...previous,...prefs,...access?.meta,vaultId,revision,dirtySinceBackup:true,tombstones:copy.payload.tombstones,
     exportRev:Math.max(previous.exportRev||0,copy.rev),exportParent:copy.hash,exportAncestors:copy.payload.ancestors,
     exportClock:copy.payload.clock??{},
     folderSyncedHash:copy.hash,folderSyncedClock:copy.payload.clock??{},folderSyncedRevision:revision,
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
   };
+  if(access)meta.folderSaltClock=copy.payload.clock??{};
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
   await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases});
   if(signal.aborted)throw folderFailure('session.ended');
@@ -82,7 +84,7 @@ async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases}
   return {status:'pulled',head:copy};
 }
 
-export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false}) {
+export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false,access}) {
   const {meta}=snapshot;
   const head=state.head;
   const candidates=state.candidates.filter(copy=>copy.status==='valid'&&copy.rev===head.rev);
@@ -93,30 +95,30 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   for(const copy of copies){
     if(seen.has(copy.hash))continue;
     seen.add(copy.hash);
-    otherHeads.push(await readReviewedCopy(handle,copy,key,meta.salt));
+    otherHeads.push(await readReviewedCopy(handle,copy,key,meta.salt,access));
   }
   const {records,tombstones,stats,now,sameLocalNotes,sameHeadNotes}=await reconcileFolderNotes(snapshot,head,otherHeads,key);
   const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
   const samePreferences=['theme','lang'].every(name=>preferences[name]===head.payload.preferences[name]);
-  const equalsLocal=sameLocalNotes&&sameTombstones(tombstones,meta.tombstones,now);
-  const equalsHead=samePreferences&&sameHeadNotes&&
+  const equalsLocal=(!access||access.salt===meta.salt)&&sameLocalNotes&&sameTombstones(tombstones,meta.tombstones,now);
+  const equalsHead=(!access||access.salt===head.salt)&&samePreferences&&sameHeadNotes&&
     sameTombstones(tombstones,head.payload.tombstones,now);
   const assertCurrent=async()=>{
     if(!allowReadOnly)assertWritable();
-    await requireFolderSession(snapshot,key,signal);
+    await requireFolderSession(snapshot,access?.sessionKey??key,signal);
     if(hasPendingDrafts())throw folderFailure('folder.changed');
     await verifyFolderWrite(meta,{signal,replaceLocal:true});
   };
   await assertCurrent();
   if(folderStamp(await writer.scan(meta.salt))!==folderStamp(state))throw folderFailure('folder.changed');
-  if(!manual&&equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
+  if(!access&&!manual&&equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
     return {status:'saved',writtenAt:meta.folderWrittenAt};
 
   const preserved=[];
   if(manual||stats.conflicts){
     const toPreserve=state.candidates.filter(copy=>copy.status==='valid'&&(copy.rev===head.rev||copy.name===MAIN_FILE));
-    preserved.push(await preserveLocalChoice(handle,snapshot,key,signal));
-    preserved.push(...await preserveFolderChoice(handle,toPreserve,key,meta.salt,signal));
+    preserved.push(await (access?access.preserveLocal():preserveLocalChoice(handle,snapshot,key,signal)));
+    preserved.push(...await (access?access.preserve({...state,candidates:toPreserve}):preserveFolderChoice(handle,toPreserve,key,meta.salt,signal)));
   }
   let target=head;
   if(!equalsHead){
@@ -125,20 +127,21 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
       ancestors:head.payload.ancestors,clock:head.payload.clock}};
     target=await writer.writeChosen(snapshot,state,selected,{allowReadOnly,sourceHeads:otherHeads});
   }else{
-    target=await readReviewedCopy(handle,head,key,meta.salt);
+    target=await readReviewedCopy(handle,head,key,meta.salt,access);
   }
   await assertCurrent();
   if(equalsLocal){
-    await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads]});
+    await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads],saltChanged:!!access});
   }else{
-    await applyFolderCopy(target,snapshot,key,signal,{mergedHeads:[head,...otherHeads]});
+    await applyFolderCopy(target,snapshot,key,signal,{mergedHeads:[head,...otherHeads],access});
   }
   return {status:'merged',head:target,applied:!equalsLocal,stats,preserved,replacedEmptyMain:target.replacedEmptyMain};
 }
 
-export async function resolveFolderReview({handle,writer,review,choice,name,key,signal}) {
-  const snapshot=await readVault();
-  await requireFolderSession(snapshot,key,signal);
+export async function resolveFolderReview({handle,writer,review,choice,name,key,signal,access}) {
+  const original=await readVault();
+  const snapshot=access?await access.convertSnapshot(original):original;
+  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
   if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))throw folderFailure('folder.changed');
   const state=await writer.scan(snapshot.meta.salt);
   if(folderLocalStamp(snapshot)!==folderLocalStamp(review.snapshot)||folderStamp(state)!==folderStamp(review.state))
@@ -146,31 +149,36 @@ export async function resolveFolderReview({handle,writer,review,choice,name,key,
   const head=state.candidates.find(row=>row.name===name&&row.status==='valid'&&row.rev===state.head?.rev);
   if(!head||unsafeFolder(state))throw folderFailure('folder.changed');
   if(choice==='merge'){
-    const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
-    return executeFolderMerge({handle,writer,snapshot,state:{...state,head:chosen},key,signal,allowReadOnly:true,manual:true});
+    const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
+    return executeFolderMerge({handle,writer,snapshot,state:{...state,head:chosen},key,signal,allowReadOnly:true,manual:true,access});
   }
   const main=state.candidates.find(row=>row.name===MAIN_FILE);
   if(choice==='remote'){
-    const preserved=[await preserveLocalChoice(handle,snapshot,key,signal)];
+    const preserved=[await (access?access.preserveLocal():preserveLocalChoice(handle,snapshot,key,signal))];
     let target=head;
-    if(state.divergent){
-      if(main?.status==='valid')preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
-      const selected=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
-      await requireFolderSession(snapshot,key,signal);
+    if(state.divergent||(access&&head.salt!==access.salt)){
+      if(main?.status==='valid'&&!access)preserved.push(...await preserveFolderChoice(handle,[main],key,snapshot.meta.salt,signal));
+      const selected=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
+      await requireFolderSession(snapshot,access?.sessionKey??key,signal);
       target=await writer.writeChosen(snapshot,state,selected);
     }else if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state)){
       throw folderFailure('folder.changed');
     }
-    return {...await pullFolderHead(handle,target,snapshot,key,signal,{resetBases:true}),preserved,replacedEmptyMain:target.replacedEmptyMain};
+    return {...await pullFolderHead(handle,target,snapshot,key,signal,{resetBases:true,access}),preserved,replacedEmptyMain:target.replacedEmptyMain};
   }
   if(!['valid','emptyMain'].includes(main?.status))throw folderFailure('folder.changed');
   const copies=main.status==='valid'?(main.name===head.name?[main]:[main,head]):[];
-  const preserved=await preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal);
-  const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt);
-  await requireFolderSession(snapshot,key,signal);
+  const preserved=await (access?access.preserve(state):preserveFolderChoice(handle,copies,key,snapshot.meta.salt,signal));
+  const chosen=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
+  await requireFolderSession(snapshot,access?.sessionKey??key,signal);
   const reading=isReadOnly();
   setWriteMode('readWrite');
   try {
+    if(access){
+      const selected={...chosen,payload:{...chosen.payload,notes:snapshot.notes,tombstones:snapshot.meta.tombstones??[]}};
+      const target=await writer.writeChosen(snapshot,state,selected,{resetBases:true});
+      return {...await applyFolderCopy(target,snapshot,key,signal,{resetBases:true,access}),preserved};
+    }
     const result=await writer.write(snapshot,{...state,head:chosen},{replace:true,resetBases:true});
     return {status:'saved',result,preserved,replacedEmptyMain:result.replacedEmptyMain};
   }catch(error){

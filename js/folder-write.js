@@ -28,8 +28,8 @@ export function unsafeFolder(state) {
     (!state.head&&(state.otherSalt.length||state.unreadable.length||state.tooLarge.length)));
 }
 
-export function createFolderWriter(handle,key,signal) {
-  const scan=salt=>readFolderState(handle,key,salt);
+export function createFolderWriter(handle,key,signal,access) {
+  const scan=access?.scan??(salt=>readFolderState(handle,key,salt));
 
   async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected}={}) {
     const {meta}=snapshot;
@@ -62,12 +62,14 @@ export function createFolderWriter(handle,key,signal) {
       await verifyFolderWrite(meta,{signal,replaceLocal:!!selected});
     };
     await verify();
+    if(access)await access.preserve(state);
     const heads=[state.head,selected,...sourceHeads].filter(Boolean);
     const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
       replaceLocal:!!selected,allowReadOnly});
     const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
     const hash=await payloadHash(JSON.stringify(payload));
-    const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
+    const salt=access?.salt??meta.salt;
+    const bytes=await encodeV2(key,base64ToArray(salt),payload);
     let file,created;
     try {file=await handle.getFileHandle(MAIN_FILE);}
     catch(error){
@@ -88,7 +90,7 @@ export function createFolderWriter(handle,key,signal) {
       await writable.abort().catch(()=>{});
       throw error;
     }
-    const checked=await readFolderCandidate(file,key,meta.salt);
+    const checked=await readFolderCandidate(file,key,salt);
     if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
     return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
   }
