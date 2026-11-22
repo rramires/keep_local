@@ -20,6 +20,17 @@ async function allocateFile(directory,stem) {
   }
 }
 
+async function verifyPreserved(file,size,hash,key,salt) {
+  const reread=await withFolderReadTimeout(async()=>{
+    const stored=await file.getFile();
+    if(stored.size!==size)throw folderFailure('folder.preserveFailed');
+    return new Uint8Array(await stored.arrayBuffer());
+  },'file');
+  if(await bytesHash(reread)!==hash||
+     (key&&(await decodeV2WithKey(reread,key,salt)).status!=='valid'))
+    throw folderFailure('folder.preserveFailed');
+}
+
 async function preserve(handle,{bytes,side,rev},key,salt,signal) {
   const hash=await bytesHash(bytes);
   const time=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
@@ -34,14 +45,7 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal) {
     await stream.write(bytes);
     signal.throwIfAborted();
     await stream.close();
-    const reread=await withFolderReadTimeout(async()=>{
-      const stored=await file.getFile();
-      if(stored.size!==bytes.length)throw folderFailure('folder.preserveFailed');
-      return new Uint8Array(await stored.arrayBuffer());
-    },'file');
-    if(await bytesHash(reread)!==hash||
-       (key&&(await decodeV2WithKey(reread,key,salt)).status!=='valid'))
-      throw folderFailure('folder.preserveFailed');
+    await verifyPreserved(file,bytes.length,hash,key,salt);
     return file.name;
   } catch(error) {
     if(stream)await stream.abort().catch(()=>{});
@@ -73,10 +77,11 @@ export async function preserveOtherSaltChoice(handle,copy,signal) {
   }
 }
 
-export async function preserveFolderChoice(handle,copies,key,salt,signal) {
+export async function preserveFolderChoice(handle,copies,key,salt,signal,preservedBytes=new Map()) {
   try {
     const preserved=[];
     for(const copy of copies){
+      signal.throwIfAborted();
       const entry=await withFolderReadTimeout(()=>handle.getFileHandle(copy.name));
       const bytes=await withFolderReadTimeout(async()=>{
         const file=await entry.getFile();
@@ -84,9 +89,20 @@ export async function preserveFolderChoice(handle,copies,key,salt,signal) {
         return new Uint8Array(await file.arrayBuffer());
       },'file');
       if((await decodeV2WithKey(bytes,key,salt)).hash!==copy.hash)throw folderFailure('folder.changed');
-      preserved.push(await preserve(handle,{bytes,side:'folder',rev:copy.rev},key,salt,signal));
+      const hash=await bytesHash(bytes);
+      let name=preservedBytes.get(hash);
+      // Reuse only files whose exact bytes still pass verified readback.
+      preservedBytes.delete(hash);
+      if(name){
+        const directory=await withFolderReadTimeout(()=>handle.getDirectoryHandle(PRESERVED));
+        const file=await withFolderReadTimeout(()=>directory.getFileHandle(name));
+        await verifyPreserved(file,bytes.length,hash,key,salt);
+      }else name=await preserve(handle,{bytes,side:'folder',rev:copy.rev},key,salt,signal);
+      signal.throwIfAborted();
+      preservedBytes.set(hash,name);
+      preserved.push(name);
     }
-    return preserved;
+    return [...new Set(preserved)];
   } catch(error) {
     if(error.code==='folder.changed'||error.name==='TimeoutError'||signal.aborted)throw error;
     throw folderFailure('folder.preserveFailed');

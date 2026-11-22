@@ -11,6 +11,7 @@ export async function createSaltAccess({handle,snapshot,key,foreign,target,signa
   target??=folderSaltTarget(snapshot.meta,await readForeignHead());
   const destination=target==='folder'?foreign:{salt:snapshot.meta.salt,key};
   const convertSnapshot=value=>convertFolderSnapshot(value,key,destination.key);
+  const preservedBytes=new Map();
 
   async function readForeignHead() {
     const state=await readFolderState(handle,key,snapshot.meta.salt,foreign);
@@ -43,9 +44,9 @@ export async function createSaltAccess({handle,snapshot,key,foreign,target,signa
     const names=[];
     for(const copy of copies){
       const source=sourceFor(copy.salt);
-      names.push(...await preserveFolderChoice(handle,[copy],source.key,source.salt,signal));
+      names.push(...await preserveFolderChoice(handle,[copy],source.key,source.salt,signal,preservedBytes));
     }
-    return names;
+    return [...new Set(names)];
   }
 
   return {

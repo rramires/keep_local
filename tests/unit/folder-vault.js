@@ -120,6 +120,65 @@ test('G1.5 an unreadable local snapshot stops before creating a preservation fil
   assert.equal(creates,0);
 });
 
+test('H2b.8 O1 preservation reuses verified bytes and retains distinct encrypted versions',async()=>{
+  const {preserveFolderChoice}=await import('../../js/folder-preserve.js');
+  const salt=generateSalt(),encodedSalt=arrayToBase64(salt);
+  const key=await deriveKey('fictional preservation phrase',salt);
+  const payload=makePayload([],{},5);
+  const first=await encodeV2(key,salt,payload),second=await encodeV2(key,salt,payload);
+  const sources=new Map([['first.keeplocal',new Blob([first])],['alias.keeplocal',new Blob([first])],['second.keeplocal',new Blob([second])]]);
+  const files=new Map();
+  let writes=0,corrupt=false;
+  const directory={
+    async getFileHandle(name,{create=false}={}){
+      if(!files.has(name)&&!create)throw new DOMException('Missing','NotFoundError');
+      if(!files.has(name))files.set(name,new Blob());
+      return {
+        name,getFile:async()=>files.get(name),isSameEntry:async other=>other.name===name,
+        async createWritable(){
+          writes++;
+          let pending;
+          return {
+            async write(bytes){pending=new Blob([bytes]);},
+            async close(){files.set(name,corrupt?new Blob(['fictional readback failure']):pending);},
+            async abort(){},
+          };
+        },
+      };
+    },
+    async removeEntry(name){files.delete(name);},
+  };
+  const handle={
+    getFileHandle:async name=>({getFile:async()=>sources.get(name)}),
+    async getDirectoryHandle(name){assert.equal(name,'keeplocal-preserved');return directory;},
+  };
+  const candidate=await vault.decodeV2WithKey(first,key,encodedSalt);
+  assert.equal((await vault.decodeV2WithKey(second,key,encodedSalt)).hash,candidate.hash);
+  const copies=[...sources.keys()].map(name=>({name,...candidate}));
+  const operation=new Map(),signal=new AbortController().signal;
+  const names=await preserveFolderChoice(handle,copies,key,encodedSalt,signal,operation);
+  assert.equal(files.size,2,'identical bytes share a copy while distinct IVs keep separate copies');
+  assert.equal(names.length,2);
+  assert.deepEqual(await preserveFolderChoice(handle,copies,key,encodedSalt,signal,operation),names);
+  assert.equal(writes,2,'the same operation must not write the same bytes again');
+
+  files.set(names[0],new Blob(['fictional changed preservation']));
+  await assert.rejects(preserveFolderChoice(handle,[copies[0]],key,encodedSalt,signal,operation),{code:'folder.preserveFailed'});
+  assert.equal(writes,2);
+  const ended=new AbortController();ended.abort();
+  await assert.rejects(preserveFolderChoice(handle,copies,key,encodedSalt,ended.signal,operation),{name:'AbortError'});
+
+  files.clear();
+  const retry=new Map();
+  corrupt=true;
+  await assert.rejects(preserveFolderChoice(handle,[copies[0]],key,encodedSalt,signal,retry),{code:'folder.preserveFailed'});
+  assert.equal(retry.size,0,'failed readback must not register a preserved copy');
+  assert.equal(files.size,0);
+  corrupt=false;
+  assert.equal((await preserveFolderChoice(handle,[copies[0]],key,encodedSalt,signal,retry)).length,1);
+  assert.deepEqual(new Uint8Array(await [...files.values()][0].arrayBuffer()),first);
+});
+
 
 test('H2a.8b a vector proves a common base after its hash leaves the ancestry list',async()=>{
   const {decideFolderAction}=await import('../../js/folder-reconcile.js');

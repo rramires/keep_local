@@ -3,7 +3,7 @@ import {withTwoProfiles,connectBoth,waitForRev,editNote,editFromOtherTab,focus} 
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {signIn} from './folder-salt-login.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
-import {decodeV2} from '../../js/backup-v2.js';
+import {decodeV2,encodeV2} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 
 export async function enterFolderPassword(page,password) {
@@ -23,7 +23,60 @@ async function preserved(page) {
   })()`);
 }
 
+async function confirmChoice(page,action) {
+  await page.eval(`document.querySelector('[data-folder-action=${action}]').click()`);
+  await page.until("!!document.querySelector('.app-dialog input')");
+  await page.eval(`(async()=>{const input=document.querySelector('.app-dialog input');
+    input.value=(await import('./js/i18n.js')).t('folder.replaceWord');
+    input.dispatchEvent(new Event('input',{bubbles:true}));input.closest('form').requestSubmit();})()`);
+}
+
 export async function run({check,assert}) {
+  await check('H2b.8 O1 a manual cross-salt join preserves each byte version once',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const main='keeplocal-vault.keeplocal';
+      const x=note({title:'Fictional preserved X'}),y=note({title:'Fictional preserved Y'});
+      await connectBoth(a,b,[x,y]);
+      await rotate(a);
+      await editNote(a,x.id,{content:'Fictional edit after the password change'});
+      await waitForRev(a,3);
+      await editFromOtherTab(b,y.id,'Fictional unsent edit under the old passphrase');
+      await writeFolderFixture(b,main,await readFolderFixture(a,main));
+      await signIn(b,PASSWORD);
+      await b.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await confirmChoice(b,'useLocal');
+      await b.until("!!document.querySelector('.app-view')");
+      const incoming=await readFolderFixture(b,main);
+      const bytes=Buffer.from(incoming,'base64');
+      const decoded=await decodeV2(bytes,PASSWORD);
+      const otherEnvelope=Buffer.from(await encodeV2(decoded.key,bytes.subarray(0,16),decoded.payload)).toString('base64');
+      assert.notEqual(otherEnvelope,incoming);
+      const before=await preserved(a);
+      await writeFolderFixture(a,main,incoming);
+      await writeFolderFixture(a,'fictional-identical-copy.keeplocal',incoming);
+      await writeFolderFixture(a,'fictional-other-envelope.keeplocal',otherEnvelope);
+      await focus(a);
+      await a.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await enterFolderPassword(a,PASSWORD);
+      await a.until("!!document.querySelector('[data-folder-status=rollback]')");
+      await confirmChoice(a,'joinBoth');
+      await a.until("!!document.querySelector('.app-view')");
+      await a.until(`(await import('./js/app.js')).getNotes().some(n=>n.id===${JSON.stringify(y.id)}&&n.content==='Fictional unsent edit under the old passphrase')`);
+      const current=await a.eval("(await import('./js/app.js')).getNotes()");
+      assert.equal(current.find(n=>n.id===x.id).content,'Fictional edit after the password change');
+      const copies=await preserved(a);
+      for(const old of before){const index=copies.indexOf(old);assert.ok(index>=0);copies.splice(index,1);}
+      assert.equal(copies.filter(copy=>copy===incoming).length,1,'the exact incoming bytes must be preserved once');
+      assert.equal(copies.filter(copy=>copy===otherEnvelope).length,1,'a distinct IV must keep its own preserved bytes');
+      assert.equal(copies.length,3,'one local copy and two distinct folder byte versions');
+      const local=copies.find(copy=>copy!==incoming&&copy!==otherEnvelope);
+      const savedLocal=await decodeV2(Buffer.from(local,'base64'),NEW_PASSWORD);
+      assert.equal((await decryptRecords(savedLocal.payload.notes,savedLocal.key)).find(n=>n.id===x.id).content,'Fictional edit after the password change');
+      const joined=await decodeV2(Buffer.from(await readFolderFixture(a,main),'base64'),NEW_PASSWORD);
+      assert.deepEqual(await decryptRecords(joined.payload.notes,joined.key),current);
+    });
+  });
+
   for(const dirty of [false,true])await check(`H2b.3 signing in with the old passphrase ${dirty?'joins an unsent local edit':'loads the folder after entering its passphrase'}`,async()=>{
     await withTwoProfiles(async(a,b)=>{
       const x=note({title:'Fictional password review X'}),y=note({title:'Fictional password review Y'});
