@@ -1,5 +1,5 @@
 import {launch,launchExtension,note,PASSWORD} from './harness.mjs';
-import {withTwoProfiles,connectBoth,editNote,waitForRev,ready,focus} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,editNote,waitForRev,ready,focus,waitForNotes} from './folder-merge.mjs';
 import {signIn} from './folder-salt-login.mjs';
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
@@ -48,12 +48,16 @@ export async function run({check,assert}) {
       })()`);
       assert.ok(preserved.includes(oldFile));
       await writeFolderFixture(b,MAIN,rotated);await signIn(b,NEW_PASSWORD);await ready(b);
-      await editNote(b,item.id,{content:'Fictional edit on computer B after the passphrase change'});
+      const editedContent='Fictional edit on computer B after the passphrase change';
+      await editNote(b,item.id,{content:editedContent});
       await focus(b);await waitForRev(b,3);
       const joined=await readFolderFixture(b,MAIN);
       await writeFolderFixture(a,MAIN,joined);await signIn(a,NEW_PASSWORD);await ready(a);await waitForRev(a,3);
+      const textNotes=notes=>notes.filter(note=>note.type==='text').map(({id,content})=>[id,content]);
+      await waitForNotes(a,[[item.id,editedContent]],textNotes);
       const expected=await a.eval("(await import('./js/app.js')).getNotes()");
-      assert.equal(expected.find(value=>value.id===item.id).content,'Fictional edit on computer B after the passphrase change');
+      assert.equal(expected.find(value=>value.id===item.id).content,editedContent);
+      await waitForNotes(b,[[item.id,editedContent]],textNotes);
       assert.deepEqual(await b.eval("(await import('./js/app.js')).getNotes()"),expected);
       for(const value of expected)validateNote(value);
       for(const page of [a,b])await maskedVaults(page,secrets,assert);

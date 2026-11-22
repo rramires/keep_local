@@ -11,8 +11,8 @@ import {assertReadsMergedCopy,exportFromApp} from './recovery-tool.mjs';
 import {writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
-export async function run({check,assert}) {
-  await integration({check,assert});
+export async function run({check,assert,cpuThrottlingRate}) {
+  await integration({check,assert,cpuThrottlingRate});
   await reviewMerge({check,assert});
   await e2e({check,assert});
   await check('H2a.0 permanent deletions and their tombstones commit or roll back together',async()=>{
@@ -122,7 +122,7 @@ export async function run({check,assert}) {
 }
 
 const primary='keeplocal-vault.keeplocal';
-export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,editFromOtherTab,ready,focus};
+export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,editFromOtherTab,ready,focus,waitForNotes};
 const attach=page=>page.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
 
 async function relogin(page,{granted=true}={}) {
@@ -166,6 +166,17 @@ function editFromOtherTab(page,id,content) {
 }
 
 const loaded=page=>page.eval("(await import('./js/app.js')).getNotes()");
+const sortedContents=notes=>notes.map(note=>note.content).sort();
+const sortedTitles=notes=>notes.map(note=>note.title).sort();
+
+function waitForNotes(page,expected,select) {
+  // A remote revision can be committed to IndexedDB before the page reloads its notes.
+  return page.until(`(async()=>{
+    const notes=(await import('./js/app.js')).getNotes();
+    return JSON.stringify((${select})(notes))===${JSON.stringify(JSON.stringify(expected))};
+  })()`);
+}
+
 const ready=page=>page.until("!!document.querySelector('.app-view #main-inner')?.firstElementChild");
 const focus=page=>page.eval("window.dispatchEvent(new Event('focus'))");
 
@@ -205,7 +216,7 @@ async function decodedNotes(bytes) {
   return {payload,notes:await decryptRecords(payload.notes,key)};
 }
 
-async function integration({check,assert}) {
+async function integration({check,assert,cpuThrottlingRate}) {
   await check('H2a.9c a new 65th writer writes a valid pruned file through the folder controller',async()=>{
     const browser=await launchExtension();
     try{
@@ -246,7 +257,9 @@ async function integration({check,assert}) {
       await editNote(b,y.id,{content:'B edit'});
       await settleFocus(b);
       await waitForRev(b,3);
-      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),['A first edit','B edit']);
+      const first=['A first edit','B edit'];
+      await waitForNotes(b,first,sortedContents);
+      assert.deepEqual(sortedContents(await loaded(b)),first);
       await editNote(a,x.id,{content:'A second edit'});
       await settleFocus(a);
       await waitForRev(a,3);
@@ -254,12 +267,14 @@ async function integration({check,assert}) {
       await settleFocus(b);
       await waitForRev(b,4);
       const expected=['A second edit','B edit'];
-      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),expected);
+      await waitForNotes(b,expected,sortedContents);
+      assert.deepEqual(sortedContents(await loaded(b)),expected);
       assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
       await writeFolderFixture(a,primary,await readFolderFixture(b,primary));
       await settleFocus(a);
       await waitForRev(a,4);
-      assert.deepEqual((await loaded(a)).map(note=>note.content).sort(),expected);
+      await waitForNotes(a,expected,sortedContents);
+      assert.deepEqual(sortedContents(await loaded(a)),expected);
       assert.ok(!(await a.eval('folderTest.entries()')).includes('keeplocal-preserved'));
     });
   });
@@ -292,19 +307,17 @@ async function integration({check,assert}) {
         const first=await decodedNotes(await readFolderFixture(b,primary));
         assert.deepEqual(first.notes.map(note=>note.content).sort(),['A edited Y','B first unsaved edit']);
         const finalContent=mode==='control'?'B first unsaved edit':'B second edit';
-        if(mode==='reopen'){
-          await b.reload();
-          await editFromOtherTab(b,x.id,finalContent);
-          await relogin(b);
-        }else{
-          if(mode==='race')await editFromOtherTab(b,x.id,finalContent);
-          await b.eval('window.resumePendingMerge()');
-        }
+        if(mode==='reopen')await b.reload();
+        if(mode!=='control')await editFromOtherTab(b,x.id,finalContent);
+        if(cpuThrottlingRate)await b.send('Emulation.setCPUThrottlingRate',{rate:cpuThrottlingRate});
+        if(mode==='reopen')await relogin(b);
+        else await b.eval('window.resumePendingMerge()');
         await ready(b);
         await settleFocus(b);
         await waitForRev(b,mode==='control'?3:4);
         const expected=['A edited Y',finalContent].sort();
-        assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),expected);
+        await waitForNotes(b,expected,sortedContents);
+        assert.deepEqual(sortedContents(await loaded(b)),expected);
         assert.deepEqual((await decodedNotes(await readFolderFixture(b,primary))).notes.map(note=>note.content).sort(),expected);
         assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
         assert.equal(await b.eval("(await import('./js/db.js')).getMeta('folderPendingWrite')"),null);
@@ -478,9 +491,11 @@ async function integration({check,assert}) {
       await relogin(b);
       await ready(b);
       await waitForRev(b,4);
-      assert.deepEqual((await loaded(b)).map(note=>note.content).sort(),['PC A before closing','PC B edited after the folder write']);
+      const expected=['PC A before closing','PC B edited after the folder write'];
+      await waitForNotes(b,expected,sortedContents);
+      assert.deepEqual(sortedContents(await loaded(b)),expected);
       const recovered=await decodedNotes(await readFolderFixture(b,primary));
-      assert.deepEqual(recovered.notes.map(note=>note.content).sort(),['PC A before closing','PC B edited after the folder write']);
+      assert.deepEqual(sortedContents(recovered.notes),expected);
       assert.equal(await b.eval('folderTest.writeAttempts'),1);
       assert.ok(!(await b.eval('folderTest.entries()')).includes('keeplocal-preserved'));
       const {meta:resumed}=await b.eval("(await import('./js/db.js')).readVault()");
@@ -633,13 +648,12 @@ async function integration({check,assert}) {
         await relogin(b);
         await ready(b);
         const expected=[...edits,'Y edited on PC A'].sort();
-        const bodies=notes=>notes.map(note=>note.content).sort();
         const notesB=await loaded(b);
-        assert.deepEqual(bodies(notesB),expected);
+        assert.deepEqual(sortedContents(notesB),expected);
         assert.equal(notesB.filter(note=>note.title.includes(' (conflict ')).length,1);
         await toast(b,'1 conflict (copy created)');
         const merged=await readFolderFixture(b,primary);
-        assert.deepEqual(bodies((await decodedNotes(merged)).notes),expected);
+        assert.deepEqual(sortedContents((await decodedNotes(merged)).notes),expected);
         await waitForRev(b,7);
         const copies=await preservedCopies(b);
         assert.equal(copies.length,2);
@@ -650,7 +664,8 @@ async function integration({check,assert}) {
         await settleFocus(a);
         await waitForRev(a,7);
         await a.until("document.querySelectorAll('.note-card').length===3");
-        assert.deepEqual(bodies(await loaded(a)),expected);
+        await waitForNotes(a,expected,sortedContents);
+        assert.deepEqual(sortedContents(await loaded(a)),expected);
         assert.deepEqual((await loaded(a)).map(note=>note.id).sort(),notesB.map(note=>note.id).sort());
       });
     });
@@ -665,6 +680,7 @@ async function integration({check,assert}) {
       await writeFolderFixture(a,primary,await readFolderFixture(b,primary));
       await relogin(a);
       await ready(a);
+      await waitForNotes(a,['B edited first'],sortedContents);
       assert.equal((await loaded(a))[0].content,'B edited first');
       for(const rev of [6,7]){
         await editNote(a,item.id,{content:`A edit at revision ${rev}`});
@@ -675,7 +691,10 @@ async function integration({check,assert}) {
       await relogin(b);
       await ready(b);
       await waitForRev(b,7);
-      assert.deepEqual((await loaded(b)).map(({id,content})=>({id,content})),[{id:item.id,content:'A edit at revision 7'}]);
+      const expected=[{id:item.id,content:'A edit at revision 7'}];
+      const contentsById=notes=>notes.map(({id,content})=>({id,content}));
+      await waitForNotes(b,expected,contentsById);
+      assert.deepEqual(contentsById(await loaded(b)),expected);
       assert.equal(await b.eval('folderTest.writeAttempts'),0);
       assert.equal(await readFolderFixture(b,primary),final);
       assert.match(await b.eval("document.querySelector('#toast-container').textContent"),/Loaded revision 7/);
@@ -701,6 +720,7 @@ async function integration({check,assert}) {
       await writeFolderFixture(b,primary,final);
       await relogin(b);
       await ready(b);
+      await waitForNotes(b,['Shared after a manual export'],sortedTitles);
       assert.deepEqual((await loaded(b)).map(note=>note.title),['Shared after a manual export']);
       assert.match(await b.eval("document.querySelector('#toast-container').textContent"),/Loaded revision 3/);
       assert.equal(await b.eval('folderTest.writeAttempts'),0);
@@ -739,8 +759,10 @@ async function integration({check,assert}) {
       await writeFolderFixture(b,primary,await readFolderFixture(a,primary));
       await relogin(b);
       await ready(b);
-      const titles=(await loaded(b)).map(item=>item.title).sort();
-      assert.deepEqual(titles,['PC A revised Y again','PC B revised X'],'The A6 pull must not undo the B5 edit');
+      const expected=['PC A revised Y again','PC B revised X'];
+      await waitForNotes(b,expected,sortedTitles);
+      const titles=sortedTitles(await loaded(b));
+      assert.deepEqual(titles,expected,'The A6 pull must not undo the B5 edit');
       const merged=await decodedNotes(await readFolderFixture(b,primary));
       assert.equal(merged.payload.rev,7);
       assert.deepEqual(merged.notes.map(item=>item.title).sort(),titles);
@@ -882,8 +904,10 @@ async function integration({check,assert}) {
       await b.until("!!document.querySelector('.app-view #main-inner')?.firstElementChild||!!document.querySelector('#login-error')?.textContent");
       assert.equal(await b.eval("!!document.querySelector('.app-view #main-inner')?.firstElementChild"),true,'Sign-in must retry the changed snapshot');
       await waitForRev(b,4);
+      const expected=['A before sign-in','B concurrent tab edit'];
+      await waitForNotes(b,expected,sortedContents);
       const notes=await loaded(b);
-      assert.deepEqual(notes.map(item=>item.content).sort(),['A before sign-in','B concurrent tab edit']);
+      assert.deepEqual(sortedContents(notes),expected);
       assert.equal(notes.find(item=>item.id===x.id).content,'B concurrent tab edit');
       assert.ok(notes.every(item=>!item.title.includes(' (conflict ')));
     });
@@ -995,7 +1019,9 @@ async function reviewMerge({check,assert}) {
       await typeConfirmation(b);
       await ready(b);
       await waitForRev(b,2);
-      assert.deepEqual((await loaded(b)).map(row=>row.content).sort(),[item.content,'Local first-connection version'].sort());
+      const expected=[item.content,'Local first-connection version'].sort();
+      await waitForNotes(b,expected,sortedContents);
+      assert.deepEqual(sortedContents(await loaded(b)),expected);
       const copies=await preservedCopies(b);
       assert.ok(copies.some(([name,bytes])=>name.includes('-folder-')&&bytes===file));
       const local=await decodedNotes(copies.find(([name])=>name.includes('-local-'))[1]);
@@ -1224,7 +1250,7 @@ async function e2e({check,assert}) {
         if(edited)await editNote(b,item.id,{content:'Edited after deletion'});
         await focus(b);
         await waitForRev(b,edited?3:2);
-        await b.until(`(await import('./js/app.js')).getNotes().length===${Number(edited)}`);
+        await waitForNotes(b,edited?['Edited after deletion']:[],sortedContents);
         const copy=await decodedNotes(await readFolderFixture(b,primary));
         assert.equal(copy.payload.tombstones[0].id,item.id);
         assert.equal(copy.notes.length,Number(edited));
