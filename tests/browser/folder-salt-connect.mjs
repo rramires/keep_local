@@ -5,6 +5,7 @@ import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {withTwoProfiles,connectBoth,waitForRev,editNote,editFromOtherTab,focus,ready} from './folder-merge.mjs';
 import {signIn} from './folder-salt-login.mjs';
+import {folderCopyEvidence} from './folder-copy-view.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 
@@ -39,6 +40,34 @@ async function chooseConnectedFolder(page,entry='banner') {
 }
 
 export async function run({check,assert}) {
+  await check('H2b.9 the read-only banner reports an unresponsive folder without writing',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      await connectBoth(a,b,[note({title:'Fictional same-folder timeout'})]);
+      await rotate(a);
+      await waitForRev(a,2);
+      const main='keeplocal-vault.keeplocal';
+      await writeFolderFixture(b,main,await readFolderFixture(a,main));
+      await signIn(b,PASSWORD);
+      await b.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await b.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+      const chooseAnother='.folder-banner [data-folder-action=chooseAnother]';
+      await b.until(`!!document.querySelector(${JSON.stringify(chooseAnother)})`);
+      const before=await folderCopyEvidence(b);
+      await b.eval(`folderTest.clear();folderTest.stalls.add('isSameEntry');
+        document.querySelector(${JSON.stringify(chooseAnother)}).click()`);
+      await b.until("!!document.querySelector('.app-dialog input[type=password]')");
+      await password(b);
+      await b.until("folderTest.pending.some(read=>read.kind==='isSameEntry')");
+      await b.until("!!document.querySelector('#toast-container .toast:last-child > span')");
+      const message=await b.eval("document.querySelector('#toast-container .toast:last-child > span').textContent");
+      assert.deepEqual(await b.eval('folderTest.writes'),{});
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      assert.deepEqual(await folderCopyEvidence(b),before);
+      assert.equal(await b.eval("(await import('./js/db.js')).isReadOnly()"),true);
+      assert.equal(message,await b.eval("(await import('./js/i18n.js')).t('folder.unresponsive')"));
+    },{metadata:1500});
+  });
+
   for(const entry of ['banner','gate','settings'])await check(`H2b.8 M1 reselecting the connected folder from ${entry} keeps the receipt and loads without conflicts`,async()=>{
     await withTwoProfiles(async(a,b)=>{
       const x=note({title:'Fictional same-folder X'}),y=note({title:'Fictional same-folder Y'});

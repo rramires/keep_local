@@ -24,6 +24,11 @@ function folderReason(status) {
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
+function folderActionError(error) {
+  if(error?.name==='TimeoutError')return folderReason('unresponsive');
+  return t(typeof error?.code==='string'?error.code:'folder.actionFailed');
+}
+
 export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,notify,onResume,onReset,onOtherSalt,onBrowseCopies}) {
   let busy=false, reading=false, issue=status;
 
@@ -35,7 +40,7 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
     for(const button of buttons) button.disabled=true;
     try { await work(); }
     catch(error) {
-      if(!signal.aborted&&error?.name!=='AbortError') notify(t(error?.code||'folder.actionFailed'));
+      if(!signal.aborted&&error?.name!=='AbortError') notify(folderActionError(error));
     } finally {
       busy=false;
       for(const button of buttons) button.disabled=false;
@@ -251,7 +256,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     for(const button of buttons) button.disabled=true;
     try {await work();}
     catch(error) {
-      if(!signal.aborted&&error?.name!=='AbortError') notify(t(error?.code||'folder.actionFailed'));
+      if(!signal.aborted&&error?.name!=='AbortError') notify(folderActionError(error));
     } finally {
       busy=false;
       for(const button of buttons) button.disabled=false;
