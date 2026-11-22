@@ -17,8 +17,9 @@ attempt), `exportRev`, `exportParent`, `exportAncestors` and `exportClock` (expo
 handle), `folderConnectionId`, `folderSyncedHash`, `folderSyncedClock`, `folderSyncedVersions`,
 `folderSyncedBases` (up to 4 proven merge bases, newest first), `folderPendingWrite` (clock and
 local-side versions of an unrecorded write), `writerId`/`writerCount` (this vault's folder
-writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev` and
-`folderWrittenAt`; none of it is exported. Local-only vault preferences
+writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev`,
+`folderWrittenAt` and `folderSaltClock` (folder clock when the vault passphrase last changed
+through the folder; decides which passphrase wins); none of it is exported. Local-only vault preferences
 (`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
@@ -88,10 +89,11 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     the sign-in click, before PBKDF2), availability by a real listing, error
     classification (`notFound|denied|unresponsive|error:*`), CAS connection.
   - `folder-timeout.js`: read deadlines (15 s metadata, 60 s per file); a
-    `TimeoutError` maps to `unresponsive`. Writes are not wrapped.
+    `TimeoutError` maps to `unresponsive` (also in action notices). Writes are not wrapped.
   - `folder-vault.js`: root `*.keeplocal` candidates (max 32, 64 MiB each),
-    same-salt decode with the session key (`decodeV2WithKey`), head = highest
-    encrypted `rev`, divergence and unreadable/other-salt copies.
+    same-salt decode with the session key (`decodeV2WithKey`) and, when given, a second
+    key for another salt; each candidate records its salt (other-salt copies also a bytes
+    hash). Head = highest encrypted `rev`, divergence and unreadable/other-salt copies.
   - `folder-write.js`: profile 2 snapshot of `keeplocal-vault.keeplocal`, readback
     verification and the `keeplocal-vault-lineage` Web Lock.
   - `folder-reconcile.js`, `folder-review.js`: decision
@@ -109,7 +111,26 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     then id), never its own. Explicit remote/local choices reset the base list.
   - `folder-preserve.js`: before any replacement, the losing side goes to
     `keeplocal-preserved/` (exact bytes or encrypted local snapshot), read back and
-    verified; failure replaces nothing. Never cleaned; reads stay root-only.
+    verified; failure replaces nothing. Never cleaned; reads stay root-only. Within one
+    reconciliation the same bytes are preserved once (reuse rereads and verifies).
+  - Other passphrase in the folder (password changed on another PC):
+    `folder-salt.js` converts records/copies between keys and picks the target with
+    `folderSaltTarget` (no `folderSaltClock` → folder; otherwise the head's descent from
+    it decides folder/local); `folder-salt-access.js`, `folder-salt-ui.js` run the
+    reconciliation with an `access` object threaded through merge, review, writer and
+    apply. `folder-password-change.js`: rotation with a connected folder runs under the
+    lineage lock, needs a settled folder, preserves the old main, writes and verifies
+    the folder first (restoring the original on a failed readback), then replaces the
+    local vault. `folder-login.js`: a failed sign-in tries the folder main (one extra
+    PBKDF2) and loads it directly only with proof (receipt, clean local, same versions,
+    no local-salt copy, descent from the synced state); otherwise it asks for the old
+    local passphrase or offers a read-only view. `folder-other-salt.js`: folder
+    passphrase dialog and "use this browser" (typed word, exact-bytes preservation).
+    `folder-salt-connect.js`: re-choosing the same connected folder keeps the receipt
+    and lets the lineage decide; another folder is a first connection.
+  - `folder-copy-view.js`: read-only view of a copy from any folder (own picker id,
+    keys per salt in memory only, `startReadOnlySession`, export disabled, cross-tab
+    events ignored, 0 writes); returning, locking or expiry discards it.
   - `folder-sync.js`, `folder-status.js`, `folder-ui.js`, `css/folder.css`:
     scheduling, status text (never "synced"/"cloud"), blocking screen, read-only
     banner and settings. Read-only mode is enforced in `db.js` (0 writes).
@@ -167,6 +188,6 @@ Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the o
 roadmap, one sub-stage per owner request: H1 (standalone recovery tool and
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
-recovery), H2c (rotating copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
+recovery, merged), H2c (rotating copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
