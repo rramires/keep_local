@@ -252,6 +252,14 @@ is still required at every opening.
   focus, visibility change and page hide) the app writes a new revision, reads
   it back and verifies it. "Written to folder at HH:MM" means a local file write
   only. A folder write does not count as a manual backup.
+- **Folder history.** The first regular verified write of the day and of the
+  week also copies the exact bytes of the main file into `keeplocal-history/`.
+  The subfolder has seven daily slots and four weekly slots, on the local
+  calendar. A valid copy from the same period that opens with the current vault
+  key is kept. Rotation reuses a slot by overwriting it. When a slot holds a
+  valid higher revision, KeepLocal verifies a preserved copy before replacing
+  it. The app never deletes history files or loads them automatically.
+  In Settings, you can see when the daily copy was last checked.
 - **Sign in:** the folder permission request is the first action of the click.
   Availability is decided by listing the folder. Every root `*.keeplocal`
   (at most 32, 64 MiB each; Mega conflict copies included) is authenticated with
@@ -273,16 +281,18 @@ is still required at every opening.
   dialog for the folder passphrase. Connecting a folder with another passphrase
   offers the same dialog and compares the notes before replacing anything.
 - **Open a copy from another folder** is available in folder settings and on the
-  unavailable-folder screen. Choose a folder, including `keeplocal-preserved/`,
-  select a `.keeplocal` file and enter its passphrase when needed. The list selects
+  unavailable-folder screen. Choose a folder, including `keeplocal-history/`
+  or `keeplocal-preserved/`, select a `.keeplocal` file and enter its
+  passphrase when needed. The list selects
   the highest revision it can open and warns about a revision older than the last
   one seen here. The copy view supports search, sections, reveal and copy, with
   automatic hiding and clipboard clearing. Its banner identifies the file and
   revision. Editing, export and folder actions are disabled. This view writes
   zero data to IndexedDB or either folder and pauses folder writes. Returning
   restores this browser’s notes and previous mode. Returning, locking and session
-  expiry discard the copy and its key. To use the copy as your vault, connect its
-  folder through **Choose another folder**, which compares and asks first.
+  expiry discard the copy and its key. For a history or preserved copy, use
+  **Settings → Import backup**. For a copy from another vault folder,
+  **Choose another folder** compares and asks before replacing anything.
 - **Decision:** a browser with no local changes loads a newer file directly
   when the hash or encrypted clock proves descent from its last shared file.
   A nonempty clock proves descent when every writer counter from the shared
@@ -308,7 +318,8 @@ is still required at every opening.
   proven entry in that history, with the last recorded folder state as a
   fallback.
   An older pending base is kept at the front of the history before another
-  write replaces it. The verified receipt records the history and clocks
+  write replaces it. A receipt with the same nonempty clock takes its place
+  in the list. The verified receipt records the history and clocks
   with their hashes and clears the pending base in one transaction. Choosing
   one side explicitly keeps only the chosen snapshot as a base. Resetting the
   vault gives it a new writer ID. Edits to different notes can be
@@ -342,8 +353,21 @@ is still required at every opening.
   the folder copy. Import on the sign-in screen is refused while a folder is
   connected.
 
-Planned next are support for folders written with another passphrase and
-opening another folder for recovery, followed by rotating copies.
+### Restore a folder history copy
+
+1. Sign in and choose **Settings → Import backup**. Select the `.keeplocal`
+   file from `keeplocal-history/` and enter the passphrase for that copy.
+   Confirm the replacement of this browser's vault and its disconnection
+   from the folder.
+2. In **Settings → Vault folder → Choose folder…**, select the original vault
+   folder. If asked, provide the passphrase for its current main file so
+   KeepLocal can compare the copies. In the review, choose **Write local data
+   to folder** and type **REPLACE**. KeepLocal preserves the previous main file
+   in `keeplocal-preserved/` and reads it back before writing the restored copy.
+
+A copy made before a passphrase change opens with the old passphrase.
+Importing it restores that passphrase in this browser. Change it again
+after restoring the copy.
 
 Local libraries: Marked **18.2.1** (browser UMD bundle) and DOMPurify **3.4.18**.
 Versions, upstream release review and download integrity are recorded in

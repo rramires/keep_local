@@ -238,6 +238,14 @@ obrigatória a cada abertura.
   também ao focar, ao mudar a visibilidade e ao sair da página), o app grava uma
   nova revisão, relê e confere. "Gravado na pasta às HH:MM" indica só a gravação
   do arquivo local. Gravar na pasta não conta como backup manual.
+- **Histórico da pasta.** A primeira gravação normal e conferida do dia e da
+  semana também copia os bytes exatos do principal para `keeplocal-history/`.
+  São sete vagas diárias e quatro semanais, no calendário local. Uma cópia
+  válida do mesmo período que abre com a chave atual do cofre fica na vaga.
+  O rodízio reutiliza a vaga por sobrescrita. Se ela contiver uma revisão
+  válida maior, o KeepLocal confere uma cópia preservada antes de substituir.
+  O app nunca apaga os arquivos do histórico nem os carrega automaticamente.
+  Em Configurações, veja quando a cópia do dia foi conferida.
 - **Entrar:** o pedido de permissão da pasta é a primeira ação do clique. A
   disponibilidade é decidida listando a pasta. Todo `*.keeplocal` da raiz (no
   máximo 32, 64 MiB cada; cópias de conflito do Mega incluídas) é autenticado com
@@ -259,16 +267,19 @@ obrigatória a cada abertura.
   pasta. Conectar uma pasta de outra senha oferece o mesmo diálogo e compara
   as notas antes de substituir qualquer coisa.
 - **Abrir cópia de outra pasta** fica nas configurações da pasta e na tela de
-  pasta indisponível. Escolha uma pasta, inclusive `keeplocal-preserved/`,
-  selecione um `.keeplocal` e digite a senha dele quando necessário. A lista
+  pasta indisponível. Escolha uma pasta, inclusive `keeplocal-history/` ou
+  `keeplocal-preserved/`, selecione um `.keeplocal` e digite a senha dele
+  quando necessário. A lista
   seleciona a maior revisão que abre e avisa quando ela é mais antiga que a
   última vista aqui. A visão permite busca, seções, revelar e copiar, com
   auto-ocultar e limpeza do clipboard. A faixa identifica o arquivo e a revisão.
   Editar, exportar e as ações de pasta ficam indisponíveis. A visão grava zero
   dados no IndexedDB e nas duas pastas e pausa as gravações da pasta. Voltar
   restaura as notas deste navegador e o modo anterior. Voltar, bloquear e expirar
-  a sessão descartam a cópia e sua chave. Para usar a cópia como cofre, conecte
-  a pasta em **Escolher outra pasta**, que compara e pergunta antes.
+  a sessão descartam a cópia e sua chave. Para usar uma cópia do histórico
+  ou preservada, use **Configurações → Importar backup**. Para uma cópia de
+  outra pasta de cofre, **Escolher outra pasta** compara e pergunta antes
+  de substituir.
 - **Decisão:** um navegador sem alterações locais carrega diretamente um
   arquivo mais novo quando o hash ou o clock cifrado comprova descendência
   da última versão em comum. Um clock não vazio comprova descendência quando
@@ -297,7 +308,8 @@ obrigatória a cada abertura.
   comprovada desse histórico, com o último estado registrado da pasta como
   reserva.
   Uma pendente anterior entra na frente do histórico antes de outra gravação
-  substituí-la. O registro da gravação conferida leva histórico e clocks com
+  substituí-la. Um recibo com o mesmo clock não vazio ocupa seu lugar na lista.
+  O registro da gravação conferida leva histórico e clocks com
   os hashes correspondentes e remove a pendente em uma única transação.
   Escolher explicitamente um dos lados conserva só o estado escolhido como
   base. Um reset do cofre gera outro UUID de gravador. Edições em notas
@@ -331,8 +343,21 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
-As próximas etapas incluem pastas gravadas com outra frase-senha, abertura
-de outra pasta para recuperação e cópias rotativas.
+### Restaurar uma cópia do histórico da pasta
+
+1. Entre no cofre e escolha **Configurações → Importar backup**. Selecione o
+   arquivo `.keeplocal` em `keeplocal-history/` e digite a frase-senha daquela
+   cópia. Confirme a substituição do cofre local e a desconexão da pasta.
+2. Em **Configurações → Pasta do cofre → Escolher pasta…**, selecione a pasta
+   original do cofre. Se o app pedir, digite a frase-senha do arquivo
+   principal atual para comparar as cópias. Na revisão, escolha **Gravar os
+   dados locais na pasta** e digite **SUBSTITUIR**. O KeepLocal preserva o
+   principal anterior em `keeplocal-preserved/` e o relê antes de gravar a
+   cópia restaurada.
+
+Uma cópia feita antes de trocar a frase-senha abre com a senha antiga.
+Importá-la restaura essa senha neste navegador. Troque a frase-senha de novo
+depois de restaurar a cópia.
 
 Bibliotecas locais: Marked **18.2.1** (bundle UMD) e DOMPurify **3.4.18**.
 Procedência, revisão das versões e integridade em [`lib/VENDOR.md`](lib/VENDOR.md).
