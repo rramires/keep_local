@@ -1,7 +1,8 @@
-import {create,launchExtension,PASSWORD} from './harness.mjs';
+import {create,launch,launchExtension,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {backupFixture} from './backup-fixture.mjs';
-import {connectedCopyPage} from './folder-copy-view.mjs';
+import {connectedCopyPage,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
+import {submitExtensionLogin} from './extension.mjs';
 import {editNote,focus,waitForFolderLineage,waitForRev} from './folder-merge.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {decodeV2,encodeV2,payloadHash} from '../../js/backup-v2.js';
@@ -645,5 +646,174 @@ export async function runPhotoImport({check,assert}){
       })()`);
       assert.equal(imported,fixture.records.length);
     }finally{await browser.close();}
+  });
+}
+
+export async function runPhotoLimits({check,assert}){
+  await check('P2.6 the HTTP app and the extension without a vault folder omit Write now',async()=>{
+    const browser=await launch();
+    try{
+      const page=await browser.page();
+      await create(page);
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+    }finally{await browser.close();}
+    await withPhotosPage(async page=>{
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+    },{connected:false});
+  });
+
+  await check('P2.6 login, read-only and copy view make no photo reads or writes',async()=>{
+    await withPhotosPage(async page=>{
+      await configurePhotos(page,assert);
+      await page.eval("document.querySelector('#lock-btn').click()");
+      await page.until("!!document.querySelector('#login-password')");
+      await page.eval("photoTest.clear();photoTest.permission='prompt';folderTest.permission='denied'");
+      await submitExtensionLogin(page);
+      await page.until("!!document.querySelector('[data-folder-action=openReadOnly]')");
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+      await page.eval("document.querySelector('[data-folder-action=openReadOnly]').click()");
+      await page.until("!!document.querySelector('[data-vault-read-only] .note-card')");
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+      await focus(page);
+      await waitForFolderLineage(page);
+      assert.deepEqual(await page.eval('photoTest.events'),[]);
+      await assertNoPhotoWrites(page,assert);
+
+      await page.reload();
+      await page.until("!!window.photoTest&&!!document.querySelector('#login-password')");
+      await page.eval("photoTest.permission='prompt';folderTest.permission='granted'");
+      await submitExtensionLogin(page);
+      await page.until(`!!document.querySelector('${WRITE_NOW}')&&!!document.querySelector('.note-card')`);
+      await waitForFolderLineage(page);
+      assert.deepEqual(await page.eval('photoTest.events'),[]);
+      await openCopyList(page,assert);
+      await openSelectedCopy(page);
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+      await focus(page);
+      await waitForFolderLineage(page);
+      assert.deepEqual(await page.eval("photoTest.events.filter(({kind})=>kind!=='query')"),[]);
+      await assertNoPhotoWrites(page,assert);
+    });
+  });
+
+  await check('P2.6 an explicit replacement and changing the vault folder clear photo metadata without a photo write',async()=>{
+    await withPhotosPage(async page=>{
+      await configurePhotos(page,assert);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      await autoWrite(page,2);
+      const name=photoNames[0],before=await readPhoto(page,name);
+      await setPhotoTime(page,'2026-08-17T11:20:00');
+      await page.eval("photoTest.permission='denied'");
+      await autoWrite(page,3);
+      await assertPhotoStatus(page,assert,/permission to write photos was not granted/i);
+      const foreign=Buffer.alloc(64,31).toString('base64');
+      await writeFolderFixture(page,MAIN,foreign);
+      await clearPhotoSpies(page);
+      await focus(page);
+      await page.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await page.eval("document.querySelector('[data-folder-action=useLocal]').click()");
+      await page.until("!!document.querySelector('.app-dialog input')");
+      await page.eval(`(async()=>{
+        const input=document.querySelector('.app-dialog input');
+        input.value=(await import('./js/i18n.js')).t('folder.replaceWord');
+        input.dispatchEvent(new Event('input'));
+        input.closest('form').requestSubmit();
+      })()`);
+      await waitForRev(page,4);
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`);
+      await waitForFolderLineage(page);
+      assert.deepEqual(await photoMeta(page),{});
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal(await readPhoto(page,name),before);
+
+      await openPhotoSettings(page,assert);
+      assert.match(await status(page),/no photo written yet/i);
+      await page.eval("photoTest.requested='granted'");
+      await startPhotoChoice(page);
+      await finishPhotoChoice(page);
+      await page.eval("folderTest.name='KL-TEST-NEW-VAULT-PHOTOS';photoTest.clear();document.querySelector('[data-folder-action=change]').click()");
+      await page.until("(await import('./js/db.js')).getMeta('syncFolder').then(folder=>folder?.name==='KL-TEST-NEW-VAULT-PHOTOS')");
+      await waitForFolderLineage(page);
+      assert.deepEqual(await photoMeta(page),{});
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal(await readPhoto(page,name),before);
+    });
+  });
+
+  await check('P2.6 Write now flushes an open editor into the photo; Backup still only exports',async()=>{
+    await withPhotosPage(async page=>{
+      await configurePhotos(page,assert);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      const name=photoNames[0],image=await readPhoto(page,name);
+      await page.eval("document.querySelector('.note-card').click()");
+      await page.until("!!document.querySelector('#modal-editor')");
+      await page.eval(`const editor=document.querySelector('#modal-editor');
+        editor.value='Fictional open editor text for today';
+        editor.dispatchEvent(new Event('input',{bubbles:true}));
+        document.querySelector('${WRITE_NOW}').click();`);
+      await waitWriteNowToast(page,/and in today.s photo/);
+      const main=await principal(page);
+      const {decryptRecords}=await import('../../js/backup-format.js');
+      const {key,payload}=await decodeV2(Buffer.from(main,'base64'),PASSWORD);
+      assert.equal((await decryptRecords(payload.notes,key))[0].content,'Fictional open editor text for today');
+      await assertPhoto(page,assert,{name,image,main});
+      const before=await photoMeta(page);
+      await page.eval(`photoTest.clear();window.testBackup=null;
+        URL.createObjectURL=blob=>{window.testBackup=blob;return 'blob:fixture';};
+        URL.revokeObjectURL=()=>{};
+        HTMLAnchorElement.prototype.click=()=>{};
+        document.querySelector('#backup-btn').click();`);
+      await page.until('!!testBackup');
+      await waitForFolderLineage(page);
+      assert.equal(await principal(page),main);
+      assert.deepEqual(await photoMeta(page),before);
+      assert.deepEqual(await page.eval('photoTest.events'),[]);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+    });
+  });
+  await check('P2.6 moved photo files and a missing photos folder leave each primary write verified',async()=>{
+    await withPhotosPage(async page=>{
+      await configurePhotos(page,assert);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      const untouched=await readPhoto(page,photoNames[1]);
+      await page.eval(`const folder=await photoTest.directory();
+        await photoTest.seed('fictional-new.png',await photoTest.image(7));
+        await folder.removeEntry(photoTest.names[0]);`);
+      await clearPhotoSpies(page);
+      const renamed=await autoWrite(page,2);
+      await assertPhotoStatus(page,assert,/photos folder changed/i);
+      assert.equal(await readPhoto(page,photoNames[1]),untouched);
+      assert.equal(await principal(page),renamed);
+
+      await page.eval("await (await photoTest.directory()).removeEntry('fictional-new.png')");
+      const tooFew=await autoWrite(page,3);
+      await assertPhotoStatus(page,assert,/photos folder changed/i);
+      assert.equal(await readPhoto(page,photoNames[1]),untouched);
+      assert.equal(await principal(page),tooFew);
+
+      await page.eval("await (await navigator.storage.getDirectory()).removeEntry(photoTest.folderName,{recursive:true})");
+      const missing=await autoWrite(page,4);
+      await assertPhotoStatus(page,assert,/photos folder could not be accessed/i);
+      assert.equal(await principal(page),missing);
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+    });
+  });
+  await check('P2.6 confirmation and write receipt show literal photo filenames',async()=>{
+    await withPhotosPage(async page=>{
+      const name='fictional-$&.jpg';
+      await page.eval(`await photoTest.fill();
+        await photoTest.seed(${JSON.stringify(name)},await photoTest.image(0));
+        await (await photoTest.directory()).removeEntry(photoTest.names[0]);`);
+      await openPhotoSettings(page,assert);
+      await startPhotoChoice(page);
+      await page.until("!!document.querySelector('.app-dialog')");
+      assert.ok(await page.eval(`document.querySelector('.app-dialog').textContent.includes(${JSON.stringify('Mon: '+name)})`));
+      await finishPhotoChoice(page);
+      await closeSettings(page);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      await page.eval(`document.querySelector('${WRITE_NOW}').click()`);
+      await waitWriteNowToast(page,/fictional-\$&\.jpg/i);
+    });
   });
 }

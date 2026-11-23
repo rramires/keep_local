@@ -931,7 +931,7 @@ export function translateFor(lang, key, params) {
 
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), v);
+      str = str.replace(new RegExp(`\\{${k}\\}`, 'g'), () => v);
     }
   }
 
