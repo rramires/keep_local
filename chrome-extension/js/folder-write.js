@@ -4,6 +4,7 @@ import {decryptRecords,validateRecords} from './backup-format.js';
 import {assertWritable,reserveFolderWrite,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
 import {pruneTombstones} from './folder-merge.js';
 import {writeFolderHistory} from './folder-history-write.js';
+import {writeFolderPhoto} from './photo-write.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -114,6 +115,7 @@ export function createFolderWriter(handle,key,signal,access) {
       catch {
         // The main receipt already committed. Retry history on the next normal write.
       }
+      await writeFolderPhoto(snapshot.meta,head,bytes,key,signal);
     }
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
@@ -123,5 +125,9 @@ export function createFolderWriter(handle,key,signal,access) {
     const {head}=await writeFile(snapshot,state,{...options,replace:true,selected});
     return head;
   };
-  return {scan,write,writeChosen};
+  const writeMerged=async(snapshot,state,selected,options)=>{
+    const {head,bytes}=await writeFile(snapshot,state,{...options,replace:true,selected});
+    return {head,finishPhoto:()=>writeFolderPhoto(snapshot.meta,head,bytes,key,signal)};
+  };
+  return {scan,write,writeChosen,writeMerged};
 }

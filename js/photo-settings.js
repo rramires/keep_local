@@ -1,6 +1,19 @@
 import {t} from './i18n.js';
 import {confirmDialog} from './dialogs.js';
-import {choosePhotoFolder,disconnectPhotoFolder,folderMetadata,photoErrorDetails,queryPhotoPermission,requestPhotoPermission} from './photo-folder.js';
+import {choosePhotoFolder,disconnectPhotoFolder,folderMetadata,photoErrorDetails,photoFailureFor,
+  PHOTO_STATUS_CHANGE,queryPhotoPermission,requestPhotoPermission} from './photo-folder.js';
+import {localWeekdayIndex} from './folder-history.js';
+
+function receiptText(meta) {
+  const failure=photoFailureFor(meta);
+  if(failure)return t('photo.notSaved',{reason:t(failure.code,failure.params)});
+  if(!meta.photoWrittenDay)return t('photo.notWritten');
+  const index=localWeekdayIndex(new Date(meta.photoWrittenDay+'T12:00:00'));
+  const date=new Intl.DateTimeFormat(document.documentElement.lang,{
+    dateStyle:'medium',timeStyle:'short',
+  }).format(meta.photoWrittenAt);
+  return t('photo.saved',{date,name:meta.photoNames[index]});
+}
 
 export function createPhotoSettings(initial,{key,signal,notify}) {
   const group=document.createElement('section');
@@ -40,7 +53,7 @@ export function createPhotoSettings(initial,{key,signal,notify}) {
     const choose=button('choose',handle?'photo.change':'photo.choose',
       ()=>choosePhotoFolder({key,signal,confirm:confirmPhotos}));
     controls.replaceChildren(choose);
-    status.textContent=t('photo.notWritten');
+    status.textContent=receiptText(meta);
     if(!handle)return;
     if(permission&&permission!=='granted'){
       status.textContent=t('photo.notSaved',{reason:t(permission)});
@@ -85,5 +98,13 @@ export function createPhotoSettings(initial,{key,signal,notify}) {
 
   render();
   void updatePermission();
+  window.addEventListener(PHOTO_STATUS_CHANGE,()=>{
+    if(!group.isConnected)return;
+    void folderMetadata().then(latest=>{
+      if(signal.aborted||!group.isConnected)return;
+      meta=latest;
+      render();
+    }).catch(()=>{});
+  },{signal});
   return group;
 }

@@ -1,7 +1,10 @@
-import {create,launchExtension} from './harness.mjs';
+import {create,launchExtension,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {connectedCopyPage} from './folder-copy-view.mjs';
-import {waitForFolderLineage} from './folder-merge.mjs';
+import {editNote,focus,waitForFolderLineage,waitForRev} from './folder-merge.mjs';
+import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
+import {decodeV2,encodeV2,payloadHash} from '../../js/backup-v2.js';
+import {buildPhoto,photoParts} from '../../js/photo-trailer.js';
 
 const CHOOSE_PHOTOS='[data-photo-action=choose]';
 const PHOTOS='[data-photo-settings]';
@@ -82,13 +85,33 @@ async function installPhotoFixture(names){
     if(this.name===fixture.folderName)fixture.events.push({kind:'fileHandle',name,create:!!args[0]?.create});
     return getFileHandle.call(this,name,...args);
   };
-  FileSystemFileHandle.prototype.getFile=function(...args){
-    if(isPhoto(this.name))fixture.events.push({kind:'read',name:this.name});
-    return getFile.apply(this,args);
+  FileSystemFileHandle.prototype.getFile=async function(...args){
+    if(!isPhoto(this.name))return getFile.apply(this,args);
+    fixture.events.push({kind:'read',name:this.name});
+    if(fixture.holdRead){
+      fixture.holdRead=false;
+      await new Promise(resolve=>{fixture.releaseRead=resolve;});
+    }
+    const file=await getFile.apply(this,args);
+    if(fixture.badRead===this.name){
+      fixture.badRead=null;
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      bytes[bytes.length-1]^=1;
+      return new File([bytes],file.name);
+    }
+    return file;
   };
-  FileSystemFileHandle.prototype.createWritable=function(...args){
+  FileSystemFileHandle.prototype.createWritable=async function(...args){
     if(isPhoto(this.name))fixture.writes.push({name:this.name,options:args[0]});
-    return createWritable.apply(this,args);
+    const stream=await createWritable.apply(this,args);
+    if(isPhoto(this.name)&&fixture.tamperReadback){
+      const close=stream.close.bind(stream);
+      stream.close=async()=>{
+        await close();
+        fixture.badRead=this.name;
+      };
+    }
+    return stream;
   };
 }
 
@@ -247,6 +270,200 @@ export async function runPhotoSettings({check,assert}){
       })()`);
       assert.deepEqual(await photoMeta(page),{});
       assert.deepEqual(await page.eval('photoTest.writes'),[]);
+    });
+  });
+}
+
+async function configurePhotos(page,assert){
+  await page.eval('photoTest.fill()');
+  await openPhotoSettings(page,assert);
+  await startPhotoChoice(page);
+  await finishPhotoChoice(page);
+  await closeSettings(page);
+}
+async function setPhotoTime(page,localTime){
+  await page.send('Emulation.setTimezoneOverride',{timezoneId:'America/Sao_Paulo'});
+  await page.eval(`(async()=>{
+    const session=await import('./js/session.js');
+    const key=await session.getSessionKey(),id=session.getSessionVaultId();
+    if(!photoTest.clock){
+      const NativeDate=Date;
+      photoTest.clock=true;
+      window.Date=class extends NativeDate {
+        constructor(...args){super(...(args.length?args:[photoTest.time]));}
+        static now(){return photoTest.time;}
+      };
+    }
+    photoTest.time=Date.parse(${JSON.stringify(localTime)});
+    session.storeSessionKey(key,id);
+  })()`);
+}
+const readPhoto=(page,name)=>page.eval(`photoTest.bytes(${JSON.stringify(name)})`);
+const writePhoto=(page,name,bytes)=>page.eval(`photoTest.seed(${JSON.stringify(name)},Uint8Array.fromBase64(${JSON.stringify(Buffer.from(bytes).toString('base64'))}))`);
+const MAIN='keeplocal-vault.keeplocal';
+const principal=page=>readFolderFixture(page,MAIN);
+async function autoWrite(page,revision){
+  const id=await page.eval("(await import('./js/app.js')).getNotes()[0].id");
+  await editNote(page,id,{content:`Fictional photo revision ${revision}`});
+  await focus(page);
+  await waitForRev(page,revision);
+  await waitForFolderLineage(page);
+  await page.until("!!document.querySelector('[data-folder-state=saved]')");
+  return principal(page);
+}
+async function assertPhoto(page,assert,{name,image,main}){
+  const raw=Buffer.from(await readPhoto(page,name),'base64');
+  const {image:prefix,copy}=photoParts(raw)??{};
+  assert.deepEqual(prefix,Buffer.from(image,'base64'));
+  assert.ok(copy?.length,'today’s photo must contain the principal');
+  assert.deepEqual(copy,Buffer.from(main,'base64'));
+  assert.equal(raw.length,prefix.length+copy.length+4);
+  assert.deepEqual(await page.eval(`(async()=>{
+    const bitmap=await createImageBitmap(new Blob([Uint8Array.fromBase64(${JSON.stringify(raw.toString('base64'))})]));
+    const size=[bitmap.width,bitmap.height];bitmap.close();return size;
+  })()`),[12,8]);
+}
+async function assertPhotoStatus(page,assert,pattern){
+  await openPhotoSettings(page,assert);
+  await page.until(`new RegExp(${JSON.stringify(pattern.source)},${JSON.stringify(pattern.flags)}).test(document.querySelector('[data-photo-status]')?.textContent||'')`);
+  assert.match(await status(page),pattern);
+  await closeSettings(page);
+}
+
+export async function runAutomaticPhotos({check,assert}){
+  await check('P2.2 writes exact principal bytes in the daily JPEG or PNG only when the local hour or day changes',async()=>{
+    await withPhotosPage(async page=>{
+      const monday=photoNames[0],tuesday=photoNames[1];
+      await setPhotoTime(page,'2026-01-12T22:30:00');
+      await configurePhotos(page,assert);
+      const mondayImage=await readPhoto(page,monday),tuesdayImage=await readPhoto(page,tuesday);
+      await clearPhotoSpies(page);
+      await assertPhoto(page,assert,{name:monday,image:mondayImage,main:await autoWrite(page,2)});
+      const accesses=await page.eval("photoTest.events.filter(({kind})=>kind==='read').map(({name})=>name)");
+      assert.deepEqual([...new Set(accesses)],[monday]);
+      const initialReceipt=await photoMeta(page);
+      assert.equal(initialReceipt.photoWrittenDay,'2026-01-12');
+      assert.equal(initialReceipt.photoWrittenAt,Date.parse('2026-01-13T01:30:00Z'));
+      await assertPhotoStatus(page,assert,/Photos: written.*fictional-1\.jpg/i);
+
+      await setPhotoTime(page,'2026-01-12T23:00:00');
+      await clearPhotoSpies(page);
+      await autoWrite(page,3);
+      assert.deepEqual(await page.eval('photoTest.events'),[]);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.deepEqual(await photoMeta(page),initialReceipt);
+
+      await setPhotoTime(page,'2026-01-12T23:30:00');
+      await assertPhoto(page,assert,{name:monday,image:mondayImage,main:await autoWrite(page,4)});
+      const oldMonday=await readPhoto(page,monday);
+      await setPhotoTime(page,'2026-01-13T00:00:00');
+      await assertPhoto(page,assert,{name:tuesday,image:tuesdayImage,main:await autoWrite(page,5)});
+      assert.equal(await readPhoto(page,monday),oldMonday);
+      assert.equal((await photoMeta(page)).photoWrittenDay,'2026-01-13');
+    });
+  });
+
+  await check('P2.2 a normal merge which retains the local vault writes its verified principal to the daily photo',async()=>{
+    await withPhotosPage(async page=>{
+      await setPhotoTime(page,'2026-01-12T15:00:00');
+      await configurePhotos(page,assert);
+      const name=photoNames[0],image=await readPhoto(page,name);
+      const {key,salt,payload,payloadText}=await decodeV2(Buffer.from(await principal(page),'base64'),PASSWORD);
+      const incoming=await encodeV2(key,salt,{...payload,rev:2,parent:await payloadHash(payloadText),
+        preferences:{...payload.preferences,theme:'light'}});
+      await writeFolderFixture(page,MAIN,Buffer.from(incoming).toString('base64'));
+      await page.eval("(await import('./js/db.js')).saveMeta('theme','dark')");
+      await focus(page);
+      await waitForRev(page,3);
+      await waitForFolderLineage(page);
+      await assertPhoto(page,assert,{name,image,main:await principal(page)});
+      assert.equal((await photoMeta(page)).photoWrittenDay,'2026-01-12');
+    });
+  });
+
+  await check('P2.2 preserves exact newer and unopenable trailers before replacing the daily photo',async()=>{
+    await withPhotosPage(async page=>{
+      await setPhotoTime(page,'2026-01-12T15:00:00');
+      await configurePhotos(page,assert);
+      const name=photoNames[0],image=await readPhoto(page,name);
+      const {key,salt,payload}=await decodeV2(Buffer.from(await principal(page),'base64'),PASSWORD);
+      const newer=await encodeV2(key,salt,{...payload,rev:100});
+      const opaque=new Uint8Array(71).fill(0x4a);
+      for(const [index,oldCopy] of [newer,opaque].entries()){
+        await setPhotoTime(page,`2026-01-12T${15+index}:00:00`);
+        await writePhoto(page,name,buildPhoto(Buffer.from(image,'base64'),oldCopy));
+        await assertPhoto(page,assert,{name,image,main:await autoWrite(page,index+2)});
+        const copies=await page.eval(`(async()=>{
+          const folder=await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+          const bytes=[];
+          for await(const entry of folder.values()){
+            bytes.push(new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64());
+          }
+          return bytes;
+        })()`);
+        assert.ok(copies.includes(Buffer.from(oldCopy).toString('base64')));
+      }
+    });
+  });
+
+  await check('P2.2 leaves an unknown image boundary intact and accepts a clean replacement at the same name',async()=>{
+    await withPhotosPage(async page=>{
+      await setPhotoTime(page,'2026-01-12T14:00:00');
+      await configurePhotos(page,assert);
+      const name=photoNames[0],image=await readPhoto(page,name);
+      const unknown=Buffer.concat([Buffer.from(image,'base64'),Buffer.of(0,1,2,3,4)]);
+      await writePhoto(page,name,unknown);
+      await clearPhotoSpies(page);
+      const main=await autoWrite(page,2);
+      assert.equal(await readPhoto(page,name),unknown.toString('base64'));
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      await assertPhotoStatus(page,assert,/image end in fictional-1\.jpg could not be recognized/i);
+      assert.equal(await principal(page),main);
+      await writePhoto(page,name,Buffer.from(image,'base64'));
+      await assertPhoto(page,assert,{name,image,main:await autoWrite(page,3)});
+    });
+  });
+
+  await check('P2.2 failed live photo checks leave the normal primary receipt and keep the photo receipt pending',async()=>{
+    await withPhotosPage(async page=>{
+      await setPhotoTime(page,'2026-01-12T13:00:00');
+      await configurePhotos(page,assert);
+      const name=photoNames[0],image=await readPhoto(page,name);
+      await page.eval("photoTest.permission='denied'");
+      await clearPhotoSpies(page);
+      const denied=await autoWrite(page,2);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal(await readPhoto(page,name),image);
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      await assertPhotoStatus(page,assert,/permission to write photos was not granted/i);
+      assert.equal(await principal(page),denied);
+      assert.equal(await page.eval("photoTest.events.filter(({kind})=>kind==='request').length"),0);
+
+      await page.eval("photoTest.permission='granted';await photoTest.seed('fictional-extra.png',await photoTest.image(7))");
+      await clearPhotoSpies(page);
+      const changed=await autoWrite(page,3);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal(await readPhoto(page,name),image);
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      await assertPhotoStatus(page,assert,/photos folder changed.*choose it again/i);
+      assert.equal(await principal(page),changed);
+
+      await page.eval("await (await photoTest.directory()).removeEntry('fictional-extra.png');photoTest.holdRead=true");
+      await clearPhotoSpies(page);
+      const timeout=await autoWrite(page,4);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      assert.equal(await readPhoto(page,name),image);
+      await page.eval('photoTest.releaseRead?.()');
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      await assertPhotoStatus(page,assert,/photos folder did not respond/i);
+      assert.equal(await principal(page),timeout);
+
+      await page.eval('photoTest.tamperReadback=true');
+      const unread=await autoWrite(page,5);
+      assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
+      await assertPhotoStatus(page,assert,/could not verify the written photo/i);
+      assert.equal(await principal(page),unread);
     });
   });
 }

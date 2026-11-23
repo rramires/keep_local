@@ -349,6 +349,13 @@ export function storePhotoFolder(expected,handle,names,signal) {
   });
 }
 
+export function recordPhotoWrite(expected,at,day,signal) {
+  return updateFolderMetadata(expected,signal,meta=>{
+    meta.put({key:'photoWrittenAt',value:at});
+    meta.put({key:'photoWrittenDay',value:day});
+  });
+}
+
 function updateFolderMetadata(expected,signal,update) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;

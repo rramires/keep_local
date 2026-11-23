@@ -6,6 +6,19 @@ import {withVaultLineage} from './folder-write.js';
 import {MAX_PHOTO_BYTES,photoParts} from './photo-trailer.js';
 
 const PHOTO_ACCESS={mode:'readwrite'};
+export const PHOTO_STATUS_CHANGE='keeplocal-photo-status';
+let lastFailure=null;
+
+export function photoFailureFor({vaultId,folderConnectionId}) {
+  if(lastFailure&&lastFailure.vaultId===vaultId&&lastFailure.folderConnectionId===folderConnectionId)
+    return lastFailure.failure;
+  return null;
+}
+
+export function updatePhotoStatus({vaultId,folderConnectionId},failure=null) {
+  lastFailure=failure?{vaultId,folderConnectionId,failure}:null;
+  globalThis.dispatchEvent?.(new Event(PHOTO_STATUS_CHANGE));
+}
 
 export function photoFailure(code,params) {
   return Object.assign(new Error(code),{code,params});
@@ -69,6 +82,7 @@ export async function choosePhotoFolder({key,signal,confirm}) {
   await withVaultLineage(async()=>{
     await requireFolderSession({meta},key,signal);
     await storePhotoFolder(meta,handle,names,signal);
+    updatePhotoStatus(meta);
   });
 }
 
@@ -77,5 +91,6 @@ export async function disconnectPhotoFolder({key,signal}) {
   await withVaultLineage(async()=>{
     await requireFolderSession({meta},key,signal);
     await storePhotoFolder(meta,null,null,signal);
+    updatePhotoStatus(meta);
   });
 }
