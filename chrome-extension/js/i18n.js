@@ -279,7 +279,8 @@ const en = {
   'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
   "backup.replaceConfirm": "Replace {local} in this vault with {incoming} from the backup? Export the current vault first if you need to keep it.",
-  "backup.replaceConnected": "The vault folder will be disconnected. Choose the folder again after importing so KeepLocal can compare both copies.",
+  "backup.replaceConnected": "Replace {local} in this vault with {incoming} from the backup? KeepLocal will preserve your current vault in keeplocal-preserved/ before replacing it. The vault folder will be disconnected. Choose the folder again after importing so KeepLocal can compare both copies.",
+  "backup.preserveConnectedFailed": "Could not preserve your current vault in the folder. Export it or disconnect the folder before importing.",
   "backup.cancelled": "Import cancelled. Your vault was preserved.",
 
   'notes.unreadablePlural': '{count} notes could not be opened for editing. Their encrypted records have been preserved and will remain in backups. Keep a backup before attempting recovery.',
@@ -703,7 +704,8 @@ const ptBR = {
   'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
   "backup.replaceConfirm": "Substituir {local} neste cofre por {incoming} do backup? Exporte o cofre atual antes se precisar preservá-lo.",
-  "backup.replaceConnected": "A pasta do cofre será desconectada. Depois de importar, escolha a pasta novamente para o KeepLocal comparar as duas cópias.",
+  "backup.replaceConnected": "Substituir {local} neste cofre por {incoming} do backup? O KeepLocal preservará o cofre atual em keeplocal-preserved/ antes de substituí-lo. A pasta do cofre será desconectada. Depois de importar, escolha a pasta novamente para o KeepLocal comparar as duas cópias.",
+  "backup.preserveConnectedFailed": "Não foi possível preservar o cofre atual na pasta. Exporte o cofre ou desconecte a pasta antes de importar.",
   "backup.cancelled": "Importação cancelada. Seu cofre foi preservado.",
 
   'notes.unreadablePlural': '{count} notas não puderam ser abertas para edição. Os registros cifrados foram preservados e continuam nos backups. Guarde uma cópia antes de tentar recuperar.',

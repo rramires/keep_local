@@ -1,4 +1,4 @@
-import {makePayload,encodeV2} from './backup-v2.js';
+import {BACKUP_PROFILES,decodePayloadV2,makePayload,encodeV2} from './backup-v2.js';
 import {base64ToArray,bytesHash} from './crypto.js';
 export {bytesHash} from './crypto.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
@@ -23,19 +23,23 @@ async function allocateFile(directory,stem,beforeWrite) {
   }
 }
 
-async function verifyPreserved(file,size,hash,key,salt) {
+async function verifyPreserved(file,size,hash,key,salt,allowUnreadable=false) {
   const reread=await withFolderReadTimeout(async()=>{
     const stored=await file.getFile();
     if(stored.size!==size)throw folderFailure('folder.preserveFailed');
     return new Uint8Array(await stored.arrayBuffer());
   },'file');
-  if(await bytesHash(reread)!==hash||
-     (key&&(await decodeV2WithKey(reread,key,salt)).status!=='valid'))
+  if(await bytesHash(reread)!==hash)throw folderFailure('folder.preserveFailed');
+  if(!key)return;
+  if(allowUnreadable){
+    await decodePayloadV2(reread,key,BACKUP_PROFILES[0]);
+  }else if((await decodeV2WithKey(reread,key,salt)).status!=='valid'){
     throw folderFailure('folder.preserveFailed');
+  }
 }
 
 async function preserve(handle,{bytes,side,rev},key,salt,signal,
-  {beforeWrite=()=>signal.throwIfAborted(),cleanFailure=true}={}) {
+  {beforeWrite=()=>signal.throwIfAborted(),cleanFailure=true,allowUnreadable=false}={}) {
   const hash=await bytesHash(bytes);
   const time=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
   beforeWrite();
@@ -51,7 +55,7 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal,
     await stream.write(bytes);
     beforeWrite();
     await stream.close();
-    await verifyPreserved(file,bytes.length,hash,key,salt);
+    await verifyPreserved(file,bytes.length,hash,key,salt,allowUnreadable);
     return file.name;
   } catch(error) {
     if(stream)await stream.abort().catch(()=>{});
@@ -120,15 +124,17 @@ export async function preserveFolderChoice(handle,copies,key,salt,signal,preserv
   }
 }
 
-export async function preserveLocalChoice(handle,{notes,meta},key,signal) {
+export async function preserveLocalChoice(handle,{notes,meta},key,signal,{allowUnreadable=false}={}) {
   try {
-    validateRecords(notes);
-    await decryptRecords(notes,key);
+    if(!allowUnreadable){
+      validateRecords(notes);
+      await decryptRecords(notes,key);
+    }
     const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const rev=meta.exportRev||0;
     const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock);
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
-    return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal);
+    return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal,{allowUnreadable});
   } catch(error) {
     if(error.name==='TimeoutError'||signal.aborted)throw error;
     throw folderFailure('folder.preserveFailed');

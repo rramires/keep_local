@@ -358,7 +358,10 @@ is still required at every opening.
 1. Sign in and choose **Settings → Import backup**. Select the `.keeplocal`
    file from `keeplocal-history/` and enter the passphrase for that copy.
    Confirm the replacement of this browser's vault and its disconnection
-   from the folder.
+   from the folder. With a folder connected, KeepLocal saves and verifies
+   a copy of this browser's current vault in `keeplocal-preserved/` first.
+   If it cannot preserve the vault, export it or disconnect the folder before
+   importing.
 2. In **Settings → Vault folder → Choose folder…**, select the original vault
    folder. If asked, provide the passphrase for its current main file so
    KeepLocal can compare the copies. In the review, choose **Write local data

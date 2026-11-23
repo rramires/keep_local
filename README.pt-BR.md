@@ -348,6 +348,9 @@ obrigatória a cada abertura.
 1. Entre no cofre e escolha **Configurações → Importar backup**. Selecione o
    arquivo `.keeplocal` em `keeplocal-history/` e digite a frase-senha daquela
    cópia. Confirme a substituição do cofre local e a desconexão da pasta.
+   Com a pasta conectada, o KeepLocal grava e confere uma cópia do cofre local
+   atual em `keeplocal-preserved/` antes da substituição. Se a preservação
+   falhar, exporte o cofre ou desconecte a pasta antes de importar.
 2. Em **Configurações → Pasta do cofre → Escolher pasta…**, selecione a pasta
    original do cofre. Se o app pedir, digite a frase-senha do arquivo
    principal atual para comparar as cópias. Na revisão, escolha **Gravar os

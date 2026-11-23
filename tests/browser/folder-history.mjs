@@ -1,4 +1,4 @@
-import {launchExtension,note,PASSWORD} from './harness.mjs';
+import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {withTwoProfiles,connectBoth,editNote,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
 import {connectedCopyPage,folderCopyEvidence,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
@@ -418,16 +418,15 @@ async function pickReserved(page,name){
   })()`);
 }
 
-async function importHistoryFromSettings(page,name,password,assert){
-  await openSettings(page);
+async function importFromSettings(page,fileExpression,password,assert,action='change'){
+  await openSettings(page,action);
   assert.ok(await page.eval("!!document.querySelector('[data-folder-action=importBackup]')"),
     'Settings must expose the existing backup import form');
   await page.eval("document.querySelector('[data-folder-action=importBackup]').click()");
   await page.until("!!document.querySelector('#import-file')");
   await page.eval(`(async()=>{
-    const file=await (await historyTest.dir()).getFileHandle(${JSON.stringify(name)});
     const data=new DataTransfer();
-    data.items.add(await file.getFile());
+    data.items.add(await (${fileExpression}));
     const input=document.querySelector('#import-file');
     input.files=data.files;
     input.dispatchEvent(new Event('change'));
@@ -436,6 +435,11 @@ async function importHistoryFromSettings(page,name,password,assert){
     password.dispatchEvent(new Event('input'));
     document.querySelector('#import-btn').click();
   })()`);
+}
+
+function importHistoryFromSettings(page,name,password,assert){
+  const file=`(async()=>{const slot=await (await historyTest.dir()).getFileHandle(${JSON.stringify(name)});return slot.getFile();})()`;
+  return importFromSettings(page,file,password,assert);
 }
 
 export async function runSettings({check,assert}){
@@ -641,7 +645,11 @@ export async function runRestore({check,assert}){
         document.querySelector('#import-btn').click();
       })()`);
       await confirmImport(page,assert);
-      assert.deepEqual((await folderCopyEvidence(page)).files,before.files);
+      const {files}=await folderCopyEvidence(page);
+      assert.equal(Object.keys(files).length,Object.keys(before.files).length+1);
+      for(const [name,hash] of Object.entries(before.files))assert.equal(files[name],hash);
+      const [preserved]=await preservedLocalFiles(page);
+      assert.deepEqual((await decodeV2(Buffer.from(preserved,'base64'),NEW_PASSWORD)).payload.notes,before.vault.notes);
 
       await signIn(page,NEW_PASSWORD);
       assert.equal(await page.eval("document.querySelector('#login-error').textContent"),'Incorrect passphrase.');
@@ -649,5 +657,113 @@ export async function runRestore({check,assert}){
       await ready(page);
       assert.equal(await page.eval("(await import('./js/app.js')).getNotes()[0]?.title"),'Fictional browser notes');
     });
+  });
+}
+
+async function preservedLocalFiles(page){
+  return page.eval(`(async()=>{
+    const root=await folderTest.directory();
+    const files=[];
+    try{
+      const dir=await root.getDirectoryHandle('keeplocal-preserved');
+      for await(const entry of dir.values()){
+        if(entry.kind==='file'&&entry.name.includes('-local-'))
+          files.push(new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64());
+      }
+    }catch(error){if(error.name!=='NotFoundError')throw error;}
+    return files;
+  })()`);
+}
+
+export async function runImportPreservation({check,assert}){
+  await check('P1-M1 importing the daily copy preserves a local edit after main writes fail',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      const original=await readFolderFixture(page,MAIN);
+      const unsent='Fictional unsent local edit kiwi';
+      await page.eval('folderTest.failWrites=1000');
+      await editNote(page,id,{content:unsent});
+      await focus(page);
+      await page.until("!!document.querySelector('[data-folder-state=error]')");
+      assert.equal(await readFolderFixture(page,MAIN),original);
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await confirmImport(page,assert);
+
+      const files=await preservedLocalFiles(page);
+      assert.equal(files.length,1,'the import must preserve the local snapshot');
+      const {key,payload}=await decodeV2(Buffer.from(files[0],'base64'),PASSWORD);
+      assert.equal((await decryptRecords(payload.notes,key)).find(note=>note.id===id)?.content,unsent);
+      assert.equal(await readFolderFixture(page,MAIN),original);
+      assert.equal(await readSlot(page,MONDAY),original);
+      await waitForNotes(page,['Fictitious text á 🚀'],notes=>notes.map(note=>note.content));
+      await page.eval('folderTest.failWrites=0;folderTest.writeAttempts=0');
+      await editNote(page,id,{content:'Fictional edit after disconnection'});
+      await focus(page);
+      await waitForFolderLineage(page);
+      assert.equal(await page.eval('folderTest.writeAttempts'),0);
+    });
+  });
+
+  await check('P1-M1 the confirmation names the preserved copy and keeps unreadable records in it',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await page.until("!!document.querySelector('.app-dialog')");
+      const warning=await page.eval("document.querySelector('.app-dialog').textContent");
+      assert.match(warning,/preserve your current vault in keeplocal-preserved\//i);
+
+      // Simulate a damaged record appearing while the replacement dialog is open.
+      const damaged=await page.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const original=await db.getNoteRecord(${JSON.stringify(id)});
+        const damaged={...original,ciphertext:'invalid fictional ciphertext'};
+        await db.saveNoteRecord(damaged);
+        return damaged;
+      })()`);
+      await confirmImport(page,assert);
+      const [copy]=await preservedLocalFiles(page);
+      assert.ok(copy);
+      assert.deepEqual((await decodeV2(Buffer.from(copy,'base64'),PASSWORD)).payload.notes,[damaged]);
+    });
+  });
+
+  for(const [failure,setup] of [
+    ['a refused preservation write',"folderTest.failPreservation=true"],
+    ['a failed preservation readback',"folderTest.failPreservation='tamper'"],
+    ['an unresponsive directory',"folderTest.stalls.add('keys')"],
+  ]) await check(`P1-M1 ${failure} stops import with the original vault and folder intact`,async()=>{
+    await withHistoryPage(async(page)=>{
+      const before=await folderCopyEvidence(page);
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await page.until("!!document.querySelector('.app-dialog')");
+      await page.eval(`folderTest.clear();${setup};document.querySelector('[data-dialog-action=confirm]').click()`);
+      await page.until("!document.querySelector('.app-dialog')&&(!!document.querySelector('#import-error')?.textContent||!document.querySelector('#import-form'))");
+      const error=await page.eval("document.querySelector('#import-error')?.textContent||''");
+      assert.match(error,/could not preserve your current vault.*export it or disconnect the folder before importing/i);
+      if(failure==='an unresponsive directory'){
+        assert.deepEqual(await page.eval("folderTest.pending.map(({kind})=>kind)"),['keys']);
+        await page.eval("folderTest.stalls.clear();folderTest.release()");
+      }
+      await waitForFolderLineage(page);
+      assert.deepEqual(await page.eval('folderTest.writes'),{});
+      assert.deepEqual(await folderCopyEvidence(page),before);
+    });
+  });
+
+  await check('P1-M1 importing without a connected folder never accesses OPFS',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await browser.page(undefined,folderFixtureSource());
+      await create(page);
+      const fixture=await backupFixture([note({title:'Fictional disconnected import'})]);
+      await page.eval(`window.folderTouches=[];
+        const getDirectory=navigator.storage.getDirectory.bind(navigator.storage);
+        navigator.storage.getDirectory=(...args)=>{folderTouches.push('OPFS');return getDirectory(...args);}`);
+      const file=`new File([Uint8Array.fromBase64(${JSON.stringify(fixture.base64)})],'fictional-backup.keeplocal')`;
+      await importFromSettings(page,file,PASSWORD,assert,'choose');
+      await page.until("!!document.querySelector('.app-dialog')");
+      assert.doesNotMatch(await page.eval("document.querySelector('.app-dialog').textContent"),/keeplocal-preserved|disconnected/i);
+      await page.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+      await waitForNotes(page,['Fictional disconnected import'],notes=>notes.map(note=>note.title));
+      assert.deepEqual(await page.eval('folderTouches'),[]);
+    }finally{await browser.close();}
   });
 }
