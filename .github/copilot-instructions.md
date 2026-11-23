@@ -19,7 +19,8 @@ handle), `folderConnectionId`, `folderSyncedHash`, `folderSyncedClock`, `folderS
 local-side versions of an unrecorded write), `writerId`/`writerCount` (this vault's folder
 writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev`,
 `folderWrittenAt` and `folderSaltClock` (folder clock when the vault passphrase last changed
-through the folder; decides which passphrase wins); none of it is exported. Local-only vault preferences
+through the folder; decides which passphrase wins) and `folderHistoryDay`/`folderHistoryWeek`/`folderHistoryAt`
+(history slots last written); none of it is exported. Local-only vault preferences
 (`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
@@ -53,6 +54,11 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   dirty state, export compare-and-swap and download acknowledgement.
 - `backup-format.js`, `backup-v2.js`, `backup.js`: bounds/schema, binary crypto,
   file UI and pending state. Download initiation never confirms disk/cloud sync.
+- `import-ui.js`: backup import form shared by sign-in and Settings. With a connected folder
+  (Settings only), the import runs in the lineage lock, preserves the current local vault in
+  `keeplocal-preserved/` first (unreadable records kept as-is; a failure imports nothing),
+  replaces under the reread snapshot guard and leaves the folder disconnected; choosing the
+  folder again leads to the review.
 - `vault-events.js`: cross-tab notifications; DB guards remain the authority.
 - `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
 - `recovery.js`: safe viewing and copying of preserved invalid data; typed discard requires a
@@ -113,6 +119,14 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     `keeplocal-preserved/` (exact bytes or encrypted local snapshot), read back and
     verified; failure replaces nothing. Never cleaned; reads stay root-only. Within one
     reconciliation the same bytes are preserved once (reuse rereads and verifies).
+  - `folder-history.js`, `folder-history-write.js`: rotating history in `keeplocal-history/`
+    (7 daily `keeplocal-day-<n>-<weekday>` and 4 weekly `keeplocal-week-<n>` slots from the local
+    day of the encrypted `exportedAt`). After a normal write's receipt (never on replace), the first
+    write of a day or week copies the exact main bytes into its slot inside the lineage lock: a slot
+    already from that period is kept, a slot with a higher `rev` is preserved first, the copy is
+    read back and hash-verified, and any failure is swallowed without touching the main file. The
+    app never reads or cleans the history; `keeplocal-history`/`keeplocal-preserved` are refused as
+    vault or copy folders (`isFolderCopyDirectory`).
   - Other passphrase in the folder (password changed on another PC):
     `folder-salt.js` converts records/copies between keys and picks the target with
     `folderSaltTarget` (no `folderSaltClock` → folder; otherwise the head's descent from
@@ -188,6 +202,6 @@ Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the o
 roadmap, one package per owner request (small or same-area items may share a package): H1 (standalone recovery tool and
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
-recovery, merged), H2c (rotating copies), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
+recovery, merged), H2c (rotating history copies, package P1, merged), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
