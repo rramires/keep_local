@@ -153,6 +153,33 @@ test('H2a.9b an archived pending B2 precedes the older B1 receipt when current B
   assert.deepEqual(merged.notes.map(note=>note.content),['B latest edit']);
 });
 
+test('P1.0 four normal writes retain four distinct hashed receipts',async()=>{
+  const model=scenario();
+  let head=model.root(1);
+  const pc=model.pc(1,head),hashes=[];
+  for(let write=0;write<4;write++){
+    model.edit(pc,0,`Fictional edit ${write}`);
+    const result=await model.sync(pc,head);
+    assert.equal(result.decision,'push');
+    head=result.file;
+    hashes.unshift(head.hash);
+  }
+  assert.deepEqual(pc.meta.folderSyncedBases.map(base=>base.hash),hashes);
+});
+
+test('P1.0 only nonempty clock matches remove a hashless base in either order',()=>{
+  const receipt={hash:'receipt',clock:{[uuid(1)]:3,[uuid(2)]:2},versions:{a:2}};
+  const pending={clock:{[uuid(2)]:2,[uuid(1)]:3},versions:{a:1}};
+  const unmatched={clock:{[uuid(1)]:4},versions:{a:3}};
+  const legacy={hash:'legacy',clock:{},versions:{a:0}};
+  const empty={clock:{},versions:{b:0}};
+  for(const pair of [[pending,receipt],[receipt,pending]]){
+    assert.deepEqual(versions.retainFolderBases([...pair,unmatched,legacy,empty]),[receipt,unmatched,legacy,empty]);
+  }
+  const head={hash:'head',payload:{clock:receipt.clock}};
+  assert.equal(versions.baseForFolderHead({folderPendingWrite:pending,folderSyncedBases:[receipt]},head),pending.versions);
+});
+
 for(const closes of [false,true]){
   test(`H2a.9b C5 600 disjoint schedules retain every edit without copies ${closes?'with':'without'} interrupted writes`,async t=>{
     let seed=0x0c10c4a8+Number(closes);
