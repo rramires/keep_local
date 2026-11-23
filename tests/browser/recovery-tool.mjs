@@ -10,6 +10,7 @@ import { decodeV2, payloadHash } from '../../js/backup-v2.js';
 import { folderFixtureSource } from './folder-fixture.mjs';
 import { readFolderFixture } from './folder-transfer.mjs';
 import { submitExtensionLogin } from './extension.mjs';
+import { buildPhoto } from '../../js/photo-trailer.js';
 
 const GOLDEN_PASSWORD = 'Fictitious Rescue Cafe\u0301 42! 🔑';
 const GOLDEN = join(ROOT, 'tests/fixtures/profile2-golden.keeplocal');
@@ -171,6 +172,7 @@ export async function assertReadsMergedCopy({browser,assert,base64,titles,secret
 }
 
 export async function run({ browser, check, assert }) {
+  await runPhotoRecovery({browser,check,assert});
   await check('H1.1 standalone file opens the golden backup and renders plaintext safely', async () => {
     await withRecovery(browser, async ({ page, directory, url }) => {
       await openGolden(page, directory);
@@ -667,4 +669,50 @@ export async function run({ browser, check, assert }) {
     });
   });
 
+}
+
+export async function runPhotoRecovery({browser,check,assert}) {
+  await check('P2.4 standalone reader opens a photo, shows revision and date, and reports a photo without a vault copy',async()=>{
+    await withRecovery(browser,async({page,directory,url})=>{
+      const bytes=Buffer.from(await page.eval(`(async()=>{
+        const canvas=new OffscreenCanvas(3,4);
+        canvas.getContext('2d').fillRect(0,0,3,4);
+        return new Uint8Array(await (await canvas.convertToBlob({type:'image/png'})).arrayBuffer()).toBase64();
+      })()`),'base64');
+      const fixture=await backupFixture([note({title:'Fictional recovered photo'})]);
+      const exportedAt='2026-08-17T13:45:00.000Z';
+      const copy=Buffer.from(await fixture.seal({...fixture.payload,rev:27,exportedAt}),'base64');
+      const photo=join(directory,'fictional.png');
+      await writeFile(photo,buildPhoto(bytes,copy));
+      await selectFile(page,photo);
+      await submit(page,PASSWORD);
+      await page.until("!document.querySelector('#results').hidden||(!document.querySelector('#error').hidden&&!document.querySelector('#open-backup').disabled)");
+      assert.equal(await page.eval("document.querySelector('#results').hidden"),false,
+        await page.eval("document.querySelector('#error').textContent"));
+      assert.equal(await page.eval("document.querySelector('[data-stat=revision] dd').textContent"),'27');
+      assert.equal(await page.eval("document.querySelector('[data-stat=exported] dd').textContent"),exportedAt);
+      assert.equal(await page.eval("document.querySelector('.note-title').textContent"),'Fictional recovered photo');
+      assert.ok(page.requests.every(request=>request===url));
+      assert.deepEqual(page.errors,[]);
+      assert.deepEqual(await page.eval('browserWrites'),[]);
+      await page.eval("document.querySelector('#close-backup').click()");
+      await setLanguage(page,'pt-BR');
+      const clean=join(directory,'fictional-clean.png');
+      await writeFile(clean,bytes);
+      await selectFile(page,clean);
+      await submit(page,PASSWORD);
+      await page.until("!document.querySelector('#error').hidden && !document.querySelector('#open-backup').disabled");
+      assert.match(await page.eval("document.querySelector('#error').textContent"),/esta foto não tem uma cópia do cofre/i);
+      assert.equal(await page.eval("document.querySelector('#results').hidden&&document.querySelector('#notes').childElementCount===0"),true);
+
+      const salt=Uint8Array.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,1,2,3,4,5,6,7,8]);
+      const raw=await backupFixture([note({title:'Fictional raw backup with PNG salt prefix'})],PASSWORD,salt);
+      const rawPath=join(directory,'fictional-raw.keeplocal');
+      await writeFile(rawPath,raw.bytes);
+      await selectFile(page,rawPath);
+      await submit(page,PASSWORD);
+      await page.until("!document.querySelector('#results').hidden");
+      assert.equal(await page.eval("document.querySelector('.note-title').textContent"),'Fictional raw backup with PNG salt prefix');
+    },instrumentFilePage);
+  });
 }

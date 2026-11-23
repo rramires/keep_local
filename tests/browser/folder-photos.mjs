@@ -1,5 +1,6 @@
 import {create,launchExtension,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
+import {backupFixture} from './backup-fixture.mjs';
 import {connectedCopyPage} from './folder-copy-view.mjs';
 import {editNote,focus,waitForFolderLineage,waitForRev} from './folder-merge.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
@@ -559,5 +560,90 @@ export async function runWriteNow({check,assert}){
       assert.equal(await principal(page),foreign);
       assert.deepEqual(await page.eval('photoTest.writes'),[]);
     });
+  });
+}
+
+async function importPhoto(page,name,encoded){
+  await page.eval("document.querySelector('#folder-settings-btn').click()");
+  await page.until("!!document.querySelector('[data-folder-action=importBackup]')");
+  await page.eval("document.querySelector('[data-folder-action=importBackup]').click()");
+  await page.until("!!document.querySelector('#import-btn')");
+  await page.eval(`(()=>{
+    const file=new File([Uint8Array.fromBase64(${JSON.stringify(encoded)})],${JSON.stringify(name)});
+    const data=new DataTransfer();
+    data.items.add(file);
+    const input=document.querySelector('#import-file');
+    input.files=data.files;
+    input.dispatchEvent(new Event('change'));
+    const password=document.querySelector('#import-password');
+    password.value=${JSON.stringify(PASSWORD)};
+    password.dispatchEvent(new Event('input'));
+    document.querySelector('#import-btn').click();
+  })()`);
+}
+
+export async function runPhotoImport({check,assert}){
+  await check('P2.4 Import backup restores the daily photo and preserves the connected browser’s newer edit',async()=>{
+    await withPhotosPage(async page=>{
+      await configurePhotos(page,assert);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      const main=await autoWrite(page,2),name=photoNames[0];
+      const {copy}=photoParts(Buffer.from(await readPhoto(page,name),'base64'));
+      assert.equal(copy.toString('base64'),main);
+      await setPhotoTime(page,'2026-08-17T10:10:00');
+      const changed=await autoWrite(page,3);
+      await clearPhotoSpies(page);
+      await importPhoto(page,name,await readPhoto(page,name));
+      await page.until("!!document.querySelector('.app-dialog')||!!document.querySelector('#import-error')?.textContent");
+      assert.ok(await page.eval("!!document.querySelector('.app-dialog')"),
+        await page.eval("document.querySelector('#import-error')?.textContent"));
+      assert.match(await page.eval("document.querySelector('.app-dialog').textContent"),
+        /will preserve your current vault in keeplocal-preserved\//i);
+      assert.match(await page.eval("document.querySelector('#import-file').accept"),/\.jpg/);
+      await page.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+      await page.until("!document.querySelector('#import-form')&&!document.querySelector('.app-dialog')&&(await import('./js/app.js')).getNotes()[0]?.content==='Fictional photo revision 2'");
+      assert.deepEqual(await photoMeta(page),{});
+      assert.equal(await principal(page),changed);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      const preserved=await page.eval(`(async()=>{
+        const dir=await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+        const copies=[];
+        for await(const entry of dir.values())copies.push(new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64());
+        return copies;
+      })()`);
+      assert.equal(preserved.length,1);
+      const {decryptRecords}=await import('../../js/backup-format.js');
+      const {key,payload}=await decodeV2(Buffer.from(preserved[0],'base64'),PASSWORD);
+      assert.equal((await decryptRecords(payload.notes,key))[0].content,'Fictional photo revision 3');
+    });
+  });
+
+  await check('P2.4 Import backup reports a clean image without offering to replace the vault',async()=>{
+    await withPhotosPage(async page=>{
+      await page.eval('photoTest.fill()');
+      const before=await principal(page);
+      await clearPhotoSpies(page);
+      await importPhoto(page,'fictional-vault.keeplocal',await readPhoto(page,photoNames[1]));
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      assert.match(await page.eval("document.querySelector('#import-error').textContent"),/this photo does not contain a vault copy/i);
+      assert.equal(await page.eval("!!document.querySelector('.app-dialog')"),false);
+      assert.equal(await principal(page),before);
+      await assertNoPhotoWrites(page,assert);
+    });
+  });
+  await check('P2.4 a raw profile 2 backup whose salt starts with a JPEG signature still imports',async()=>{
+    const salt=Uint8Array.from([0xff,0xd8,0xff,1,2,3,4,5,6,7,8,9,10,11,12,13]);
+    const fixture=await backupFixture(undefined,PASSWORD,salt);
+    const browser=await launchExtension();
+    try{
+      const page=await browser.page();
+      const imported=await page.eval(`(async()=>{
+        const {importBackup}=await import('./js/backup.js');
+        const bytes=Uint8Array.fromBase64(${JSON.stringify(fixture.base64)});
+        await importBackup(new File([bytes],'fictional-raw.keeplocal'),${JSON.stringify(PASSWORD)});
+        return (await (await import('./js/db.js')).getAllNoteRecords()).length;
+      })()`);
+      assert.equal(imported,fixture.records.length);
+    }finally{await browser.close();}
   });
 }

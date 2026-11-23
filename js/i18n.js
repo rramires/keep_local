@@ -306,6 +306,8 @@ const en = {
 
   'note.saveFailed': 'Could not save locally. Your draft is still open. Retry before closing.',
   "backup.tooLarge": "Backup exceeds the 64 MiB limit.",
+  "backup.photoNoCopy": "This photo does not contain a vault copy.",
+  "backup.photoTooLarge": "Photo exceeds the 96 MiB limit plus the four-byte trailer length.",
   "backup.replaceConfirm": "Replace {local} in this vault with {incoming} from the backup? Export the current vault first if you need to keep it.",
   "backup.replaceConnected": "Replace {local} in this vault with {incoming} from the backup? KeepLocal will preserve your current vault in keeplocal-preserved/ before replacing it. The vault folder will be disconnected. Choose the folder again after importing so KeepLocal can compare both copies.",
   "backup.preserveConnectedFailed": "Could not preserve your current vault in the folder. Export it or disconnect the folder before importing.",
@@ -438,7 +440,7 @@ const en = {
   'auth.login': 'Login',
 
   // Import
-  'import.dropzoneText': 'Drag the backup file or click to select',
+  'import.dropzoneText': 'Drop a backup file or a photo, or click to select',
   'import.backupPassword': 'Backup passphrase',
   'import.backupPlaceholder': 'Enter the passphrase used for this backup',
   'import.importButton': 'Import backup',
@@ -759,6 +761,8 @@ const ptBR = {
 
   'note.saveFailed': 'Não foi possível salvar localmente. Seu rascunho continua aberto. Tente novamente antes de fechar.',
   "backup.tooLarge": "O backup excede o limite de 64 MiB.",
+  "backup.photoNoCopy": "Esta foto não tem uma cópia do cofre.",
+  "backup.photoTooLarge": "A foto excede o limite de 96 MiB mais os quatro bytes de tamanho da cópia.",
   "backup.replaceConfirm": "Substituir {local} neste cofre por {incoming} do backup? Exporte o cofre atual antes se precisar preservá-lo.",
   "backup.replaceConnected": "Substituir {local} neste cofre por {incoming} do backup? O KeepLocal preservará o cofre atual em keeplocal-preserved/ antes de substituí-lo. A pasta do cofre será desconectada. Depois de importar, escolha a pasta novamente para o KeepLocal comparar as duas cópias.",
   "backup.preserveConnectedFailed": "Não foi possível preservar o cofre atual na pasta. Exporte o cofre ou desconecte a pasta antes de importar.",
@@ -891,7 +895,7 @@ const ptBR = {
   'auth.login': 'Entrar',
 
   // Import
-  'import.dropzoneText': 'Arraste o arquivo de backup ou clique para selecionar',
+  'import.dropzoneText': 'Arraste um arquivo de backup ou uma foto, ou clique para selecionar',
   'import.backupPassword': 'Frase-senha do backup',
   'import.backupPlaceholder': 'Digite a frase-senha usada neste backup',
   'import.importButton': 'Importar backup',

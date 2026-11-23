@@ -7,7 +7,7 @@ export function importFormMarkup(className) {
       <div class="import-icon" aria-hidden="true">📁</div>
       <div class="import-text">${t('import.dropzoneText')}</div>
       <div class="import-filename hidden" id="import-filename"></div>
-      <input type="file" id="import-file" accept=".keeplocal" style="display:none">
+      <input type="file" id="import-file" accept=".keeplocal,.jpg,.jpeg,.png" style="display:none">
     </div>
     <div class="form-group form-field">
       <label for="import-password">${t('import.backupPassword')}</label>

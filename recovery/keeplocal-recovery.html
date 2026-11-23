@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-UPAsh/6rCd5JTqs4H4CSUZcl2fwwg+SzvkUL3GD0jok='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HMMIIg5ghworPX5xwc4fZ29omNoI9uGnEjcSxM8X9Dc='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -102,12 +102,12 @@
     </label>
   </header>
   <h1 data-i18n="heading">Backup recovery</h1>
-  <p class="intro" data-i18n="intro">Open an encrypted backup to read its notes on this device.</p>
+  <p class="intro" data-i18n="intro">Open an encrypted backup or a photo containing a vault copy to read its notes on this device.</p>
   <form id="unlock" class="panel" autocomplete="off">
     <div id="drop-zone">
       <label for="backup-file" data-i18n="file">Encrypted backup</label>
-      <input id="backup-file" type="file" accept=".keeplocal,application/octet-stream" aria-describedby="file-hint">
-      <small id="file-hint" data-i18n="fileHint">Choose or drop one .keeplocal file up to 64 MiB.</small>
+      <input id="backup-file" type="file" accept=".keeplocal,.jpg,.jpeg,.png,application/octet-stream" aria-describedby="file-hint">
+      <small id="file-hint" data-i18n="fileHint">Choose or drop a .keeplocal backup up to 64 MiB or a JPEG or PNG photo.</small>
       <p id="file-name" role="status" hidden></p>
     </div>
     <label for="password" data-i18n="password">Backup passphrase</label>
@@ -142,6 +142,13 @@
   'use strict';
 
   const MAX_FILE_BYTES = 64 * 1024 * 1024;
+  const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+  const MAX_PHOTO_BYTES = MAX_IMAGE_BYTES + MAX_FILE_BYTES + 4;
+  const PHOTO_FORMATS = [
+    { signature: [0xff, 0xd8, 0xff], end: [0xff, 0xd9], minimum: 4 },
+    { signature: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      end: [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82], minimum: 20 },
+  ];
   const MAX_NOTE_BYTES = 2 * 1024 * 1024;
   const MAX_NOTES = 10_000;
   const PROFILES = [Object.freeze({ id: 2, iterations: 600_000 })];
@@ -154,15 +161,17 @@
   const messages = {
     en: {
       heading: 'Backup recovery',
-      intro: 'Open an encrypted backup to read its notes on this device.',
+      intro: 'Open an encrypted backup or a photo containing a vault copy to read its notes on this device.',
       language: 'Language',
       file: 'Encrypted backup',
-      fileHint: 'Choose or drop one .keeplocal file up to 64 MiB.',
+      fileHint: 'Choose or drop a .keeplocal backup up to 64 MiB or a JPEG or PNG photo.',
       password: 'Backup passphrase',
       open: 'Open',
       opening: 'Opening…',
-      chooseFile: 'Choose one .keeplocal file.',
+      chooseFile: 'Choose a .keeplocal backup or a photo.',
       tooLarge: 'This backup exceeds 64 MiB.',
+      photoTooLarge: 'This photo exceeds 96 MiB plus the four-byte trailer length.',
+      photoNoCopy: 'This photo does not contain a vault copy.',
       badBackup: 'Could not open this backup. Check the passphrase and whether the file is damaged or unsupported.',
       opened: 'Opened backup',
       close: 'Close',
@@ -197,15 +206,17 @@
     },
     'pt-BR': {
       heading: 'Recuperação de backup',
-      intro: 'Abra um backup cifrado para ler as notas neste dispositivo.',
+      intro: 'Abra um backup cifrado ou uma foto com uma cópia do cofre para ler as notas neste dispositivo.',
       language: 'Idioma',
       file: 'Backup cifrado',
-      fileHint: 'Escolha ou arraste um arquivo .keeplocal de até 64 MiB.',
+      fileHint: 'Escolha ou arraste um backup .keeplocal de até 64 MiB ou uma foto JPEG ou PNG.',
       password: 'Senha do backup',
       open: 'Abrir',
       opening: 'Abrindo…',
-      chooseFile: 'Escolha um arquivo .keeplocal.',
+      chooseFile: 'Escolha um backup .keeplocal ou uma foto.',
       tooLarge: 'Este backup ultrapassa 64 MiB.',
+      photoTooLarge: 'Esta foto ultrapassa 96 MiB mais os quatro bytes de tamanho da cópia.',
+      photoNoCopy: 'Esta foto não tem uma cópia do cofre.',
       badBackup: 'Não foi possível abrir o backup. Confira a senha e se o arquivo está danificado ou é incompatível.',
       opened: 'Backup aberto',
       close: 'Fechar',
@@ -360,15 +371,52 @@
     renderClipboard();
   }
 
+  function photoFormat(bytes) {
+    return PHOTO_FORMATS.find(format => format.signature.every((value, i) => bytes[i] === value));
+  }
+
+  function photoCopy(bytes, format) {
+    if (!format || bytes.length < 4) return null;
+    const offset = bytes.length - 4;
+    const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(offset, true);
+    const boundary = offset - length;
+    if (length < 44 || length > MAX_FILE_BYTES || boundary < format.minimum || boundary > MAX_IMAGE_BYTES) return null;
+    if (!format.end.every((value, i) => bytes[boundary - format.end.length + i] === value)) return null;
+    return bytes.subarray(boundary, offset);
+  }
+
+  async function openFile(file, password, startedIn) {
+    if (file.size > MAX_FILE_BYTES) {
+      if (!photoFormat(new Uint8Array(await file.slice(0, 8).arrayBuffer()))) throw new Error('tooLarge');
+      if (file.size > MAX_PHOTO_BYTES) throw new Error('photoTooLarge');
+    }
+    if (generation !== startedIn) return null;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (generation !== startedIn) return null;
+    const format = photoFormat(bytes);
+    const copy = photoCopy(bytes, format);
+    const canOpenRaw = bytes.length >= 44 && bytes.length <= MAX_FILE_BYTES;
+    if (!copy && !canOpenRaw) throw new Error(format ? 'photoNoCopy' : 'badBackup');
+    const material = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, ['deriveKey']);
+    password.fill(0);
+    if (generation !== startedIn) return null;
+    if (copy) {
+      try { return await openEnvelope(copy, material, startedIn); }
+      catch { if (generation !== startedIn) return null; }
+    }
+    // Legacy envelopes have no magic and their salt can begin with an image signature.
+    if (canOpenRaw) {
+      try { return await openEnvelope(bytes, material, startedIn); }
+      catch { if (generation !== startedIn) return null; }
+    }
+    throw new Error(format && !copy ? 'photoNoCopy' : 'badBackup');
+  }
+
   // Independent profile 2 reader. File bytes never select the cost or the AAD shape.
-  async function openEnvelope(bytes, passwordBytes, startedIn) {
+  async function openEnvelope(bytes, material, startedIn) {
     const salt = bytes.subarray(0, 16);
     const iv = bytes.subarray(16, 28);
     const ciphertext = bytes.subarray(28);
-    const material = await crypto.subtle.importKey('raw', passwordBytes, 'PBKDF2', false, ['deriveKey']);
-    passwordBytes.fill(0);
-    if (generation !== startedIn) return null;
-
     for (const profile of PROFILES) {
       if (!Number.isSafeInteger(profile.iterations) || profile.iterations < 600_000 || profile.iterations > 5_000_000) continue;
       const key = await crypto.subtle.deriveKey(
@@ -630,6 +678,14 @@
     file = candidate ?? null;
     error = file && file.size > MAX_FILE_BYTES ? 'tooLarge' : null;
     refreshForm();
+    if (error && file.size <= MAX_PHOTO_BYTES) {
+      void file.slice(0, 8).arrayBuffer().then(header => {
+        if (file === candidate && !opening && error === 'tooLarge' && photoFormat(new Uint8Array(header))) {
+          error = null;
+          refreshForm();
+        }
+      }).catch(() => {});
+    }
   }
 
   function reset() {
@@ -656,8 +712,8 @@
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (opening) return;
-    if (!file || file.size > MAX_FILE_BYTES || file.size < 44) {
-      error = !file ? 'chooseFile' : file.size > MAX_FILE_BYTES ? 'tooLarge' : 'badBackup';
+    if (!file) {
+      error = 'chooseFile';
       passwordInput.value = '';
       refreshForm();
       return;
@@ -668,22 +724,23 @@
     pendingPassword = password;
     passwordInput.value = '';
     opening = true;
-    error = null;
+    if (error !== 'tooLarge') error = null;
     refreshForm();
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      if (generation !== startedIn) return;
-      const envelope = await openEnvelope(bytes, password, startedIn);
+      const envelope = await openFile(file, password, startedIn);
       if (!envelope) return;
       const opened = await readNotes(envelope, startedIn);
       if (generation !== startedIn) return;
       archive = opened;
+      error = null;
       renderResults();
       form.hidden = true;
       results.hidden = false;
       filter.focus();
-    } catch {
-      if (generation === startedIn) error = 'badBackup';
+    } catch (failure) {
+      const reason = failure?.message;
+      if (generation === startedIn) error = ['tooLarge', 'photoTooLarge', 'photoNoCopy'].includes(reason)
+        ? reason : 'badBackup';
     } finally {
       password.fill(0);
       if (pendingPassword === password) pendingPassword = null;

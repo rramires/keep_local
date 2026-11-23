@@ -16,6 +16,7 @@ import { getSessionKey, getSessionVaultId, storeSessionKey, getSessionSignal } f
 import { t,tp } from './i18n.js';
 import { unreadableRecords } from './record-health.js';
 import { MAX_BACKUP_BYTES, decryptRecords, validateRecords } from './backup-format.js';
+import {MAX_PHOTO_BYTES,photoParts,photoType} from './photo-trailer.js';
 
 let unsavedChanges = false;
 const drafts=new Set();
@@ -97,11 +98,30 @@ async function makeBackupDownload({recovery=false,source}={}) {
   return {unreadableCount,meta:receiptMeta,notes};
 }
 
-export async function importBackup(file,password,{signal}={}) {
-  assertWritable();
+async function decodeImportFile(file,password,signal) {
+  if(!file)throw new Error(t('backup.tooLarge'));
+  if(file.size>MAX_BACKUP_BYTES){
+    if(!photoType(new Uint8Array(await file.slice(0,8).arrayBuffer())))throw new Error(t('backup.tooLarge'));
+    if(file.size>MAX_PHOTO_BYTES)throw new Error(t('backup.photoTooLarge'));
+  }
   signal?.throwIfAborted();
-  if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
   const bytes=new Uint8Array(await file.arrayBuffer());
+  signal?.throwIfAborted();
+  if(photoType(bytes)){
+    const copy=photoParts(bytes)?.copy;
+    let copyError;
+    if(copy){
+      try{return await decodeV2(copy,password);}
+      catch(error){copyError=error;}
+    }
+    // The unchanged binary format has no magic. A salt can start with these same bytes.
+    signal?.throwIfAborted();
+    if(bytes.length>=44&&bytes.length<=MAX_BACKUP_BYTES){
+      try{return await decodeV2(bytes,password);}
+      catch{}
+    }
+    throw new Error(t(copyError?.message??'backup.photoNoCopy'));
+  }
   if(bytes.length<44)throw new Error(t('backup.unrecognizedFormat'));
   // Reject recognizable JSON documents, without interpreting any historical schema.
   // Random binary salt can start with '{' or '['; only a complete JSON parse rejects it.
@@ -109,8 +129,14 @@ export async function importBackup(file,password,{signal}={}) {
   let jsonDocument=false;
   if(/^[{[]/.test(prefix)){try{JSON.parse(new TextDecoder().decode(bytes));jsonDocument=true;}catch{}}
   if(jsonDocument)throw new Error(t('backup.unrecognizedFormat'));
-  let decoded;
-  try{decoded=await decodeV2(bytes,password);}catch(error){throw new Error(t(error.message));}
+  try{return await decodeV2(bytes,password);}catch(error){throw new Error(t(error.message));}
+}
+
+export async function importBackup(file,password,{signal}={}) {
+  assertWritable();
+  signal?.throwIfAborted();
+  const decoded=await decodeImportFile(file,password,signal);
+  signal?.throwIfAborted();
   const key=decoded.key,backup={notes:decoded.payload.notes};
   const meta={...decoded.payload.preferences,tombstones:decoded.payload.tombstones,salt:arrayToBase64(decoded.salt),
     exportRev:decoded.payload.rev,exportParent:await payloadHash(decoded.payloadText),
