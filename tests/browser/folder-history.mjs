@@ -767,3 +767,32 @@ export async function runImportPreservation({check,assert}){
     }finally{await browser.close();}
   });
 }
+
+export async function runImportErrors({check,assert}){
+  await check('P1-N2 a failed import shows the DOMException message instead of its numeric code',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await browser.page(undefined,folderFixtureSource());
+      await create(page);
+      const fixture=await backupFixture([note({title:'Fictional quota test'})]);
+      const before=await folderCopyEvidence(page);
+      await page.eval(`(()=>{
+        const put=IDBObjectStore.prototype.put;
+        const quota=new DOMException('Fictional storage quota reached','QuotaExceededError');
+        window.quotaLegacyCode=quota.code;
+        IDBObjectStore.prototype.put=function(...args){
+          if(this.name==='notes')throw quota;
+          return put.apply(this,args);
+        };
+      })()`);
+      const file=`new File([Uint8Array.fromBase64(${JSON.stringify(fixture.base64)})],'fictional-quota.keeplocal')`;
+      await importFromSettings(page,file,PASSWORD,assert,'choose');
+      await page.until("!!document.querySelector('.app-dialog')");
+      await page.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      assert.equal(await page.eval('quotaLegacyCode'),22);
+      assert.equal(await page.eval("document.querySelector('#import-error').textContent"),'Fictional storage quota reached');
+      assert.deepEqual(await folderCopyEvidence(page),before);
+    }finally{await browser.close();}
+  });
+}
