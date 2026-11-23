@@ -370,7 +370,8 @@ still exports a separate file.
 KeepLocal reads the seven photos when you choose the folder, then only reads the
 day's photo when it is about to update it. It never loads vault data from photos
 automatically and never creates, renames or deletes a photo. Choose the photos
-folder again after replacing the local vault or changing the vault folder.
+folder again after importing a backup, starting over or changing the vault
+folder.
 
 To recover, open the seven photos in `keeplocal-recovery.html` and use the
 passphrase for each copy. Pick the highest revision (rev) that opens, then

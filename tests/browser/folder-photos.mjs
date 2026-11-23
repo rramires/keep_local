@@ -1,9 +1,9 @@
-import {create,launch,launchExtension,PASSWORD} from './harness.mjs';
+import {create,launch,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {backupFixture} from './backup-fixture.mjs';
 import {connectedCopyPage,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {submitExtensionLogin} from './extension.mjs';
-import {editNote,focus,waitForFolderLineage,waitForRev} from './folder-merge.mjs';
+import {editNote,focus,ready,waitForFolderLineage,waitForNotes,waitForRev} from './folder-merge.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {decodeV2,encodeV2,payloadHash} from '../../js/backup-v2.js';
 import {buildPhoto,photoParts} from '../../js/photo-trailer.js';
@@ -696,16 +696,13 @@ export async function runPhotoLimits({check,assert}){
     });
   });
 
-  await check('P2.6 an explicit replacement and changing the vault folder clear photo metadata without a photo write',async()=>{
+  await check('P2-B1 an explicit other-passphrase replacement keeps photos until the vault folder changes',async()=>{
     await withPhotosPage(async page=>{
       await configurePhotos(page,assert);
       await setPhotoTime(page,'2026-08-17T10:00:00');
       await autoWrite(page,2);
       const name=photoNames[0],before=await readPhoto(page,name);
-      await setPhotoTime(page,'2026-08-17T11:20:00');
-      await page.eval("photoTest.permission='denied'");
-      await autoWrite(page,3);
-      await assertPhotoStatus(page,assert,/permission to write photos was not granted/i);
+      const configured=await photoMeta(page);
       const foreign=Buffer.alloc(64,31).toString('base64');
       await writeFolderFixture(page,MAIN,foreign);
       await clearPhotoSpies(page);
@@ -719,18 +716,15 @@ export async function runPhotoLimits({check,assert}){
         input.dispatchEvent(new Event('input'));
         input.closest('form').requestSubmit();
       })()`);
-      await waitForRev(page,4);
+      await waitForRev(page,3);
       await page.until(`!!document.querySelector('${WRITE_NOW}')`);
       await waitForFolderLineage(page);
-      assert.deepEqual(await photoMeta(page),{});
+      assert.deepEqual(await photoMeta(page),configured);
       assert.deepEqual(await page.eval('photoTest.writes'),[]);
       assert.equal(await readPhoto(page,name),before);
 
       await openPhotoSettings(page,assert);
-      assert.match(await status(page),/no photo written yet/i);
-      await page.eval("photoTest.requested='granted'");
-      await startPhotoChoice(page);
-      await finishPhotoChoice(page);
+      assert.match(await status(page),/photos: written on/i);
       await page.eval("folderTest.name='KL-TEST-NEW-VAULT-PHOTOS';photoTest.clear();document.querySelector('[data-folder-action=change]').click()");
       await page.until("(await import('./js/db.js')).getMeta('syncFolder').then(folder=>folder?.name==='KL-TEST-NEW-VAULT-PHOTOS')");
       await waitForFolderLineage(page);
@@ -814,6 +808,158 @@ export async function runPhotoLimits({check,assert}){
       await setPhotoTime(page,'2026-08-17T10:00:00');
       await page.eval(`document.querySelector('${WRITE_NOW}').click()`);
       await waitWriteNowToast(page,/fictional-\$&\.jpg/i);
+    });
+  });
+}
+
+const connectionId=page=>page.eval("(await import('./js/db.js')).getMeta('folderConnectionId')");
+
+async function photoReceipt(page,assert){
+  await setPhotoTime(page,'2026-01-12T15:00:00');
+  await configurePhotos(page,assert);
+  const name=photoNames[0],image=await readPhoto(page,name);
+  await assertPhoto(page,assert,{name,image,main:await autoWrite(page,2)});
+  return {name,image,configured:await photoMeta(page),connection:await connectionId(page)};
+}
+
+async function receivePhotoRevision(page,{merge=false}={}){
+  const {key,salt,payload,payloadText}=await decodeV2(Buffer.from(await principal(page),'base64'),PASSWORD);
+  const parent=await payloadHash(payloadText);
+  const remoteTitle='Fictional note from the other PC';
+  const notes=merge?[...payload.notes,...(await backupFixture([note({title:remoteTitle})],PASSWORD,salt)).records]:payload.notes;
+  const incoming=await encodeV2(key,salt,{...payload,rev:3,parent,
+    ancestors:[parent,...payload.ancestors].slice(0,32),
+    clock:{...payload.clock,'00000000-0000-4000-8000-0000000000b2':1},
+    preferences:{...payload.preferences,theme:'light'},notes,manifest:{count:notes.length,ids:notes.map(n=>n.id)}});
+  await page.eval("window.previousPhotoShell=document.querySelector('.app-view');photoTest.clear()");
+  await writeFolderFixture(page,MAIN,Buffer.from(incoming).toString('base64'));
+  if(merge){
+    const id=await page.eval("(await import('./js/app.js')).getNotes()[0].id");
+    await editNote(page,id,{content:'Fictional edit before the merge'});
+  }
+  await focus(page);
+  await waitForRev(page,merge?4:3);
+  await page.until("!!document.querySelector('#write-now-btn')&&document.querySelector('.app-view')!==previousPhotoShell");
+  await ready(page);
+  if(merge)await waitForNotes(page,[true,true],list=>[
+    list.some(note=>note.title==='Fictional note from the other PC'),
+    list.some(note=>note.content==='Fictional edit before the merge'),
+  ]);
+  await waitForFolderLineage(page);
+}
+
+async function confirmPhotoReview(page,action,wordKey='folder.replaceWord'){
+  await page.eval(`document.querySelector('[data-folder-action=${action}]').click()`);
+  await page.until("!!document.querySelector('.app-dialog input')");
+  await page.eval(`(async()=>{
+    const input=document.querySelector('.app-dialog input');
+    input.value=(await import('./js/i18n.js')).t(${JSON.stringify(wordKey)});
+    input.dispatchEvent(new Event('input'));
+    input.closest('form').requestSubmit();
+  })()`);
+}
+
+export async function runPhotoConnection({check,assert}){
+  for(const merge of [false,true]){
+    await check(`P2-B1 ${merge?'a merge that applies local data':'a pull from another PC'} keeps the photo receipt and the next eligible write updates it`,async()=>{
+      await withPhotosPage(async page=>{
+        const {name,image,configured,connection}=await photoReceipt(page,assert);
+        await setPhotoTime(page,'2026-01-12T15:10:00');
+        await receivePhotoRevision(page,{merge});
+        assert.equal(await connectionId(page),connection);
+        assert.deepEqual(await photoMeta(page),configured);
+        assert.deepEqual(await page.eval('photoTest.events'),[]);
+        assert.deepEqual(await page.eval('photoTest.writes'),[]);
+        await setPhotoTime(page,'2026-01-12T17:00:00');
+        const main=await autoWrite(page,merge?5:4);
+        await assertPhoto(page,assert,{name,image,main});
+        assert.ok((await photoMeta(page)).photoWrittenAt>configured.photoWrittenAt);
+      });
+    });
+  }
+
+  await check('P2-B1 Write now immediately after a pull can request permission and force the photo',async()=>{
+    await withPhotosPage(async page=>{
+      const {name,image,configured}=await photoReceipt(page,assert);
+      await setPhotoTime(page,'2026-01-12T15:10:00');
+      await receivePhotoRevision(page);
+      const main=await principal(page);
+      await page.eval(`photoTest.clear();photoTest.permission='prompt';document.querySelector('${WRITE_NOW}').click()`);
+      await page.until("!!document.querySelector('#toast-container .toast:last-child')?.textContent");
+      assert.deepEqual(await page.eval('photoTest.events[0]'),{kind:'request',active:true});
+      await waitWriteNowToast(page,/and in today.s photo/i);
+      await assertPhoto(page,assert,{name,image,main});
+      assert.ok((await photoMeta(page)).photoWrittenAt>configured.photoWrittenAt);
+      assert.equal(await principal(page),main);
+    });
+  });
+
+  for(const action of ['useFolder','useLocal']){
+    await check(`P2-B1 the explicit ${action} review choice keeps the receipt without a photo write`,async()=>{
+      await withPhotosPage(async page=>{
+        const older=await principal(page);
+        const {name,image,configured,connection}=await photoReceipt(page,assert);
+        await setPhotoTime(page,'2026-01-12T15:10:00');
+        await clearPhotoSpies(page);
+        await writeFolderFixture(page,MAIN,older);
+        await focus(page);
+        await page.until("!!document.querySelector('[data-folder-status=rollback]')");
+        await confirmPhotoReview(page,action);
+        await page.until("!!document.querySelector('#write-now-btn')&&!document.querySelector('.app-dialog')");
+        await ready(page);
+        await waitForFolderLineage(page);
+        assert.equal(await connectionId(page),connection);
+        assert.deepEqual(await photoMeta(page),configured);
+        assert.deepEqual(await page.eval('photoTest.writes'),[]);
+        await setPhotoTime(page,'2026-01-12T17:00:00');
+        await assertPhoto(page,assert,{name,image,main:await autoWrite(page,action==='useLocal'?4:3)});
+      });
+    });
+  }
+
+  await check('P2-B1 folder replacement retains only the current transaction photo metadata of the same connection',async()=>{
+    await withPhotosPage(async page=>{
+      await photoReceipt(page,assert);
+      const apply=connection=>page.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const {readFolderCandidate}=await import('./js/folder-vault.js');
+        const {notes,meta}=await db.readVault();
+        const handle=await folderTest.directory();
+        const key=(await import('./js/app.js')).getCryptoKey();
+        const head=await readFolderCandidate(await handle.getFileHandle('${MAIN}'),key,meta.salt);
+        await db.saveMeta('photoWrittenAt',5678);
+        await db.saveMeta('photoWrittenDay','2026-01-13');
+        await db.replaceVaultFromFolder({notes,meta:{...meta,
+          folderConnectionId:${connection?JSON.stringify(connection):'meta.folderConnectionId'},
+          photoFolder:handle,photoNames:['untrusted.jpg'],photoWrittenAt:1,photoWrittenDay:'2000-01-01',
+        }},meta,{head});
+      })()`);
+      const configured=await photoMeta(page);
+      await apply();
+      assert.deepEqual(await photoMeta(page),{...configured,photoWrittenAt:5678,photoWrittenDay:'2026-01-13'});
+      await apply('fictional-new-connection');
+      assert.deepEqual(await photoMeta(page),{});
+    });
+  });
+
+  await check('P2-B1 a typed reset clears the photos and keeps the files',async()=>{
+    await withPhotosPage(async page=>{
+      const {name}=await photoReceipt(page,assert);
+      const main=await principal(page),photo=await readPhoto(page,name);
+      await page.eval("document.querySelector('#lock-btn').click()");
+      await page.until("!!document.querySelector('#reset-vault')");
+      await page.eval("document.querySelector('#reset-vault').click()");
+      await page.until("!!document.querySelector('.app-dialog input')");
+      await page.eval(`(async()=>{
+        const input=document.querySelector('.app-dialog input');
+        input.value=(await import('./js/i18n.js')).t('account.resetWord');
+        input.dispatchEvent(new Event('input'));
+        input.closest('form').requestSubmit();
+      })()`);
+      await page.until("!(await (await import('./js/db.js')).getMeta('syncFolder'))");
+      assert.deepEqual(await photoMeta(page),{});
+      assert.equal(await principal(page),main);
+      assert.equal(await readPhoto(page,name),photo);
     });
   });
 }

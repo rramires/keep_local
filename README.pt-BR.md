@@ -362,7 +362,7 @@ separado.
 O KeepLocal lê as sete fotos ao escolher a pasta. Depois, só lê a foto do dia
 quando vai atualizá-la. O app nunca carrega o cofre automaticamente de uma
 foto nem cria, renomeia ou apaga fotos. Escolha a pasta de fotos de novo após
-substituir o cofre local ou trocar a pasta do cofre.
+importar um backup, começar do zero ou trocar a pasta do cofre.
 
 Para recuperar, abra as sete fotos em `keeplocal-recovery.html` e digite a
 senha de cada cópia. Escolha a maior revisão (rev) que abriu e selecione essa

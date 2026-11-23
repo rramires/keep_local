@@ -76,7 +76,10 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       onReview(outcome);
       return false;
     }
-    if(outcome.applied||outcome.status==='pulled')photoFolder=null;
+    if(outcome.applied||outcome.status==='pulled'){
+      photoFolder=await getMeta('photoFolder');
+      if(lifetime.aborted)return false;
+    }
     if(outcome.status==='merged'){
       onStatus('saved',Date.parse(outcome.head.exportedAt));
       if(outcome.applied)await onPulled(outcome.head,outcome.stats);

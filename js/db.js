@@ -218,17 +218,17 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
 }
 
 export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,head&&{head,mergedHeads,resetBases});
+  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases});
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReceipt) {
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReplacement) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=(current={})=>{
       let next=values;
-      if(folderReceipt){
-        const {head}=folderReceipt;
-        next={...values,...folderVersionState(current,head,folderReceipt),...folderWriterState(current,head.payload)};
+      if(folderReplacement?.head){
+        const {head}=folderReplacement;
+        next={...values,...folderVersionState(current,head,folderReplacement),...folderWriterState(current,head.payload)};
         if(current.writerId)next.writerId=current.writerId;
         delete next.folderPendingWrite;
         delete next.folderSyncedBase;
@@ -237,6 +237,9 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
       for(const record of records)notes.put(record);
       for(const[key,value]of Object.entries(next)){
         if(!FOLDER_HISTORY_META.includes(key)&&!PHOTO_META.includes(key))meta.put({key,value});
+      }
+      if(folderReplacement&&current.syncFolder&&next.syncFolder&&current.folderConnectionId===next.folderConnectionId){
+        for(const key of PHOTO_META)if(Object.hasOwn(current,key))meta.put({key,value:current[key]});
       }
       done();
     };
@@ -326,7 +329,6 @@ export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,
         for(const [key,value] of Object.entries(state))meta.put({key,value});
         meta.delete('folderPendingWrite');
         meta.delete('folderSyncedBase');
-        if(resetBases)for(const key of PHOTO_META)meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
