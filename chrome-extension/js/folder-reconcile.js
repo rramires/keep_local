@@ -89,7 +89,7 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
   return {status:'pulled',head:copy};
 }
 
-export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false,access}) {
+export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false,access,skipPhoto=false}) {
   const {meta}=snapshot;
   const head=state.head;
   const candidates=state.candidates.filter(copy=>copy.status==='valid'&&copy.rev===head.rev);
@@ -131,7 +131,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
     const selected={hash:head.hash,payload:{notes:records,preferences,tombstones,
       ancestors:head.payload.ancestors,clock:head.payload.clock}};
     const options={allowReadOnly,sourceHeads:otherHeads};
-    if(equalsLocal&&meta.photoFolder&&!manual&&!access&&!isReadOnly()){
+    if(equalsLocal&&meta.photoFolder&&!manual&&!access&&!skipPhoto&&!isReadOnly()){
       const written=await writer.writeMerged(snapshot,state,selected,options);
       target=written.head;
       finishPhoto=written.finishPhoto;

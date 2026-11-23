@@ -68,7 +68,7 @@ async function installPhotoFixture(names){
   };
   FileSystemHandle.prototype.requestPermission=function(...args){
     if(this.name!==fixture.folderName)return request.apply(this,args);
-    fixture.events.push({kind:'request'});
+    fixture.events.push({kind:'request',active:navigator.userActivation.isActive});
     return Promise.resolve(fixture.permission=fixture.requested);
   };
   FileSystemDirectoryHandle.prototype.entries=function(...args){
@@ -464,6 +464,100 @@ export async function runAutomaticPhotos({check,assert}){
       assert.equal((await photoMeta(page)).photoWrittenAt,undefined);
       await assertPhotoStatus(page,assert,/could not verify the written photo/i);
       assert.equal(await principal(page),unread);
+    });
+  });
+}
+
+const WRITE_NOW='#write-now-btn';
+
+async function newBarDraft(page,title){
+  await page.eval(`document.querySelector('.new-note-collapsed').click();
+    const input=document.querySelector('#new-note-title');
+    input.value=${JSON.stringify(title)};
+    input.dispatchEvent(new Event('input',{bubbles:true}));`);
+}
+
+async function waitWriteNowToast(page,pattern){
+  await page.until(`[...document.querySelectorAll('#toast-container .toast')].some(toast=>
+    new RegExp(${JSON.stringify(pattern.source)},${JSON.stringify(pattern.flags)}).test(toast.textContent))`);
+}
+
+export async function runWriteNow({check,assert}){
+  await check('P2.3 Write now saves the new note bar and writes and verifies the principal without photos',async()=>{
+    await withPhotosPage(async page=>{
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`,7000);
+      assert.equal(await page.eval(`document.querySelector('${WRITE_NOW}').previousElementSibling.id`),'backup-btn');
+      await newBarDraft(page,'Fictional manual folder draft');
+      await page.eval(`document.querySelector('${WRITE_NOW}').click()`);
+      await waitWriteNowToast(page,/written to the folder file at \d{2}:\d{2}/i);
+      const {payload}=await decodeV2(Buffer.from(await principal(page),'base64'),PASSWORD);
+      assert.equal(payload.notes.length,2);
+      assert.deepEqual(await page.eval('photoTest.events'),[]);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+    });
+  });
+
+  await check('P2.3 Write now requests photo access first and forces one photo write within the hour',async()=>{
+    await withPhotosPage(async page=>{
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`,7000);
+      await configurePhotos(page,assert);
+      const name=photoNames[0],image=await readPhoto(page,name);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      const before=await autoWrite(page,2);
+      const previous=await photoMeta(page);
+      await setPhotoTime(page,'2026-08-17T10:15:00');
+      await page.eval(`photoTest.clear();photoTest.permission='prompt';photoTest.holdRead=true;
+        document.querySelector('${WRITE_NOW}').click()`);
+      await page.until('!!photoTest.releaseRead');
+      assert.deepEqual(await page.eval('photoTest.events[0]'),{kind:'request',active:true});
+      assert.equal(await page.eval(`document.querySelector('${WRITE_NOW}').disabled`),true);
+      await page.eval(`document.querySelector('${WRITE_NOW}').click();photoTest.releaseRead()`);
+      await waitWriteNowToast(page,/and in today.s photo \(fictional-1\.jpg\)/);
+      assert.equal(await page.eval('photoTest.writes.length'),1);
+      assert.equal(await page.eval("photoTest.events.filter(event=>event.kind==='request').length"),1);
+      assert.equal(await page.eval(`document.querySelector('${WRITE_NOW}').disabled`),false);
+      assert.ok((await photoMeta(page)).photoWrittenAt>previous.photoWrittenAt);
+      assert.equal(await principal(page),before);
+      await assertPhoto(page,assert,{name,image,main:before});
+    });
+  });
+
+  await check('P2.3 Write now reports a verified principal even when the photo fails',async()=>{
+    await withPhotosPage(async page=>{
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`,7000);
+      await configurePhotos(page,assert);
+      await setPhotoTime(page,'2026-08-17T10:00:00');
+      await newBarDraft(page,'Fictional draft with unavailable photo access');
+      await page.eval(`photoTest.clear();photoTest.permission='prompt';photoTest.requested='denied';
+        document.querySelector('${WRITE_NOW}').click()`);
+      await waitWriteNowToast(page,/written to the folder file at .*photo.*permission/is);
+      const {payload}=await decodeV2(Buffer.from(await principal(page),'base64'),PASSWORD);
+      assert.equal(payload.notes.length,2);
+      assert.equal(await page.eval('photoTest.writes.length'),0);
+    });
+  });
+
+  await check('P2.3 Write now reports the folder failure and leaves the draft saved in this browser',async()=>{
+    await withPhotosPage(async page=>{
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`,7000);
+      await newBarDraft(page,'Fictional draft in this browser');
+      await page.eval(`folderTest.removeBeforeWrite=true;document.querySelector('${WRITE_NOW}').click()`);
+      await waitWriteNowToast(page,/not written to the folder file:.*folder not found.*saved in this browser/is);
+      assert.equal(await page.eval(`!!document.querySelector('${WRITE_NOW}')`),false);
+      assert.ok(await page.eval("(await import('./js/app.js')).getNotes().some(note=>note.title==='Fictional draft in this browser')"));
+    });
+  });
+  await check('P2.3 Write now leaves an unfamiliar primary intact and opens the usual review',async()=>{
+    await withPhotosPage(async page=>{
+      await page.until(`!!document.querySelector('${WRITE_NOW}')`,7000);
+      await configurePhotos(page,assert);
+      const foreign=Buffer.alloc(64,23).toString('base64');
+      await writeFolderFixture(page,MAIN,foreign);
+      await page.eval(`photoTest.clear();document.querySelector('${WRITE_NOW}').click()`);
+      await page.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await waitWriteNowToast(page,/resolve the folder review/i);
+      assert.equal(await principal(page),foreign);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
     });
   });
 }

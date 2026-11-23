@@ -9,11 +9,11 @@ import {buildPhoto,photoParts} from './photo-trailer.js';
 
 const HOUR_MS=60*60*1000;
 
-export async function writeFolderPhoto(meta,head,principal,key,signal) {
+export async function writeFolderPhoto(meta,head,principal,key,signal,{force=false,verify}={}) {
   const {photoFolder,photoNames,syncFolder}=meta;
   if(!photoFolder||!syncFolder||signal?.aborted||isReadOnly())return null;
-  const date=new Date(head.exportedAt),day=historySlots(date).day.key;
-  if(day===meta.photoWrittenDay&&Date.now()-meta.photoWrittenAt<HOUR_MS)return null;
+  const date=force?new Date():new Date(head.exportedAt),day=historySlots(date).day.key;
+  if(!force&&day===meta.photoWrittenDay&&Date.now()-meta.photoWrittenAt<HOUR_MS)return null;
   const assertCurrent=()=>{
     assertWritable();
     signal?.throwIfAborted();
@@ -34,12 +34,14 @@ export async function writeFolderPhoto(meta,head,principal,key,signal) {
     const output=buildPhoto(parts.image,principal);
     const [observedHash,outputHash]=await Promise.all([bytesHash(observed),bytesHash(output)]);
 
+    await verify?.();
     assertCurrent();
     const stream=await entry.createWritable({mode:'exclusive'});
     try{
       assertCurrent();
       if(await bytesHash(await readPhotoBytes(entry))!==observedHash)
         throw photoFailure('photo.fileChanged',{name});
+      await verify?.();
       if(old&&(old.status!=='valid'||old.rev>head.rev)){
         try{
           await preserveHistoryCopy(syncFolder,parts.copy,old.rev??'unknown',assertCurrent,{side:'photo'});
@@ -47,6 +49,7 @@ export async function writeFolderPhoto(meta,head,principal,key,signal) {
       }
       assertCurrent();
       await stream.write(output);
+      await verify?.();
       assertCurrent();
       await stream.close();
     }catch(error){

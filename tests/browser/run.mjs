@@ -23,6 +23,7 @@ await folderHistory.runImportErrors({check,assert});
 const folderPhotos=await import('./folder-photos.mjs');
 await folderPhotos.runPhotoSettings({check,assert});
 await folderPhotos.runAutomaticPhotos({check,assert});
+await folderPhotos.runWriteNow({check,assert});
 const folderSalt=await import('./folder-salt.mjs');
 await folderSalt.run({check,assert});
 const folderSaltLogin=await import('./folder-salt-login.mjs');

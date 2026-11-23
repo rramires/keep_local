@@ -115,7 +115,7 @@ export function createFolderWriter(handle,key,signal,access) {
       catch {
         // The main receipt already committed. Retry history on the next normal write.
       }
-      await writeFolderPhoto(snapshot.meta,head,bytes,key,signal);
+      if(!options?.skipPhoto)await writeFolderPhoto(snapshot.meta,head,bytes,key,signal);
     }
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
