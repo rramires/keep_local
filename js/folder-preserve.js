@@ -7,14 +7,17 @@ import {pruneTombstones} from './folder-merge.js';
 import {folderFailure} from './folder-write.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 
-const PRESERVED='keeplocal-preserved';
+export const PRESERVED_DIR='keeplocal-preserved';
 
-async function allocateFile(directory,stem) {
+async function allocateFile(directory,stem,beforeWrite) {
   for(let suffix=1;;suffix++){
     const name=stem+(suffix===1?'':'-'+suffix)+'.keeplocal';
     try { await withFolderReadTimeout(()=>directory.getFileHandle(name)); }
     catch(error) {
-      if(error.name==='NotFoundError')return directory.getFileHandle(name,{create:true});
+      if(error.name==='NotFoundError'){
+        beforeWrite();
+        return directory.getFileHandle(name,{create:true});
+      }
       if(error.name!=='TypeMismatchError')throw error;
     }
   }
@@ -31,24 +34,28 @@ async function verifyPreserved(file,size,hash,key,salt) {
     throw folderFailure('folder.preserveFailed');
 }
 
-async function preserve(handle,{bytes,side,rev},key,salt,signal) {
+async function preserve(handle,{bytes,side,rev},key,salt,signal,
+  {beforeWrite=()=>signal.throwIfAborted(),cleanFailure=true}={}) {
   const hash=await bytesHash(bytes);
   const time=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
-  signal.throwIfAborted();
-  const directory=await handle.getDirectoryHandle(PRESERVED,{create:true});
-  const file=await allocateFile(directory,`preserved-${time}-${side}-r${rev}-${hash.slice(0,8)}`);
+  beforeWrite();
+  const directory=await handle.getDirectoryHandle(PRESERVED_DIR,{create:true});
+  const file=await allocateFile(directory,`preserved-${time}-${side}-r${rev}-${hash.slice(0,8)}`,beforeWrite);
   let stream,writeStarted=false;
   try {
+    beforeWrite();
     stream=await file.createWritable({mode:'exclusive'});
     if((await withFolderReadTimeout(()=>file.getFile(),'file')).size!==0)throw folderFailure('folder.preserveFailed');
+    beforeWrite();
     writeStarted=true;
     await stream.write(bytes);
-    signal.throwIfAborted();
+    beforeWrite();
     await stream.close();
     await verifyPreserved(file,bytes.length,hash,key,salt);
     return file.name;
   } catch(error) {
     if(stream)await stream.abort().catch(()=>{});
+    if(!cleanFailure)throw error;
     try {
       const current=await withFolderReadTimeout(()=>directory.getFileHandle(file.name));
       if(await withFolderReadTimeout(()=>file.isSameEntry(current))&&
@@ -59,6 +66,10 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal) {
     }
     throw error;
   }
+}
+
+export function preserveHistoryCopy(handle,bytes,rev,beforeWrite) {
+  return preserve(handle,{bytes,side:'history',rev},null,null,null,{beforeWrite,cleanFailure:false});
 }
 
 export async function preserveOtherSaltChoice(handle,copy,signal) {
@@ -94,7 +105,7 @@ export async function preserveFolderChoice(handle,copies,key,salt,signal,preserv
       // Reuse only files whose exact bytes still pass verified readback.
       preservedBytes.delete(hash);
       if(name){
-        const directory=await withFolderReadTimeout(()=>handle.getDirectoryHandle(PRESERVED));
+        const directory=await withFolderReadTimeout(()=>handle.getDirectoryHandle(PRESERVED_DIR));
         const file=await withFolderReadTimeout(()=>directory.getFileHandle(name));
         await verifyPreserved(file,bytes.length,hash,key,salt);
       }else name=await preserve(handle,{bytes,side:'folder',rev:copy.rev},key,salt,signal);

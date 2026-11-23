@@ -14,6 +14,8 @@ const extension=await import('./extension.mjs');
 await extension.run({check,assert});
 const folderMerge=await import('./folder-merge.mjs');
 await folderMerge.run({check,assert});
+const folderHistory=await import('./folder-history.mjs');
+await folderHistory.run({check,assert});
 const folderSalt=await import('./folder-salt.mjs');
 await folderSalt.run({check,assert});
 const folderSaltLogin=await import('./folder-salt-login.mjs');

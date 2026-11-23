@@ -3,6 +3,7 @@ import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
 import {assertWritable,reserveFolderWrite,readVault,recordFolderWrite,verifyFolderWrite} from './db.js';
 import {pruneTombstones} from './folder-merge.js';
+import {writeFolderHistory} from './folder-history-write.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -95,7 +96,8 @@ export function createFolderWriter(handle,key,signal,access) {
     try{
       const checked=await readFolderCandidate(file,key,salt);
       if(checked.status!=='valid'||checked.hash!==hash)throw folderFailure('folder.readback');
-      return {name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+      const head={name:MAIN_FILE,...checked,replacedEmptyMain:state.candidates.some(row=>row.status==='emptyMain')};
+      return {head,bytes};
     }catch(error){
       if(access?.onReadbackFailure)await access.onReadbackFailure(file,bytes);
       throw error;
@@ -103,14 +105,23 @@ export function createFolderWriter(handle,key,signal,access) {
   }
 
   async function write(snapshot,state,options) {
-    const head=await writeFile(snapshot,state,options);
+    const {head,bytes}=await writeFile(snapshot,state,options);
     const {rev,hash,exportedAt,replacedEmptyMain}=head;
     const writtenAt=Date.parse(exportedAt);
     await recordFolderWrite(snapshot.meta,head,{signal,resetBases:options?.resetBases});
+    if(!options?.replace){
+      try {await writeFolderHistory(handle,key,snapshot.meta,head,bytes,signal);}
+      catch {
+        // The main receipt already committed. Retry history on the next normal write.
+      }
+    }
     return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.
-  const writeChosen=(snapshot,state,selected,options)=>writeFile(snapshot,state,{...options,replace:true,selected});
+  const writeChosen=async(snapshot,state,selected,options)=>{
+    const {head}=await writeFile(snapshot,state,{...options,replace:true,selected});
+    return head;
+  };
   return {scan,write,writeChosen};
 }

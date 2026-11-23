@@ -1,4 +1,5 @@
 import * as harness from './harness.mjs';
+import {HISTORY_DIR} from '../../js/folder-history.js';
 
 async function pressEnter(page) {
   const key={key:'Enter',code:'Enter',windowsVirtualKeyCode:13,nativeVirtualKeyCode:13};
@@ -463,7 +464,7 @@ export async function run({check,assert}) {
       assert.match(await text(),/Folder write pending|Written to folder/);
       assert.doesNotMatch(await text(),/\bsynced\b|\bsynchronized\b/i);
       await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
-      assert.deepEqual(await p.eval('folderTest.entries()'),[primary]);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[HISTORY_DIR,primary]);
       const originalFile=await readFolderFixture(p,primary);
 
       await p.eval("folderTest.name='KL-TEST-settings-replacement';document.querySelector('[data-folder-action=change]').click()");
@@ -506,9 +507,9 @@ export async function run({check,assert}) {
         }
         return rows;
       })()`);
-      assert.deepEqual(contents[selected],[['file',primary]]);
+      assert.deepEqual(contents[selected].sort(),[['directory',HISTORY_DIR],['file',primary]]);
       assert.deepEqual(contents['KL-TEST-settings-replacement'].sort(),[
-        ['directory','FICTITIOUS-EXISTING-FOLDER'],['file',primary],
+        ['directory','FICTITIOUS-EXISTING-FOLDER'],['directory',HISTORY_DIR],['file',primary],
       ]);
       assert.equal(await readFolderFixture(p,primary),replacementFile);
       await p.eval(`folderTest.name=${JSON.stringify(selected)}`);
@@ -843,7 +844,7 @@ export async function run({check,assert}) {
       await writeFolderFixture(pb,'keeplocal-vault (2).keeplocal',written);
       await pb.eval("window.dispatchEvent(new Event('focus'))");
       await pb.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>${common+1})`);
-      assert.deepEqual(await pb.eval('folderTest.entries()'),['keeplocal-preserved','keeplocal-vault (2).keeplocal',primary]);
+      assert.deepEqual(await pb.eval('folderTest.entries()'),[HISTORY_DIR,'keeplocal-preserved','keeplocal-vault (2).keeplocal',primary]);
 
       await writeFolderFixture(pa,primary,old);
       // Leave the old copy in place as an independent candidate. Both are now below the seen revision.
@@ -1091,7 +1092,7 @@ export async function run({check,assert}) {
       assert.deepEqual((await decryptRecords(written.payload.notes,written.key)).map(note=>note.title).sort(),
         ['Fictitious older note','Fictitious recent note']);
       assert.equal(await readFolderFixture(p,secondary),old);
-      assert.deepEqual(await p.eval('folderTest.entries()'),[secondary,primary]);
+      assert.deepEqual(await p.eval('folderTest.entries()'),[HISTORY_DIR,secondary,primary]);
       await p.eval("window.dispatchEvent(new Event('focus'));await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
       assert.equal(await p.eval("!!document.querySelector('.app-view')"),true);
       await relogin();
