@@ -36,7 +36,7 @@ export function retainFolderBases(bases) {
   return bases.filter(base=>{
     if(!base?.versions)return false;
     const key=base.hash||clockKey(base);
-    if(!key)return true;
+    if(!key)return false;
     if(!base.hash&&hashedClocks.has(key))return false;
     if(seen.has(key))return false;
     seen.add(key);

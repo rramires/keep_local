@@ -167,17 +167,22 @@ test('P1.0 four normal writes retain four distinct hashed receipts',async()=>{
   assert.deepEqual(pc.meta.folderSyncedBases.map(base=>base.hash),hashes);
 });
 
-test('P1.0 only nonempty clock matches remove a hashless base in either order',()=>{
+test('P1.0 matching nonempty clocks remove an archived pending base in either order',()=>{
   const receipt={hash:'receipt',clock:{[uuid(1)]:3,[uuid(2)]:2},versions:{a:2}};
   const pending={clock:{[uuid(2)]:2,[uuid(1)]:3},versions:{a:1}};
   const unmatched={clock:{[uuid(1)]:4},versions:{a:3}};
   const legacy={hash:'legacy',clock:{},versions:{a:0}};
-  const empty={clock:{},versions:{b:0}};
   for(const pair of [[pending,receipt],[receipt,pending]]){
-    assert.deepEqual(versions.retainFolderBases([...pair,unmatched,legacy,empty]),[receipt,unmatched,legacy,empty]);
+    assert.deepEqual(versions.retainFolderBases([...pair,unmatched,legacy]),[receipt,unmatched,legacy]);
   }
   const head={hash:'head',payload:{clock:receipt.clock}};
   assert.equal(versions.baseForFolderHead({folderPendingWrite:pending,folderSyncedBases:[receipt]},head),pending.versions);
+});
+
+test('P1-N1 four hashless bases with no clock cannot displace a hashed receipt',()=>{
+  const empty=Array.from({length:4},(_,index)=>({clock:{},versions:{[uuid(index)]:index}}));
+  const receipt={hash:'legacy-receipt',clock:{},versions:{[uuid(4)]:4}};
+  assert.deepEqual(versions.retainFolderBases([...empty,receipt]),[receipt]);
 });
 
 for(const closes of [false,true]){
