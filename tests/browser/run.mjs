@@ -17,6 +17,7 @@ await folderMerge.run({check,assert});
 const folderHistory=await import('./folder-history.mjs');
 await folderHistory.run({check,assert});
 await folderHistory.runSettings({check,assert});
+await folderHistory.runRestore({check,assert});
 const folderSalt=await import('./folder-salt.mjs');
 await folderSalt.run({check,assert});
 const folderSaltLogin=await import('./folder-salt-login.mjs');

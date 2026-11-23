@@ -2,7 +2,7 @@ import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {backupFixture} from './backup-fixture.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
-import {withTwoProfiles,connectBoth,editFromOtherTab} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,editFromOtherTab,waitForFolderLineage} from './folder-merge.mjs';
 import {signIn} from './folder-salt-login.mjs';
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {vaultFixture,makeVaultScanner,mockVaultTimers} from './vault-core.mjs';
@@ -34,6 +34,7 @@ export async function connectedCopyPage(browser,page) {
   await page.until("!!document.querySelector('[data-folder-action=choose]')");
   await page.eval("document.querySelector('[data-folder-action=choose]').click()");
   await page.until("(await import('./js/db.js')).getMeta('folderSyncedHash').then(Boolean)");
+  await waitForFolderLineage(page);
   await page.eval("document.querySelector('#modal-close').click()");
   await page.until("!document.querySelector('#modal-overlay').classList.contains('open')");
   return page;

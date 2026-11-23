@@ -1,19 +1,21 @@
 import {launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
-import {withTwoProfiles,connectBoth,editNote,focus,waitForRev} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,editNote,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
 import {connectedCopyPage,folderCopyEvidence,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {HISTORY_DIR,historySlots} from '../../js/folder-history.js';
 import {decodeV2,encodeV2} from '../../js/backup-v2.js';
-import {MAX_BACKUP_BYTES} from '../../js/backup-format.js';
+import {MAX_BACKUP_BYTES,decryptRecords} from '../../js/backup-format.js';
 import {backupFixture} from './backup-fixture.mjs';
+import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
+import {signIn} from './folder-salt-login.mjs';
+import {vaultFixture} from './vault-core.mjs';
 
 const MAIN='keeplocal-vault.keeplocal';
 const START='2026-01-12';
 const slots=day=>historySlots(new Date(day+'T12:00:00'));
 const MONDAY=slots(START).day.name;
 const FIRST_WEEK=slots(START).week.name;
-const lineageIdle=page=>page.eval("navigator.locks.request('keeplocal-vault-lineage',()=>{})");
 
 function installHistoryFixture(historyDir,start) {
   const NativeDate=Date;
@@ -107,7 +109,7 @@ async function withHistoryPage(run,{file=750}={}){
 
 async function saved(page,rev){
   await waitForRev(page,rev);
-  await lineageIdle(page);
+  await waitForFolderLineage(page);
   await page.until("!!document.querySelector('[data-folder-state=saved]')");
 }
 
@@ -349,7 +351,7 @@ export async function run({check,assert}){
       await page.eval("document.querySelector('#lock-btn').click()");
       await page.until("!!document.querySelector('.auth-view')");
       await page.eval('historyTest.resumeRead()');
-      await lineageIdle(page);
+      await waitForFolderLineage(page);
       assert.ok((await historyOps(page)).every(([kind])=>!['write','mkdir','create'].includes(kind)));
       assert.equal(await readSlot(page,MONDAY),old);
       assert.deepEqual(await receipt(page),previous);
@@ -375,7 +377,7 @@ export async function run({check,assert}){
       })()`);
       assert.deepEqual(state,{count:32,limitExceeded:false,name:MAIN});
       await focus(page);
-      await lineageIdle(page);
+      await waitForFolderLineage(page);
       assert.deepEqual(await historyOps(page),[]);
       assert.ok(await page.eval("!!document.querySelector('[data-folder-state=saved]')"));
 
@@ -390,11 +392,11 @@ export async function run({check,assert}){
       await page.eval("folderTest.clear();document.querySelector('[data-folder-action=openReadOnly]').click()");
       await page.until("!!document.querySelector('.folder-banner')");
       await focus(page);
-      await lineageIdle(page);
+      await waitForFolderLineage(page);
       await openCopyList(page,assert,{gate:true});
       await openSelectedCopy(page);
       await focus(page);
-      await lineageIdle(page);
+      await waitForFolderLineage(page);
       assert.deepEqual(await historyOps(page),[]);
       assert.deepEqual(await page.eval('folderTest.writes'),{});
       assert.equal(await page.eval('folderTest.writeAttempts'),0);
@@ -527,6 +529,125 @@ export async function runSettings({check,assert}){
       await page.eval("document.querySelector('[data-dialog-action=cancel]').click()");
       await page.until("!!document.querySelector('#import-error')?.textContent");
       assert.deepEqual(await folderCopyEvidence(page),before);
+    });
+  });
+}
+
+async function confirmImport(page,assert){
+  await page.until("!!document.querySelector('.app-dialog')");
+  assert.match(await page.eval("document.querySelector('.app-dialog').textContent"),/will be disconnected/i);
+  await page.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+  await page.until("!document.querySelector('#import-form')&&!(await (await import('./js/db.js')).getMeta('syncFolder'))");
+  await ready(page);
+}
+
+async function useThisBrowser(page){
+  await page.eval("document.querySelector('[data-folder-action=useLocal]').click()");
+  await page.until("!!document.querySelector('.app-dialog input')");
+  await page.eval(`(async()=>{
+    const input=document.querySelector('.app-dialog input');
+    input.value=(await import('./js/i18n.js')).t('folder.replaceWord');
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    input.closest('form').requestSubmit();
+  })()`);
+}
+
+export async function runRestore({check,assert}){
+  await check('P1.4 restoring the daily copy preserves the damaged bytes and the other PC pulls directly',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      await historyFixture(a);
+      await historyFixture(b);
+      const field={id:crypto.randomUUID(),kind:'field',label:'Password',value:'Fictional original vault value',secret:true};
+      const damaged='Fictional accidentally overwritten vault value';
+      const item=vaultFixture({title:'Fictional history restoration',blocks:[field]});
+      const original=await connectBoth(a,b,[item]);
+      await saved(a,1);
+      assert.equal(await readSlot(a,MONDAY),original);
+      const values=notes=>notes.map(note=>note.blocks?.[0]?.value);
+      await waitForNotes(b,[field.value],values);
+
+      await editNote(a,item.id,{blocks:[{...field,value:damaged}]});
+      await focus(a);
+      await saved(a,2);
+      const damagedBytes=await readFolderFixture(a,MAIN);
+      assert.notEqual(damagedBytes,original);
+      assert.equal(await readSlot(a,MONDAY),original);
+      await writeFolderFixture(b,MAIN,damagedBytes);
+      await focus(b);
+      await saved(b,2);
+      await waitForNotes(b,[damaged],values);
+
+      await importHistoryFromSettings(a,MONDAY,PASSWORD,assert);
+      await confirmImport(a,assert);
+      await waitForNotes(a,[field.value],values);
+      assert.deepEqual(await receipt(a),{});
+      assert.equal(await readFolderFixture(a,MAIN),damagedBytes);
+
+      await openSettings(a,'choose');
+      await a.eval("document.querySelector('[data-folder-action=choose]').click()");
+      await a.until("!!document.querySelector('[data-folder-status=conflict]')");
+      await useThisBrowser(a);
+      await saved(a,3);
+      const restoredBytes=await readFolderFixture(a,MAIN);
+      const {key,payload}=await decodeV2(Buffer.from(restoredBytes,'base64'),PASSWORD);
+      assert.equal(payload.rev,3);
+      assert.deepEqual(values(await decryptRecords(payload.notes,key)),[field.value]);
+      const preserved=await a.eval(`(async()=>{
+        const dir=await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved');
+        const bytes=[];
+        for await(const entry of dir.values())bytes.push(new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64());
+        return bytes;
+      })()`);
+      assert.ok(preserved.includes(damagedBytes));
+      assert.equal(await readSlot(a,MONDAY),original);
+
+      await writeFolderFixture(b,MAIN,restoredBytes);
+      await b.eval('folderTest.writeAttempts=0');
+      assert.equal(await b.eval(`(async()=>{
+        const snapshot=await (await import('./js/db.js')).readVault();
+        const key=(await import('./js/app.js')).getCryptoKey();
+        const state=await (await import('./js/folder-vault.js')).readFolderState(await folderTest.directory(),key,snapshot.meta.salt);
+        return (await import('./js/folder-reconcile.js')).decideFolderAction(snapshot,state);
+      })()`),'pull');
+      await focus(b);
+      await saved(b,3);
+      await waitForNotes(b,[field.value],values);
+      assert.equal(await b.eval('folderTest.writeAttempts'),0);
+      assert.equal(await b.eval("!!document.querySelector('.folder-review')"),false);
+      assert.equal(await readFolderFixture(b,MAIN),restoredBytes);
+    });
+  });
+
+  await check('P1.4 a history copy from before rotation restores with its original passphrase',async()=>{
+    await withHistoryPage(async(page)=>{
+      const beforeRotation=await readSlot(page,MONDAY);
+      assert.ok(beforeRotation);
+      await rotate(page);
+      await waitForRev(page,2);
+      await signIn(page,NEW_PASSWORD);
+      await ready(page);
+      assert.equal(await readSlot(page,MONDAY),beforeRotation);
+      const before=await folderCopyEvidence(page);
+
+      await importHistoryFromSettings(page,MONDAY,NEW_PASSWORD,assert);
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      assert.equal(await page.eval("document.querySelector('#import-error').textContent"),
+        await page.eval("(await import('./js/i18n.js')).t('backup.wrongPasswordOrCorrupted')"));
+      assert.deepEqual(await folderCopyEvidence(page),before);
+      await page.eval(`(()=>{
+        const password=document.querySelector('#import-password');
+        password.value=${JSON.stringify(PASSWORD)};
+        password.dispatchEvent(new Event('input'));
+        document.querySelector('#import-btn').click();
+      })()`);
+      await confirmImport(page,assert);
+      assert.deepEqual((await folderCopyEvidence(page)).files,before.files);
+
+      await signIn(page,NEW_PASSWORD);
+      assert.equal(await page.eval("document.querySelector('#login-error').textContent"),'Incorrect passphrase.');
+      await signIn(page,PASSWORD);
+      await ready(page);
+      assert.equal(await page.eval("(await import('./js/app.js')).getNotes()[0]?.title"),'Fictional browser notes');
     });
   });
 }
