@@ -1,6 +1,7 @@
 import {base64ToArray,deriveKey} from './crypto.js';
 import {listCandidates,readFolderCandidate} from './folder-vault.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
+import {isFolderCopyDirectory} from './folder-store.js';
 import {passwordDialog} from './dialogs.js';
 import {focusPanel} from './form-ui.js';
 import {t,tp} from './i18n.js';
@@ -53,7 +54,8 @@ export async function renderFolderCopies(root,{handle,known,seenRev=0,signal,onO
   const actions=element('div','folder-actions');
   const open=button('open',()=>void run(openSelected),true);
   actions.append(open,button('back',onBack));
-  card.append(title,name,element('p','help-text',t('copy.restore')),list,warning,report,actions);
+  const hint=isFolderCopyDirectory(handle.name)?'copy.restoreReserved':'copy.restore';
+  card.append(title,name,element('p','help-text',t(hint)),list,warning,report,actions);
   panel.append(card);root.replaceChildren(panel);
   signal.addEventListener('abort',()=>{keys.clear();rows=[];selected=null;},{once:true});
 

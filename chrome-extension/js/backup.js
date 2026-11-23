@@ -94,8 +94,9 @@ async function makeBackupDownload({recovery=false,source}={}) {
   return {unreadableCount,meta:receiptMeta,notes};
 }
 
-export async function importBackup(file, password) {
+export async function importBackup(file,password,{signal}={}) {
   assertWritable();
+  signal?.throwIfAborted();
   if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
   const bytes=new Uint8Array(await file.arrayBuffer());
   if(bytes.length<44)throw new Error(t('backup.unrecognizedFormat'));
@@ -116,9 +117,17 @@ export async function importBackup(file, password) {
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();
   const local=previous.notes;
-  if ((local.length || await getMeta('salt')) && !await confirmDialog(t('backup.replaceConfirm',{local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length)}),{danger:true})) throw new Error(t('backup.cancelled'));
+  const connected=!!previous.meta.syncFolder;
+  if(local.length||previous.meta.salt){
+    let message=t('backup.replaceConfirm',{local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length)});
+    if(connected)message+=' '+t('backup.replaceConnected');
+    if(!await confirmDialog(message,{danger:true,signal}))throw new Error(t('backup.cancelled'));
+  }
   meta.vaultId=crypto.randomUUID();meta.dirtySinceBackup=true;
-  await replaceVault({notes:backup.notes,meta},previous.meta);
-  storeSessionKey(key,meta.vaultId);publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
+  const apply=()=>replaceVault({notes:backup.notes,meta},previous.meta,{signal});
+  await (connected?withVaultLineage(apply):apply());
+  if(!signal?.aborted)storeSessionKey(key,meta.vaultId);
+  publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
+  signal?.throwIfAborted();
   return key;
 }

@@ -19,6 +19,7 @@ import {beginFolderCopy,discardFolderCopy,getFolderCopy,pickFolderCopy,renderFol
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
 import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
+import {renderSettingsImport} from './import-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode,readVault } from './db.js';
 import {withVaultLineage} from './folder-write.js';
 import { getSessionVaultId, setSessionVaultId, setSessionSignal, setIdleTimeout,startReadOnlySession } from './session.js';
@@ -477,14 +478,32 @@ async function openFolderSettings(trigger) {
   if(!await closeModal()||!cryptoKey||!trigger.isConnected) return;
   closeMobileSidebar();
   const key=cryptoKey;
+  const returnFocus=()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger;
   modalController=new AbortController();
   renderFolderSettings(document.getElementById('modal-card'),{
     key:cryptoKey,signal:modalController.signal,onClose:closeModal,notify:showToast,
-    trigger:()=>matchMedia('(max-width: 768px)').matches?document.getElementById('menu-toggle'):trigger,
+    trigger:returnFocus,
     hasUnreadable:()=>unreadableCount>0,pauseFolder:()=>folderSync?.dispose(),
     onOtherSalt:connectOtherSaltSelection,
     onBrowseCopies:openFolderCopies,
+    onImportBackup:()=>openSettingsImport(returnFocus),
     onFolderChange:selected=>key===cryptoKey?configureFolderSync({admit:!!selected,selected}):undefined,
+  });
+  document.getElementById('modal-overlay').classList.add('open');
+}
+
+async function openSettingsImport(trigger) {
+  if(!await flushNewNoteBar()||!await closeModal()||!cryptoKey||isReadOnly())return;
+  modalController=new AbortController();
+  renderSettingsImport(document.getElementById('modal-card'),{
+    signal:modalController.signal,trigger,onClose:closeModal,
+    onImported:async key=>{
+      cryptoKey=key;
+      await closeModal();
+      await initI18n({persistDefault:false});
+      await initTheme();
+      await showApp();
+    },
   });
   document.getElementById('modal-overlay').classList.add('open');
 }

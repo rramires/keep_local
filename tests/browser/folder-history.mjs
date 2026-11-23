@@ -402,3 +402,131 @@ export async function run({check,assert}){
     });
   });
 }
+
+async function openSettings(page,action='change'){
+  await page.eval("document.querySelector('#folder-settings-btn').click()");
+  await page.until(`!!document.querySelector('.folder-settings [data-folder-action=${action}]')`);
+}
+
+async function pickReserved(page,name){
+  await page.eval(`(async()=>{
+    const directory=await folderTest.directory();
+    const chosen=await directory.getDirectoryHandle(${JSON.stringify(name)},{create:true});
+    window.showDirectoryPicker=async()=>chosen;
+  })()`);
+}
+
+async function importHistoryFromSettings(page,name,password,assert){
+  await openSettings(page);
+  assert.ok(await page.eval("!!document.querySelector('[data-folder-action=importBackup]')"),
+    'Settings must expose the existing backup import form');
+  await page.eval("document.querySelector('[data-folder-action=importBackup]').click()");
+  await page.until("!!document.querySelector('#import-file')");
+  await page.eval(`(async()=>{
+    const file=await (await historyTest.dir()).getFileHandle(${JSON.stringify(name)});
+    const data=new DataTransfer();
+    data.items.add(await file.getFile());
+    const input=document.querySelector('#import-file');
+    input.files=data.files;
+    input.dispatchEvent(new Event('change'));
+    const password=document.querySelector('#import-password');
+    password.value=${JSON.stringify(password)};
+    password.dispatchEvent(new Event('input'));
+    document.querySelector('#import-btn').click();
+  })()`);
+}
+
+export async function runSettings({check,assert}){
+  await check('P1.3 settings and recovery reject reserved subfolders before examining or changing them',async()=>{
+    await withHistoryPage(async(page)=>{
+      for(const name of ['keeplocal-preserved',HISTORY_DIR]){
+        await pickReserved(page,name);
+        const before=await folderCopyEvidence(page);
+        await openSettings(page);
+        await page.eval("folderTest.clear();historyTest.ops=[];document.querySelector('[data-folder-action=change]').click()");
+        await page.until("!!document.querySelector('[data-folder-action=change]:not(:disabled)')");
+        assert.match(await toasts(page),/History and preserved folders/i);
+        assert.deepEqual(await page.eval("folderTest.events.map(({kind})=>kind)"),[]);
+        assert.deepEqual(await page.eval('folderTest.writes'),{});
+        assert.deepEqual(await historyOps(page),[]);
+        assert.deepEqual(await folderCopyEvidence(page),before);
+        await page.eval("document.querySelector('#modal-close').click()");
+        await page.until("!document.querySelector('.folder-settings')");
+      }
+      await page.reload();
+      await page.until("!!document.querySelector('#login-form:not(.hidden)')");
+      await page.eval(`folderTest.requested='denied';
+        document.querySelector('#login-password').value=${JSON.stringify(PASSWORD)};
+        document.querySelector('#login-form').requestSubmit()`);
+      await page.until("!!document.querySelector('[data-folder-status=denied]')");
+      await pickReserved(page,HISTORY_DIR);
+      const before=await folderCopyEvidence(page);
+      await page.eval("folderTest.clear();historyTest.ops=[];document.querySelector('[data-folder-action=chooseAnother]').click()");
+      await page.until("!!document.querySelector('[data-folder-action=chooseAnother]:not(:disabled)')");
+      assert.match(await page.eval("document.querySelector('[data-folder-message]').textContent"),/History and preserved folders/i);
+      assert.deepEqual(await page.eval('folderTest.writes'),{});
+      assert.deepEqual(await historyOps(page),[]);
+      assert.deepEqual(await folderCopyEvidence(page),before);
+    });
+  });
+
+  await check('P1.3 both reserved copy folders point to ordinary backup import',async()=>{
+    await withHistoryPage(async(page)=>{
+      const main=await readFolderFixture(page,MAIN);
+      for(const name of [HISTORY_DIR,'keeplocal-preserved']){
+        await pickReserved(page,name);
+        if(name!==HISTORY_DIR)await page.eval(`(async()=>{
+          const picked=await showDirectoryPicker();
+          const file=await picked.getFileHandle('fictional-copy.keeplocal',{create:true});
+          const stream=await file.createWritable();
+          await stream.write(Uint8Array.fromBase64(${JSON.stringify(main)}));
+          await stream.close();
+        })()`);
+        await openCopyList(page,assert);
+        assert.match(await page.eval("document.querySelector('[data-folder-copy-list] .help-text').textContent"),
+          /Settings → Import backup/);
+        await openSelectedCopy(page);
+        await page.eval("document.querySelector('[data-copy-action=back]').click()");
+        await page.until("!!document.querySelector('#folder-settings-btn')");
+      }
+    });
+  });
+
+  await check('P1.3 folder settings show the checked day in both languages and clear it on disconnect',async()=>{
+    await withHistoryPage(async(page)=>{
+      const checked=(await receipt(page)).folderHistoryAt;
+      assert.ok(checked>0);
+      await openSettings(page);
+      const status=()=>page.eval("document.querySelector('[data-folder-history]')?.textContent??''");
+      const expectedDate=()=>page.eval(`new Intl.DateTimeFormat(document.documentElement.lang,
+        {dateStyle:'medium',timeStyle:'short'}).format(new Date(${checked}))`);
+      assert.equal(await status(),`Folder history: daily copy checked on ${await expectedDate()}`);
+      await page.eval("document.querySelector('#modal-close').click()");
+      await page.until("!document.querySelector('.folder-settings')");
+      await page.eval("document.querySelector('#lang-toggle').click()");
+      await page.until("document.documentElement.lang==='pt-BR'");
+      await openSettings(page);
+      assert.equal(await status(),`Histórico da pasta: cópia do dia conferida em ${await expectedDate()}`);
+      await page.eval("document.querySelector('[data-folder-action=disconnect]').click()");
+      await page.until("!!document.querySelector('.app-dialog')");
+      await page.eval("document.querySelector('[data-dialog-action=confirm]').click()");
+      await page.until("!!document.querySelector('.folder-settings [data-folder-action=choose]')");
+      assert.equal(await status(),'Histórico da pasta: ainda sem cópia');
+      assert.deepEqual(await receipt(page),{});
+      assert.ok(await readSlot(page,MONDAY));
+    });
+  });
+
+  await check('P1.3 connected import explains disconnection and a cancelled import leaves everything in place',async()=>{
+    await withHistoryPage(async(page)=>{
+      const before=await folderCopyEvidence(page);
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await page.until("!!document.querySelector('.app-dialog')");
+      assert.match(await page.eval("document.querySelector('.app-dialog').textContent"),
+        /will be disconnected[\s\S]*choose the folder again[\s\S]*compare/i);
+      await page.eval("document.querySelector('[data-dialog-action=cancel]').click()");
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      assert.deepEqual(await folderCopyEvidence(page),before);
+    });
+  });
+}
