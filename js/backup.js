@@ -1,8 +1,11 @@
 import {confirmDialog} from './dialogs.js';
 import {pruneTombstones} from './folder-merge.js';
 import {folderUnloadWarning} from './folder-status.js';
-import {withVaultLineage} from './folder-write.js';
+import {folderFailure,withVaultLineage} from './folder-write.js';
 import {getFolderCopy} from './folder-copy-view.js';
+import {preserveLocalChoice} from './folder-preserve.js';
+import {requireFolderSession} from './folder-reconcile.js';
+import {probeFolder} from './folder-store.js';
 // backup.js — Export/import encrypted backup, unsavedChanges flag, beforeunload
 
 import { replaceVault, getMeta, readVault, recordExport, acknowledgeDownload, isReadOnly, assertWritable, vaultIdentity,verifyFolderWrite } from './db.js';
@@ -94,8 +97,9 @@ async function makeBackupDownload({recovery=false,source}={}) {
   return {unreadableCount,meta:receiptMeta,notes};
 }
 
-export async function importBackup(file, password) {
+export async function importBackup(file,password,{signal}={}) {
   assertWritable();
+  signal?.throwIfAborted();
   if (!file || file.size > MAX_BACKUP_BYTES) throw new Error(t('backup.tooLarge'));
   const bytes=new Uint8Array(await file.arrayBuffer());
   if(bytes.length<44)throw new Error(t('backup.unrecognizedFormat'));
@@ -116,9 +120,41 @@ export async function importBackup(file, password) {
   meta.keyCheck=await createKeyCheck(key);
   const previous=await readVault();
   const local=previous.notes;
-  if ((local.length || await getMeta('salt')) && !await confirmDialog(t('backup.replaceConfirm',{local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length)}),{danger:true})) throw new Error(t('backup.cancelled'));
+  const connected=!!previous.meta.syncFolder;
+  const importSignal=signal??(connected?getSessionSignal()??new AbortController().signal:undefined);
+  if(local.length||previous.meta.salt){
+    const message=t(connected?'backup.replaceConnected':'backup.replaceConfirm',{
+      local:tp('backup.noteCount',local.length),incoming:tp('backup.noteCount',backup.notes.length),
+    });
+    if(!await confirmDialog(message,{danger:true,signal:importSignal}))throw new Error(t('backup.cancelled'));
+  }
   meta.vaultId=crypto.randomUUID();meta.dirtySinceBackup=true;
-  await replaceVault({notes:backup.notes,meta},previous.meta);
-  storeSessionKey(key,meta.vaultId);publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
+  const replacement={notes:backup.notes,meta};
+  if(connected){
+    await withVaultLineage(async()=>{
+      const snapshot=await readVault();
+      const {syncFolder,vaultId,folderConnectionId,salt}=snapshot.meta;
+      if(!syncFolder||vaultId!==previous.meta.vaultId||
+          folderConnectionId!==previous.meta.folderConnectionId||salt!==previous.meta.salt)
+        throw folderFailure('vault.changed');
+      const sessionKey=await getSessionKey();
+      if(!sessionKey)throw folderFailure('session.ended');
+      await requireFolderSession(snapshot,sessionKey,importSignal);
+      if(await probeFolder(syncFolder)!=='ok')throw folderFailure('backup.preserveConnectedFailed');
+      await requireFolderSession(snapshot,sessionKey,importSignal);
+      assertWritable();
+      try{await preserveLocalChoice(syncFolder,snapshot,sessionKey,importSignal,{allowUnreadable:true});}
+      catch{
+        importSignal.throwIfAborted();
+        throw folderFailure('backup.preserveConnectedFailed');
+      }
+      await replaceVault(replacement,snapshot.meta,{signal:importSignal});
+    });
+  }else{
+    await replaceVault(replacement,previous.meta,{signal:importSignal});
+  }
+  if(!importSignal?.aborted)storeSessionKey(key,meta.vaultId);
+  publishVaultEvent('vault-replaced',{vaultId:meta.vaultId});
+  importSignal?.throwIfAborted();
   return key;
 }

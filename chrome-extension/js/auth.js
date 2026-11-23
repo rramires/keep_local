@@ -6,6 +6,7 @@ import { getMeta, getAllMetaRecords, isFirstUse, createVault, ensureVaultId } fr
 import { t } from './i18n.js';
 import {requestFolderAccess} from './folder-store.js';
 import {tryChangedFolderPassword,renderChangedPasswordGate} from './folder-login.js';
+import {importFormMarkup,initImportForm} from './import-ui.js';
 
 import { storeSessionKey } from './session.js';
 export { storeSessionKey, getSessionKey, refreshSession, clearSession, logout, startSessionTimer, stopSessionTimer } from './session.js';
@@ -111,23 +112,7 @@ export function renderAuthView(container,{onAuthenticated,folder,signal,onExit,o
             <footer class="auth-reset"><p class="help-text">${t('account.resetHint')}</p><button type="button" class="reset-link" id="reset-vault">${t('account.reset')}</button></footer>
           </form>
 
-          <!-- Import Tab -->
-          <div class="auth-import hidden" id="import-form">
-            <div class="import-dropzone" id="import-dropzone">
-              <div class="import-icon">📁</div>
-              <div class="import-text">${t('import.dropzoneText')}</div>
-              <div class="import-filename hidden" id="import-filename"></div>
-              <input type="file" id="import-file" accept=".keeplocal" style="display:none">
-            </div>
-            <div class="form-group">
-              <label for="import-password">${t('import.backupPassword')}</label>
-              <input type="password" id="import-password" placeholder="${t('import.backupPlaceholder')}">
-            </div>
-            <div class="form-error" id="import-error" role="alert"></div>
-            <div class="form-actions">
-              <button type="button" class="btn-primary" id="import-btn" disabled>${t('import.importButton')}</button>
-            </div>
-          </div>
+          ${importFormMarkup('auth-import hidden')}
         </div>
         <p class="auth-footer">
           © 2026 <a href="https://github.com/rramires" target="_blank" rel="noopener noreferrer">github.com/rramires</a>
@@ -259,62 +244,5 @@ function initAuthListeners(container,onAuthenticated,folder,{signal,onExit,onOpe
     }catch(error){container.querySelector('#login-error').textContent=error.code==='vault.readOnly'?t(error.code):error.message;}
   });
 
-  // --- Import ---
-  const dropzone = container.querySelector('#import-dropzone');
-  const fileInput = container.querySelector('#import-file');
-  const importBtn = container.querySelector('#import-btn');
-  const importFilename = container.querySelector('#import-filename');
-  let selectedFile = null;
-
-  dropzone.addEventListener('click', () => fileInput.click());
-
-  dropzone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropzone.classList.add('dragover');
-  });
-
-  dropzone.addEventListener('dragleave', () => {
-    dropzone.classList.remove('dragover');
-  });
-
-  dropzone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
-    const file = e.dataTransfer.files[0];
-    if (file) selectImportFile(file);
-  });
-
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) selectImportFile(fileInput.files[0]);
-  });
-
-  function selectImportFile(file) {
-    selectedFile = file;
-    importFilename.textContent = file.name;
-    importFilename.classList.remove('hidden');
-    updateImportBtn();
-  }
-
-  const importPw = container.querySelector('#import-password');
-  importPw.addEventListener('input', updateImportBtn);
-
-  function updateImportBtn() {
-    importBtn.disabled = !(selectedFile && importPw.value.length > 0);
-  }
-
-  importBtn.addEventListener('click', async () => {
-    const importError = container.querySelector('#import-error');
-    importError.textContent = '';
-    importBtn.disabled = true;
-
-    try {
-      if(folder)throw new Error(t('folder.importLocked'));
-      const { importBackup } = await import('./backup.js');
-      const key = await importBackup(selectedFile, importPw.value);
-      onAuthenticated(key);
-    } catch (err) {
-      importError.textContent = t(typeof err.code==='string'?err.code:err.message||'import.importError');
-      importBtn.disabled = false;
-    }
-  });
+  initImportForm(container,{signal,locked:!!folder,onImported:onAuthenticated});
 }

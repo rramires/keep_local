@@ -27,10 +27,17 @@ export function recordVersions(records) {
 }
 
 export function retainFolderBases(bases) {
+  const clockKey=base=>{
+    const entries=Object.entries(base.clock??{});
+    return entries.length?JSON.stringify(entries.sort(([a],[b])=>a.localeCompare(b))):null;
+  };
+  const hashedClocks=new Set(bases.filter(base=>base?.versions&&base.hash).map(clockKey));
   const seen=new Set();
   return bases.filter(base=>{
     if(!base?.versions)return false;
-    const key=base.hash||JSON.stringify(Object.entries(base.clock??{}).sort(([a],[b])=>a.localeCompare(b)));
+    const key=base.hash||clockKey(base);
+    if(!key)return false;
+    if(!base.hash&&hashedClocks.has(key))return false;
     if(seen.has(key))return false;
     seen.add(key);
     return true;
@@ -72,6 +79,8 @@ export function folderVersionState(meta,head,{mergedHeads=[],resetBases=false}={
 
 export function baseForFolderHead(meta, head) {
   const pending=meta.folderPendingWrite;
+  // When the head proves the pending write, its local conflict losers were
+  // kept as copies. Only a tombstone can remove a note from that write.
   if(pending&&descends(head,{clock:pending.clock}))return pending.versions;
   const base=storedFolderBases(meta).find(base=>base?.versions&&descends(head,base));
   if(base)return base.versions;

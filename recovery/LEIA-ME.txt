@@ -2,15 +2,16 @@ KeepLocal — Kit de emergência
 =============================
 
 Guarde num pen-drive criptografado as cópias .keeplocal mais recentes
-(arquivo da pasta do cofre e backups manuais), o ZIP da versão em uso,
-keeplocal-recovery.html, este LEIA-ME.txt e SHA256SUMS. Guarde a senha
-mestra separadamente do pen-drive.
+(arquivo da pasta do cofre, subpasta keeplocal-history/ e backups manuais),
+o ZIP da versão em uso, keeplocal-recovery.html, este LEIA-ME.txt e
+SHA256SUMS. Guarde a senha mestra separadamente do pen-drive.
 
 1. Ver uma cópia
    Dê duplo clique em keeplocal-recovery.html para abrir no Chrome.
    Escolha o .keeplocal mais recente, digite a senha daquela cópia e
-   clique em Abrir. A ferramenta só lê o arquivo e permite ler as notas
-   e revelar ou copiar um campo por vez. O histórico da área de
+   clique em Abrir. O leitor também abre qualquer cópia de keeplocal-history/.
+   A ferramenta só lê o arquivo e permite ler as notas e revelar ou
+   copiar um campo por vez. O histórico da área de
    transferência (Win+V) pode reter valores copiados.
    Se a abertura falhar, tente a senha anterior. A cópia pode ter sido
    criada antes da troca de senha.
@@ -37,15 +38,16 @@ importantes e teste a abertura de uma cópia periodicamente.
 KeepLocal — Emergency kit
 =========================
 
-Keep the latest .keeplocal copies (vault folder file and manual backups),
-the ZIP for the version in use, keeplocal-recovery.html, this LEIA-ME.txt
-and SHA256SUMS on an encrypted USB drive. Keep the master passphrase
-separate from the drive.
+Keep the latest .keeplocal copies (vault folder file, keeplocal-history/
+subfolder and manual backups), the ZIP for the version in use,
+keeplocal-recovery.html, this LEIA-ME.txt and SHA256SUMS on an encrypted
+USB drive. Keep the master passphrase separate from the drive.
 
 1. View a copy
    Double-click keeplocal-recovery.html to open it in Chrome. Choose the
    latest .keeplocal file, enter the passphrase for that copy, and click
-   Open. The tool reads the file and lets you read notes and reveal or
+   Open. The reader also opens any copy from keeplocal-history/.
+   The tool reads the file and lets you read notes and reveal or
    copy one field at a time. Clipboard history (Win+V) can retain copies.
    If opening fails, try the previous passphrase. The copy may have been
    created before the passphrase change.

@@ -2,6 +2,7 @@ import {t} from './i18n.js';
 import {focusPanel} from './form-ui.js';
 import {confirmDialog} from './dialogs.js';
 import {createFolderIndicator} from './folder-status.js';
+import {getMeta} from './db.js';
 import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,readSyncFolder,requestFolderAccess} from './folder-store.js';
 
 function element(tag, className, text) {
@@ -20,7 +21,7 @@ function action(name,handler,primary=false) {
 }
 
 function folderReason(status) {
-  if(['notFound','denied','unresponsive','conflict','rollback','otherSalt','unreadableCopy'].includes(status))return t('folder.'+status);
+  if(['notFound','denied','unresponsive','conflict','rollback','otherSalt','unreadableCopy','reservedFolder'].includes(status))return t('folder.'+status);
   return t('folder.other',{name:status.startsWith('error:')?status.slice(6):'Error'});
 }
 
@@ -189,7 +190,7 @@ export function addFolderSettingsTrigger(anchor,onOpen) {
   anchor.before(trigger);
 }
 
-export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder,onOtherSalt,onBrowseCopies}) {
+export function renderFolderSettings(container,{key,signal,trigger,onClose,notify,hasUnreadable,onFolderChange,pauseFolder,onOtherSalt,onBrowseCopies,onImportBackup}) {
   const panel=element('section','panel-form folder-settings');
   const header=element('header','panel-header');
   const title=element('h2','',t('folder.settings'));
@@ -206,7 +207,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
 
   let busy=false;
   async function refresh(focus) {
-    const handle=await readSyncFolder();
+    const [handle,checkedAt]=await Promise.all([readSyncFolder(),getMeta('folderHistoryAt')]);
     if(signal.aborted) return;
     const heading=element('h3','',t('folder.section'));
     const groups=[
@@ -217,17 +218,25 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
     ];
     if(!handle) groups.push(element('p','help-text',t('folder.permissionTip')));
     groups.push(createFolderIndicator());
+    const date=checkedAt&&new Intl.DateTimeFormat(document.documentElement.lang,{
+      dateStyle:'medium',timeStyle:'short',
+    }).format(checkedAt);
+    const history=element('p','help-text',date?t('folder.historyChecked',{date}):t('folder.historyEmpty'));
+    history.dataset.folderHistory='';
+    groups.push(history);
     const controls=element('div','folder-actions');
     const choose=action(handle?'change':'choose',()=>void run(async()=>{
-      pauseFolder();
       let chosen;
-      let handled=false;
+      let handled=false,paused=false;
       try {
-        chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true});
+        chosen=await chooseSyncFolder({key,signal,hasUnreadable:hasUnreadable(),hold:true,onPick:()=>{
+          paused=true;
+          pauseFolder();
+        }});
         if(chosen.status==='otherSalt'&&onOtherSalt)handled=await onOtherSalt(chosen);
       }
       finally{
-        if(!handled)await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
+        if(paused&&!handled)await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
       }
       if(handled)return;
       if(signal.aborted)return;
@@ -245,6 +254,13 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
       })));
     }
     if(onBrowseCopies)controls.append(action('browseCopies',()=>void run(onBrowseCopies)));
+    if(onImportBackup){
+      const link=element('a','btn-secondary',t('import.importButton'));
+      link.href='#import-backup';
+      link.dataset.folderAction='importBackup';
+      link.addEventListener('click',event=>{event.preventDefault();void run(onImportBackup);});
+      controls.append(link);
+    }
     body.replaceChildren(...groups,controls);
     if(focus) choose.focus();
   }

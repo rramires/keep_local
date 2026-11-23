@@ -5,6 +5,8 @@ import {decideFolderAction} from './folder-reconcile.js';
 import {readFolderState} from './folder-vault.js';
 import {withVaultLineage} from './folder-write.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
+import {HISTORY_DIR} from './folder-history.js';
+import {PRESERVED_DIR} from './folder-preserve.js';
 
 const access = {mode:'readwrite'};
 
@@ -58,10 +60,17 @@ async function requireSession(key,signal) {
   if(signal?.aborted || !key || key!==await getSessionKey() || signal?.aborted) throw failure('session.ended');
 }
 
-export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=false}={}) {
+export function isFolderCopyDirectory(name) {
+  return [HISTORY_DIR,PRESERVED_DIR].includes(name.toLowerCase());
+}
+
+export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=false,onPick}={}) {
   if(!folderSupported()) throw failure('folder.unsupported');
   if(hasUnreadable) throw failure('folder.unreadable');
   const handle=await showDirectoryPicker({...access,id:'keeplocal-vault'});
+  if(isFolderCopyDirectory(handle.name))return {handle,status:'reservedFolder'};
+  if(signal?.aborted)throw failure('session.ended');
+  onPick?.();
   return withVaultLineage(async()=>{
     const status=await probeFolder(handle);
     if(status!=='ok')return {handle,status};

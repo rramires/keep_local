@@ -122,7 +122,7 @@ export async function run({check,assert,cpuThrottlingRate}) {
 }
 
 const primary='keeplocal-vault.keeplocal';
-export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,editFromOtherTab,ready,focus,waitForNotes};
+export {withTwoProfiles,connectBoth,relogin,waitForRev,editNote,editFromOtherTab,ready,focus,waitForNotes,waitForFolderLineage};
 const attach=page=>page.eval("(await import('./js/folder-store.js')).chooseSyncFolder({key:(await import('./js/app.js')).getCryptoKey()})");
 
 async function relogin(page,{granted=true}={}) {
@@ -133,6 +133,11 @@ async function relogin(page,{granted=true}={}) {
 
 async function waitForRev(page,rev) {
   await page.until(`(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev===${rev})`);
+}
+
+function waitForFolderLineage(page) {
+  // A normal write can still be checking history after committing its main receipt.
+  return page.eval("navigator.locks.request('keeplocal-vault-lineage',()=>{})");
 }
 
 function putNote(page,item) {
@@ -199,6 +204,7 @@ async function connectBoth(a,b,notes,startRev=1) {
   await attach(a);
   await relogin(a);
   await waitForRev(a,startRev);
+  await waitForFolderLineage(a);
   const file=await readFolderFixture(a,primary);
   await b.eval(importExpression(file));
   await b.reload();
@@ -836,6 +842,7 @@ async function integration({check,assert,cpuThrottlingRate}) {
       await waitForRev(a,2);
       await editNote(b,item.id,{content:'Independent B'});
       await waitForRev(b,2);
+      await waitForFolderLineage(b);
       const remote=await readFolderFixture(a,primary);
       await writeFolderFixture(b,primary,remote);
       const previous=await b.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");
@@ -1338,6 +1345,7 @@ async function e2e({check,assert}) {
       await waitForRev(a,2);
       await editNote(b,x.id,{content:'Fictitious local work'});
       await waitForRev(b,2);
+      await waitForFolderLineage(b);
       const local=await b.eval("JSON.stringify(await(await import('./js/db.js')).readVault())");
       const remote=await readFolderFixture(a,primary);
       await writeFolderFixture(b,primary,remote);

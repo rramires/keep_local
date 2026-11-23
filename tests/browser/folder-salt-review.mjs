@@ -1,5 +1,5 @@
 import {note,PASSWORD} from './harness.mjs';
-import {withTwoProfiles,connectBoth,waitForRev,editNote,editFromOtherTab,focus} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,waitForRev,editNote,editFromOtherTab,focus,ready,waitForNotes} from './folder-merge.mjs';
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {signIn} from './folder-salt-login.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
@@ -29,6 +29,51 @@ async function confirmChoice(page,action) {
   await page.eval(`(async()=>{const input=document.querySelector('.app-dialog input');
     input.value=(await import('./js/i18n.js')).t('folder.replaceWord');
     input.dispatchEvent(new Event('input',{bubbles:true}));input.closest('form').requestSubmit();})()`);
+}
+
+export async function runS3({check,assert}) {
+  await check('P1.0 S3 two computers converge after a cross-salt rollback without false conflict copies',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const main='keeplocal-vault.keeplocal';
+      const x=note({title:'Fictional S3 X'}),y=note({title:'Fictional S3 Y'});
+      const editedX='Fictional A edit after rotation',editedY='Fictional B unsent edit';
+      await connectBoth(a,b,[x,y]);
+      await rotate(a);
+      await waitForRev(a,2);
+      await signIn(a,NEW_PASSWORD);
+      await ready(a);
+      await editNote(a,x.id,{content:editedX});
+      await waitForRev(a,3);
+      await editFromOtherTab(b,y.id,editedY);
+      await writeFolderFixture(b,main,await readFolderFixture(a,main));
+      await signIn(b,PASSWORD);
+      await b.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await confirmChoice(b,'useLocal');
+      await waitForRev(b,2);
+      await writeFolderFixture(a,main,await readFolderFixture(b,main));
+      await focus(a);
+      await a.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await enterFolderPassword(a,PASSWORD);
+      await a.until("!!document.querySelector('[data-folder-status=rollback]')");
+      await confirmChoice(a,'joinBoth');
+      await waitForRev(a,4);
+      const joinedFile=await readFolderFixture(a,main);
+      const {key,payload}=await decodeV2(Buffer.from(joinedFile,'base64'),NEW_PASSWORD);
+      const joined=await decryptRecords(payload.notes,key);
+      assert.equal(joined.find(n=>n.id===x.id)?.content,editedX);
+      assert.equal(joined.find(n=>n.id===y.id)?.content,editedY);
+      assert.equal(joined.length,2,`S3 conflict copies: ${joined.length-2}`);
+      await writeFolderFixture(b,main,joinedFile);
+      await signIn(b,PASSWORD);
+      await b.until("!!document.querySelector('[data-folder-status=otherSalt]')");
+      await enterFolderPassword(b,NEW_PASSWORD);
+      const select=notes=>notes.map(({id,content})=>[id,content]).sort();
+      const expected=[[x.id,editedX],[y.id,editedY]].sort();
+      await waitForNotes(a,expected,select);
+      await waitForNotes(b,expected,select);
+      assert.equal(await readFolderFixture(b,main),joinedFile);
+    });
+  });
 }
 
 export async function run({check,assert}) {

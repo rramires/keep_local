@@ -5,6 +5,7 @@ import {folderWriterState} from './folder-clock.js';
 
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
+const FOLDER_HISTORY_META=['folderHistoryDay','folderHistoryWeek','folderHistoryAt'];
 
 let dbInstance = null;
 let writeMode = 'readWrite';
@@ -233,7 +234,9 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
       }
       notes.clear();meta.clear();
       for(const record of records)notes.put(record);
-      for(const[key,value]of Object.entries(next))meta.put({key,value});
+      for(const[key,value]of Object.entries(next)){
+        if(!FOLDER_HISTORY_META.includes(key))meta.put({key,value});
+      }
       done();
     };
     if(!expected){replace();return;}
@@ -262,7 +265,8 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('folderConnectionId');
         }
         for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
-          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderSaltClock'])meta.delete(key);
+          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderSaltClock',
+          ...FOLDER_HISTORY_META])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -325,6 +329,24 @@ export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,
       }catch(error){fail(error);}
     };
   },adopt);
+}
+
+export function recordFolderHistory(expected,receipt,signal) {
+  return vaultTransaction(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try {
+        assertWritable();
+        const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        if(!current.syncFolder||current.vaultId!==expected.vaultId||
+            current.folderConnectionId!==expected.folderConnectionId)
+          throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
+        for(const [key,value] of Object.entries(receipt))meta.put({key,value});
+        done();
+      }catch(error){fail(error);}
+    };
+  });
 }
 
 export async function readVault() {
