@@ -5,7 +5,7 @@ import {choosePhotoFolder,disconnectPhotoFolder,folderMetadata,photoErrorDetails
 import {localWeekdayIndex} from './folder-history.js';
 
 function receiptText(meta) {
-  if(!meta.photoFolder)return t('photo.notWritten');
+  if(!meta.photoFolder)return t('photo.noFolder');
   const failure=photoFailureFor(meta);
   if(failure)return t('photo.notSaved',{reason:t(failure.code,failure.params)});
   if(!meta.photoWrittenDay)return t('photo.notWritten');

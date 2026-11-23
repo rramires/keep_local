@@ -27,6 +27,7 @@ await folderPhotos.runWriteNow({check,assert});
 await folderPhotos.runPhotoImport({check,assert});
 await folderPhotos.runPhotoLimits({check,assert});
 await folderPhotos.runPhotoConnection({check,assert});
+await folderPhotos.runPhotoEmptyStatus({check,assert});
 const folderSalt=await import('./folder-salt.mjs');
 await folderSalt.run({check,assert});
 const folderSaltLogin=await import('./folder-salt-login.mjs');

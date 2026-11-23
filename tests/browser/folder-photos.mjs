@@ -165,7 +165,7 @@ export async function runPhotoSettings({check,assert}){
     await withPhotosPage(async page=>{
       await page.eval("await photoTest.fill();await photoTest.seed('desktop.ini',Uint8Array.of(1));await (await photoTest.directory()).getDirectoryHandle('ignored.PNG',{create:true})");
       await openPhotoSettings(page,assert);
-      assert.match(await status(page),/no photo written yet/i);
+      assert.equal(await status(page),'Photos: no folder chosen');
       await clearPhotoSpies(page);
       await startPhotoChoice(page);
       await page.until("!!document.querySelector('.app-dialog')");
@@ -962,4 +962,33 @@ export async function runPhotoConnection({check,assert}){
       assert.equal(await readPhoto(page,name),photo);
     });
   });
+}
+
+export async function runPhotoEmptyStatus({check,assert}){
+  for(const [lang,noFolder,noWrite] of [
+    ['en','Photos: no folder chosen','Photos: no photo written yet'],
+    ['pt-BR','Fotos: nenhuma pasta escolhida','Fotos: nenhuma foto gravada ainda'],
+  ]){
+    await check(`P2-N1 ${lang} distinguishes an unchosen photos folder from a folder with no receipt`,async()=>{
+      await withPhotosPage(async page=>{
+        if(lang==='pt-BR'){
+          const revision=await page.eval("(await import('./js/db.js')).getMeta('folderSeenRev')");
+          await page.eval("document.querySelector('#lang-toggle').click()");
+          await page.until("document.documentElement.lang==='pt-BR'&&!!document.querySelector('#folder-settings-btn')");
+          await focus(page);
+          await waitForRev(page,revision+1);
+          await waitForFolderLineage(page);
+        }
+        await page.eval('photoTest.fill()');
+        await openPhotoSettings(page,assert);
+        assert.equal(await status(page),noFolder);
+        await startPhotoChoice(page);
+        await finishPhotoChoice(page);
+        assert.equal(await status(page),noWrite);
+        await page.eval("document.querySelector('[data-photo-action=disconnect]').click()");
+        await page.until("!document.querySelector('[data-photo-action=disconnect]')");
+        assert.equal(await status(page),noFolder);
+      });
+    });
+  }
 }
