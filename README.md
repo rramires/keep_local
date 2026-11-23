@@ -353,6 +353,30 @@ is still required at every opening.
   the folder copy. Import on the sign-in screen is refused while a folder is
   connected.
 
+### Photos (extension only)
+
+KeepLocal can append an encrypted copy of the main vault file to a JPEG or PNG.
+The photo still opens as an image. In **Settings → Vault folder → Photos**,
+choose a separate folder with exactly seven dedicated JPEG or PNG copies.
+Alphabetical order assigns the first file to Monday and the seventh to Sunday.
+Check the names and weekdays before confirming.
+
+After a regular verified write to the vault folder, KeepLocal updates today's
+photo if an hour has passed since the last photo write or the local day changed.
+Use **Write now** below **Backup** to save pending edits to the vault file and
+write today's photo immediately. A notification reports the result. **Backup**
+still exports a separate file.
+
+KeepLocal reads the seven photos when you choose the folder, then only reads the
+day's photo when it is about to update it. It never loads vault data from photos
+automatically and never creates, renames or deletes a photo. Choose the photos
+folder again after replacing the local vault or changing the vault folder.
+
+To recover, open the seven photos in `keeplocal-recovery.html` and use the
+passphrase for each copy. Pick the highest revision (rev) that opens, then
+select that photo in **Import backup**. Any program that rewrites the photo,
+such as an editor, a social network or a compressor, removes the appended copy.
+
 ### Restore a folder history copy
 
 1. Sign in and choose **Settings → Import backup**. Select the `.keeplocal`

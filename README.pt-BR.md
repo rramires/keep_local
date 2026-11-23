@@ -343,6 +343,32 @@ obrigatória a cada abertura.
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
   houver pasta conectada.
 
+### Fotos (só na extensão)
+
+O KeepLocal pode anexar uma cópia cifrada do arquivo principal do cofre a um
+JPEG ou PNG. A foto continua abrindo como imagem. Em **Configurações → Pasta do
+cofre → Fotos**, escolha uma pasta separada com exatamente sete cópias
+dedicadas em JPEG ou PNG. Em ordem alfabética, a primeira fica para
+segunda-feira e a sétima para domingo. Confira os nomes e os dias antes de
+confirmar.
+
+Depois de uma gravação normal e conferida na pasta do cofre, o KeepLocal
+atualiza a foto do dia se passou uma hora desde a última gravação da foto ou se
+o dia local mudou. Use **Gravar agora**, abaixo de **Backup**, para salvar as
+edições pendentes no arquivo do cofre e gravar a foto do dia na hora. Uma
+notificação informa o resultado. **Backup** continua exportando um arquivo
+separado.
+
+O KeepLocal lê as sete fotos ao escolher a pasta. Depois, só lê a foto do dia
+quando vai atualizá-la. O app nunca carrega o cofre automaticamente de uma
+foto nem cria, renomeia ou apaga fotos. Escolha a pasta de fotos de novo após
+substituir o cofre local ou trocar a pasta do cofre.
+
+Para recuperar, abra as sete fotos em `keeplocal-recovery.html` e digite a
+senha de cada cópia. Escolha a maior revisão (rev) que abriu e selecione essa
+foto em **Importar backup**. Se um programa regravar a foto, como um editor,
+uma rede social ou um compressor, a cópia anexada será perdida.
+
 ### Restaurar uma cópia do histórico da pasta
 
 1. Entre no cofre e escolha **Configurações → Importar backup**. Selecione o
