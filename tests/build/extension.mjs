@@ -35,3 +35,14 @@ const expectedSums = [zip.split('/').at(-1), ...kitFiles].map(name =>
 ).join('\n') + '\n';
 assert.equal(readFileSync('dist/SHA256SUMS', 'utf8'), expectedSums);
 console.log('PASS H1.3 emergency kit copies and checksums match outside the extension archive');
+
+const policy=execFileSync('unzip',['-p',zip,'privacy.html'],{encoding:'utf8'});
+assert.doesNotMatch(policy,/legacy fast verifier|legacy v1|verificador rápido legado|legada v1/i);
+for(const [locale,photos,clipboard,permissions] of [
+  ['en',/dedicated photos/i,/clipboard/i,/no Chrome extension permissions/i],
+  ['pt',/fotos dedicadas/i,/área de transferência/i,/nenhuma permissão de extensão/i],
+]){
+  const section=policy.split(`id="lang-${locale}"`)[1]?.split('<!--')[0]??'';
+  for(const term of [/File System Access/,photos,clipboard,permissions])assert.match(section,term,locale);
+}
+console.log('PASS P4.5 packaged privacy policy covers folders, dedicated photos and clipboard in both languages');

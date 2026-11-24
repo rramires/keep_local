@@ -134,11 +134,12 @@
       </ul>
 
       <h2>4. Password</h2>
-      <p>Your password is never stored. An encrypted known block verifies the derived key; the legacy fast verifier is removed atomically on login. The nonextractable session key stays only in memory. Reloading requires your password; inactivity locks after five minutes. New passwords require at least fourteen characters without composition rules. <strong>There is no password recovery</strong> — if you forget your password, your data cannot be recovered.</p>
+      <p>Your password is never stored. An encrypted known block verifies the derived key. The nonextractable session key stays only in memory. Reloading requires your password; inactivity locks after five minutes. New passwords require at least fourteen characters without composition rules. <strong>There is no password recovery</strong> — if you forget your password, your data cannot be recovered.</p>
 
-      <p>Backups use an authenticated binary v2 envelope with an encrypted manifest, revision and parent hash. Export starts a download; KeepLocal cannot confirm the file was saved and does not synchronize it to Mega. Legacy v1 imports are validated before atomic replacement. Local preferences and metadata remain unencrypted in IndexedDB.</p>
+      <p>Backups use an authenticated binary v2 envelope with an encrypted manifest, revision and parent hash. Export starts a download. KeepLocal cannot confirm that the file was saved. Local preferences and metadata remain unencrypted in IndexedDB.</p>
       <h2>5. Permissions</h2>
-      <p>KeepLocal <strong>does not request any permissions</strong> from Chrome. It works entirely with standard browser APIs (IndexedDB, Web Crypto API, BroadcastChannel).</p>
+      <p>KeepLocal declares <strong>no Chrome extension permissions</strong>. The browser grants access to the folders you choose through the File System Access API. KeepLocal can save encrypted backups and history in your vault folder. Optional dedicated photos can carry an encrypted copy of the vault appended to the image.</p>
+      <p>When you copy a password or key, KeepLocal writes it to the clipboard and attempts to clear it after 20 seconds. The operating system controls its clipboard history and sharing settings.</p>
 
       <h2>6. Open Source</h2>
       <p>The complete source code is available at <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> under the MIT license. Anyone can audit the code to verify these privacy practices.</p>
@@ -180,11 +181,12 @@
       </ul>
 
       <h2>4. Senha</h2>
-      <p>Sua senha não é armazenada. Um bloco conhecido cifrado verifica a chave derivada; o verificador rápido legado é removido atomicamente ao entrar. A chave de sessão não exportável fica somente em memória. Recarregar exige senha; cinco minutos de inatividade bloqueiam a sessão. Senhas novas exigem quatorze caracteres, sem regras de composição. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
+      <p>Sua senha não é armazenada. Um bloco conhecido cifrado verifica a chave derivada. A chave de sessão não exportável fica somente em memória. Recarregar exige senha; cinco minutos de inatividade bloqueiam a sessão. Senhas novas exigem quatorze caracteres, sem regras de composição. <strong>Não existe recuperação de senha</strong> — se você esquecer sua senha, os dados não poderão ser recuperados.</p>
 
-      <p>Backups usam envelope binário v2 autenticado com manifesto, revisão e hash do pai cifrados. Exportar inicia um download; o KeepLocal não confirma a gravação nem sincroniza com o Mega. A importação legada v1 é validada antes da substituição atômica. Preferências e metadados locais permanecem sem cifra no IndexedDB.</p>
+      <p>Backups usam envelope binário v2 autenticado com manifesto, revisão e hash do pai cifrados. Exportar inicia um download. O KeepLocal não confirma a gravação. Preferências e metadados locais permanecem sem cifra no IndexedDB.</p>
       <h2>5. Permissões</h2>
-      <p>O KeepLocal <strong>não solicita nenhuma permissão</strong> do Chrome. Ele funciona inteiramente com APIs padrão do navegador (IndexedDB, Web Crypto API, BroadcastChannel).</p>
+      <p>O KeepLocal não declara <strong>nenhuma permissão de extensão</strong> do Chrome. O navegador concede acesso às pastas que você escolhe pela API File System Access. O KeepLocal pode gravar backups cifrados e histórico na pasta do cofre. Fotos dedicadas opcionais podem carregar uma cópia cifrada do cofre anexada à imagem.</p>
+      <p>Quando você copia uma senha ou chave, o KeepLocal grava na área de transferência e tenta limpá-la após 20 segundos. O sistema operacional controla o histórico e as configurações de compartilhamento da área de transferência.</p>
 
       <h2>6. Código Aberto</h2>
       <p>O código-fonte completo está disponível em <a href="https://github.com/rramires/keep_local" target="_blank" rel="noopener noreferrer">github.com/rramires/keep_local</a> sob licença MIT. Qualquer pessoa pode auditar o código para verificar estas práticas de privacidade.</p>
