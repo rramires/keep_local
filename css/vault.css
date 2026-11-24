@@ -69,5 +69,8 @@
 .vault-generator .form-error:empty { display: none; }
 
 .vault-lock-preference { flex-basis: 100%; }
-.vault-lock-preference select { max-width: 100%; color-scheme: dark; }
+.vault-lock-preference select { width: 100%; max-width: 20rem; color-scheme: dark; }
+@media (max-width: 768px) {
+  .vault-lock-preference select { max-width: 100%; }
+}
 [data-theme=light] .vault-lock-preference select { color-scheme: light; }

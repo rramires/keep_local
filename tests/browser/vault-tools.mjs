@@ -22,6 +22,7 @@ export async function chooseVaultTemplate(page,id) {
 export async function run({browser,check,assert}) {
   await runP31({browser,check,assert});
   await runP32({browser,check,assert});
+  await runP33({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -432,6 +433,33 @@ export async function runP32({browser,check,assert}){
         assert.deepEqual(result.actions,expected);
         assert.equal(result.hasGroup,expected.length>0);
         assert.equal(result.hasSecret,false);
+      }
+    }finally{await p.close();}
+  });
+}
+
+export async function runP33({browser,check,assert}){
+  await check('P3.3 the idle selector has a desktop width cap and fills its mobile row',async()=>{
+    const p=await browser.page();
+    try{
+      await create(p);
+      await openVaultSection(p);
+      await p.until("!!document.querySelector('[data-vault-lock]')");
+      for(const width of [1280,390]){
+        await p.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});
+        await p.until(`innerWidth===${width}`);
+        await p.eval("Promise.all(document.getAnimations().filter(animation=>Number.isFinite(animation.effect.getComputedTiming().endTime)).map(animation=>animation.finished.catch(()=>{})))");
+        const layout=await p.eval(`(()=>{
+          const select=document.querySelector('[data-vault-lock]'),r=select.getBoundingClientRect();
+          return {width:r.width,left:r.left,right:r.right,row:select.parentElement.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth};
+        })()`);
+        assert.ok(layout.width>0);
+        if(width===1280)assert.ok(layout.width<=320,JSON.stringify(layout));
+        else{
+          assert.equal(layout.overflow,false);
+          assert.ok(layout.left>=0&&layout.right<=width,JSON.stringify(layout));
+          assert.ok(Math.abs(layout.width-layout.row)<=1,JSON.stringify(layout));
+        }
       }
     }finally{await p.close();}
   });
