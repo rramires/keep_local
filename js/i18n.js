@@ -918,7 +918,7 @@ const ptBR = {
   'login.wrongPassword': 'Frase-senha incorreta.',
 };
 
-const dictionaries = { en, 'pt-BR': ptBR };
+export const dictionaries = Object.freeze({ en: Object.freeze(en), 'pt-BR': Object.freeze(ptBR) });
 
 /**
  * Translate a key, with optional parameter interpolation.
