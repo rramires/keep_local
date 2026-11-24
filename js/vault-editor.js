@@ -190,7 +190,7 @@ export function renderVaultEditor(modal, item, {signal, isNew, template, onClose
       if (!secret) revealing = false;
       const focused = value === document.activeElement && document.visibilityState !== 'hidden';
       value.value = secret && !focused ? '' : current.value;
-      value.placeholder = secret ? SECRET_MASK : '';
+      value.placeholder = field ? (secret ? SECRET_MASK : '') : t('vault.template.field.notes');
       value.classList.toggle('vault-edit-secret', secret && !revealing);
       if (field) {
         toggleSecret.textContent = (secret ? '🔒 ' : '🔓 ') + t('vault.secret');

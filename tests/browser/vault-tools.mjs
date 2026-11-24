@@ -20,6 +20,7 @@ export async function chooseVaultTemplate(page,id) {
 }
 
 export async function run({browser,check,assert}) {
+  await runP31({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -52,7 +53,7 @@ export async function run({browser,check,assert}) {
       await pressVaultKey(p,'Enter','Enter',13);
       await p.until("!!document.querySelector('.vault-editor')");
       assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-vault-label]')].map(input=>input.value)"),['Host','Port','User','Password']);
-      assert.equal(await p.eval("document.querySelector('[data-vault-block=text] textarea').value"),'Notes');
+      assert.equal(await p.eval("document.querySelector('[data-vault-block=text] textarea').placeholder"),'Notes');
       await p.eval("document.querySelector('[data-vault-add=divider]').click();document.querySelector('#modal-close').click()");
       await p.until("!document.querySelector('.vault-editor')");
       assert.equal(await p.eval("(await(await import('./js/db.js')).readVault()).notes.length"),0);
@@ -369,4 +370,36 @@ export async function run({browser,check,assert}) {
       assert.deepEqual(p.errors,[]);
     }finally{scanner.dispose();await p.close();}
   });
+}
+
+export async function runP31({browser,check,assert}){
+  for(const [lang,placeholder] of [['en','Notes'],['pt-BR','Observações']]){
+    await check(`P3.1 the Server preset shows a ${lang} hint and saves empty text`,async()=>{
+      const p=await browser.page();
+      try{
+        await create(p);
+        if(lang==='pt-BR'){
+          await p.eval("document.querySelector('#lang-toggle').click()");
+          await p.until("document.documentElement.lang==='pt-BR'&&!!document.querySelector('[data-view=vault]')");
+        }
+        await openVaultSection(p);
+        await chooseVaultTemplate(p,'server');
+        const field=()=>p.eval("Array.from(document.querySelectorAll('[data-vault-block=text] textarea'), input=>[input.value,input.placeholder])");
+        assert.deepEqual(await field(),[['',placeholder]]);
+        await fillVaultInput(p,'[data-vault-title]','Fictitious server');
+        await p.eval("document.querySelector('#modal-close').click()");
+        await p.until("!!document.querySelector('.vault-card')&&!document.querySelector('.vault-editor')");
+        const payload=await p.eval(`(async()=>{
+          const {notes}=await (await import('./js/db.js')).readVault();
+          const key=(await import('./js/app.js')).getCryptoKey();
+          return (await (await import('./js/backup-format.js')).decryptRecords(notes,key))[0];
+        })()`);
+        assert.deepEqual(payload.blocks.filter(block=>block.kind==='text').map(block=>block.value),['']);
+        assert.doesNotMatch(await p.eval("document.querySelector('.vault-card').textContent"),new RegExp(placeholder));
+        await p.eval("document.querySelector('[data-vault-open]').click();document.querySelector('[data-vault-edit]').click()");
+        await p.until("!!document.querySelector('.vault-editor')");
+        assert.deepEqual(await field(),[['',placeholder]]);
+      }finally{await p.close();}
+    });
+  }
 }
