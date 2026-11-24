@@ -20,6 +20,10 @@ export async function chooseVaultTemplate(page,id) {
 }
 
 export async function run({browser,check,assert}) {
+  await runP31({browser,check,assert});
+  await runP32({browser,check,assert});
+  await runP33({browser,check,assert});
+  await runP34({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -52,7 +56,7 @@ export async function run({browser,check,assert}) {
       await pressVaultKey(p,'Enter','Enter',13);
       await p.until("!!document.querySelector('.vault-editor')");
       assert.deepEqual(await p.eval("[...document.querySelectorAll('[data-vault-label]')].map(input=>input.value)"),['Host','Port','User','Password']);
-      assert.equal(await p.eval("document.querySelector('[data-vault-block=text] textarea').value"),'Notes');
+      assert.equal(await p.eval("document.querySelector('[data-vault-block=text] textarea').placeholder"),'Notes');
       await p.eval("document.querySelector('[data-vault-add=divider]').click();document.querySelector('#modal-close').click()");
       await p.until("!document.querySelector('.vault-editor')");
       assert.equal(await p.eval("(await(await import('./js/db.js')).readVault()).notes.length"),0);
@@ -369,4 +373,142 @@ export async function run({browser,check,assert}) {
       assert.deepEqual(p.errors,[]);
     }finally{scanner.dispose();await p.close();}
   });
+}
+
+export async function runP31({browser,check,assert}){
+  for(const [lang,placeholder] of [['en','Notes'],['pt-BR','Observações']]){
+    await check(`P3.1 the Server preset shows a ${lang} hint and saves empty text`,async()=>{
+      const p=await browser.page();
+      try{
+        await create(p);
+        if(lang==='pt-BR'){
+          await p.eval("document.querySelector('#lang-toggle').click()");
+          await p.until("document.documentElement.lang==='pt-BR'&&!!document.querySelector('[data-view=vault]')");
+        }
+        await openVaultSection(p);
+        await chooseVaultTemplate(p,'server');
+        const field=()=>p.eval("Array.from(document.querySelectorAll('[data-vault-block=text] textarea'), input=>[input.value,input.placeholder])");
+        assert.deepEqual(await field(),[['',placeholder]]);
+        await fillVaultInput(p,'[data-vault-title]','Fictitious server');
+        await p.eval("document.querySelector('#modal-close').click()");
+        await p.until("!!document.querySelector('.vault-card')&&!document.querySelector('.vault-editor')");
+        const payload=await p.eval(`(async()=>{
+          const {notes}=await (await import('./js/db.js')).readVault();
+          const key=(await import('./js/app.js')).getCryptoKey();
+          return (await (await import('./js/backup-format.js')).decryptRecords(notes,key))[0];
+        })()`);
+        assert.deepEqual(payload.blocks.filter(block=>block.kind==='text').map(block=>block.value),['']);
+        assert.doesNotMatch(await p.eval("document.querySelector('.vault-card').textContent"),new RegExp(placeholder));
+        await p.eval("document.querySelector('[data-vault-open]').click();document.querySelector('[data-vault-edit]').click()");
+        await p.until("!!document.querySelector('.vault-editor')");
+        assert.deepEqual(await field(),[['',placeholder]]);
+      }finally{await p.close();}
+    });
+  }
+}
+
+export async function runP32({browser,check,assert}){
+  await check('P3.2 quick copy omits empty primary fields and keeps whitespace values',async()=>{
+    const p=await browser.page();
+    try{
+      await create(p);
+      const cases=[
+        ['Fictitious secret only','','FICTIONAL-SENSITIVE-P3',['secret']],
+        ['Fictitious empty fields','','',[]],
+        ['Fictitious whitespace','   ','',['public']],
+      ];
+      for(const [title,pub,secret] of cases){
+        const blocks=[['Host',pub,false],['Password',secret,true]].map(([label,value,isSecret])=>({
+          id:crypto.randomUUID(),kind:'field',label,value,secret:isSecret,primary:true,
+        }));
+        const item=vaultFixture({title,blocks});
+        await p.eval(`(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      }
+      await openVaultSection(p);
+      for(const [title,,,expected] of cases){
+        const result=await p.eval(`(()=>{
+          const card=[...document.querySelectorAll('.vault-card')].find(card=>card.textContent.includes(${JSON.stringify(title)}));
+          return {actions:[...card.querySelectorAll('[data-vault-quick-copy]')].map(button=>button.dataset.vaultQuickCopy),
+            hasGroup:!!card.querySelector('.vault-quick-copy'),hasSecret:card.innerHTML.includes('FICTIONAL-SENSITIVE-P3')};
+        })()`);
+        assert.deepEqual(result.actions,expected);
+        assert.equal(result.hasGroup,expected.length>0);
+        assert.equal(result.hasSecret,false);
+      }
+    }finally{await p.close();}
+  });
+}
+
+export async function runP33({browser,check,assert}){
+  await check('P3.3 the idle selector has a desktop width cap and fills its mobile row',async()=>{
+    const p=await browser.page();
+    try{
+      await create(p);
+      await openVaultSection(p);
+      await p.until("!!document.querySelector('[data-vault-lock]')");
+      for(const width of [1280,390]){
+        await p.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});
+        await p.until(`innerWidth===${width}`);
+        await p.eval("Promise.all(document.getAnimations().filter(animation=>Number.isFinite(animation.effect.getComputedTiming().endTime)).map(animation=>animation.finished.catch(()=>{})))");
+        const layout=await p.eval(`(()=>{
+          const select=document.querySelector('[data-vault-lock]'),r=select.getBoundingClientRect();
+          return {width:r.width,left:r.left,right:r.right,row:select.parentElement.getBoundingClientRect().width,overflow:document.documentElement.scrollWidth>innerWidth};
+        })()`);
+        assert.ok(layout.width>0);
+        if(width===1280)assert.ok(layout.width<=320,JSON.stringify(layout));
+        else{
+          assert.equal(layout.overflow,false);
+          assert.ok(layout.left>=0&&layout.right<=width,JSON.stringify(layout));
+          assert.ok(Math.abs(layout.width-layout.row)<=1,JSON.stringify(layout));
+        }
+      }
+    }finally{await p.close();}
+  });
+}
+
+export async function runP34({browser,check,assert}){
+  for(const [scope,idle] of [['app',300000],['vault',60000]]){
+    await check(`P3.4 scripted scroll does not extend the ${scope} timeout, while wheel does`,async()=>{
+      for(const action of ['scroll','wheel']){
+        const clock="let fixtureTime=Date.now(); Date.now=()=>fixtureTime;window.advanceActivityClock=ms=>{fixtureTime+=ms}";
+        const p=await browser.page(undefined,clock);
+        try{
+          await create(p);
+          if(scope==='vault'){
+            await openVaultSection(p);
+            await p.until("!!document.querySelector('[data-vault-lock]')");
+            await p.eval("const lock=document.querySelector('[data-vault-lock]');lock.value='1';lock.dispatchEvent(new Event('change',{bubbles:true}))");
+            await p.until("(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===1)");
+          }
+          const active=await p.eval(`(async()=>{
+            const session=await import('./js/session.js');
+            const scroller=document.createElement('div');
+            scroller.style.cssText='width:50px;height:50px;overflow:auto';
+            const content=document.createElement('div');content.style.height='1000px';
+            scroller.append(content);document.querySelector('#main-inner').append(scroller);
+            const later=${idle};
+            advanceActivityClock(2000);session.refreshSession();
+            if(${JSON.stringify(action)}==='scroll'){
+              for(const top of [100,200]){
+                advanceActivityClock(later/3);
+                await new Promise(resolve=>{
+                  scroller.addEventListener('scroll',resolve,{once:true});
+                  scroller.scrollTop=top;
+                });
+              }
+              advanceActivityClock(later/3+1);
+              return session.checkDeadline();
+            }
+            advanceActivityClock(later/2);
+            scroller.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));
+            advanceActivityClock(later/2+1);
+            const before=session.checkDeadline();
+            advanceActivityClock(later/2);
+            return [before,session.checkDeadline()];
+          })()`);
+          assert.deepEqual(active,action==='scroll'?false:[true,false]);
+        }finally{await p.close();}
+      }
+    });
+  }
 }

@@ -2,18 +2,22 @@
 
 No npm packages are required. Node 24 (native WebSocket and Web Crypto) and Chromium are used.
 
-```
-node --test tests/unit
-CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
-bash build-extension.sh
-node tests/build/extension.mjs
+```bash
+taskset -c 0-3 nice -n 10 bash build-extension.sh
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
+taskset -c 0-3 nice -n 10 diff -r js chrome-extension/js
+taskset -c 0-3 nice -n 10 diff -r css chrome-extension/css
+taskset -c 0-3 nice -n 10 diff -r lib chrome-extension/lib
+taskset -c 0-3 nice -n 10 diff index.html chrome-extension/index.html
+taskset -c 0-3 nice -n 10 git diff --check
+(cd dist && taskset -c 0-3 nice -n 10 sha256sum -c SHA256SUMS)
 ```
 
-On the shared development machine, run every command with at most 4 CPUs:
-`taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit` and
-`CHROME_BIN=… taskset -c 0-3 nice -n 10 node tests/browser/run.mjs`. Child Chromium
-processes inherit the CPU affinity. A failure that appears only under this limit is a
-timing bug.
+On the shared development machine, every gate command uses CPUs 0–3 and runs
+at `nice -n 10`. Child Chromium processes inherit the limit. A failure that
+appears only under this limit is a timing bug.
 
 The browser runner binds only to 127.0.0.1 and creates disposable contexts/profiles
 with fictitious data. Missing Chromium is SKIP and does not satisfy acceptance.
@@ -36,9 +40,8 @@ scripts are preserved under the owner's ignored `_temp/` folder.
 
 The browser runner also loads the real unpacked MV3 extension in a fresh
 Chromium profile using the ID documented in the README. Synchronize the tracked
-extension copies with `bash build-extension.sh` before running new browser tests
-against a runtime change. The final gate repeats the complete HTTP and extension
-runner three consecutive times.
+extension copies with the build command above before running browser tests
+against a runtime change.
 
 The extension fixtures install the picker substitute and permission, PBKDF2 and
 IndexedDB spies via CDP. They use the origin-private file system with fictitious
@@ -73,17 +76,28 @@ installed with CDP before scripts run in a disposable profile. Production
 read deadlines are 15 seconds for metadata and 60 seconds per candidate file.
 Writes and the native permission prompt use their ordinary completion path.
 
-On the shared machine, use these commands for the folder gate:
+At phase closing, repeat the complete HTTP and extension runner three times
+consecutively.
 
-```bash
-taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
-CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
-taskset -c 0-3 nice -n 10 bash build-extension.sh
-taskset -c 0-3 nice -n 10 node tests/build/extension.mjs
-```
+## Folder history, photos and release regressions
 
-Build once before running the browser suite when the app sources have changed.
-Repeat the browser suite three times at phase closing.
+`browser/folder-history.mjs` covers daily and weekly slots, preservation,
+connected import and restore, and a competing edit during import.
+`browser/folder-photos.mjs` generates JPEG and PNG fixtures in OPFS, checks the
+seven-photo setup and trailers, ordinary writes, Write now, and photo metadata
+across pulls, disconnects and folder switches. It checks that a photo write
+failure stays visible after a pull. It also checks refreshing the same handle
+while the stored handle stalls, including
+an alternate passphrase and the snapshot guard. `browser/recovery-tool.mjs`
+opens photos and the pinned profile 2 fixture offline.
+
+`browser/vault-tools.mjs` covers the Server template hint, empty primary values,
+desktop and mobile idle selector sizing, and wheel versus scripted scroll.
+`unit/i18n.js` checks dictionary keys, placeholders and plural forms in EN and
+pt-BR. Verify the archived readers in both directions with
+`taskset -c 0-3 nice -n 10 node tests/build/profile2-compat.mjs`. A release
+close also runs the full browser suite five more times on the tree that passed
+the three closing runs.
 
 ## Per-note vault-folder merge
 

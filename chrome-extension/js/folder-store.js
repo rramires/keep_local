@@ -1,4 +1,4 @@
-import {ensureVaultId,getAllMetaRecords,getMeta,readVault,setWriteMode,storeFolderConnection,vaultIdentity} from './db.js';
+import {ensureVaultId,getAllMetaRecords,getMeta,readVault,replaceFolderHandle,setWriteMode,storeFolderConnection,vaultIdentity} from './db.js';
 import {unreadableRecords} from './record-health.js';
 import {getSessionKey,getSessionVaultId,setSessionVaultId} from './session.js';
 import {decideFolderAction} from './folder-reconcile.js';
@@ -88,10 +88,11 @@ export async function chooseSyncFolder({key,signal,hasUnreadable=false,hold=fals
       if(error.name==='TimeoutError')return false;
       throw error;
     });
-    if(!alreadyAttached||!hold){
-      if(alreadyAttached)await enableFolderWrites({key,signal});
-      else await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta,hold}});
-    }
+    if(alreadyAttached){
+      await requireSession(key,signal);
+      await replaceFolderHandle(handle,snapshot.meta,{signal});
+      if(!hold)await enableFolderWrites({key,signal});
+    }else await enableFolderWrites({key,signal,selection:{handle,snapshot:snapshot.meta,hold}});
     return {handle,status:'ok'};
   });
 }

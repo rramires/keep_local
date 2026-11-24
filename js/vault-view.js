@@ -111,7 +111,7 @@ export function renderVaultCard(item, {open, change, remove, labelOptions = [], 
     const quick=element('div','vault-card-actions vault-quick-copy');
     for(const [kind,secret] of [['public',false],['secret',true]]){
       const block=principalField(item.blocks,secret);
-      if(!block)continue;
+      if(!block||block.value==='')continue;
       const button=vaultButton(t('vault.copyField',{label:block.label||t('vault.field')}),()=>copyField(block.value));
       button.dataset.vaultQuickCopy=kind;
       quick.append(button);

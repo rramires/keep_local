@@ -1,4 +1,4 @@
-import {readVault,storeFolderConnection,setWriteMode} from './db.js';
+import {readVault,replaceFolderHandle,storeFolderConnection,setWriteMode} from './db.js';
 import {requireFolderSession} from './folder-reconcile.js';
 import {withVaultLineage} from './folder-write.js';
 import {askFolderPassword} from './folder-other-salt.js';
@@ -13,7 +13,11 @@ export async function connectSaltFolder({root,selection,key,signal,onApplied,onE
     const attached=selection.snapshot.meta.syncFolder;
     const sameFolder=attached&&await withFolderReadTimeout(()=>selection.handle.isSameEntry(attached));
     await requireFolderSession(selection.snapshot,key,signal);
-    if(sameFolder)return {snapshot:selection.snapshot};
+    if(sameFolder){
+      await replaceFolderHandle(selection.handle,selection.snapshot.meta,{signal});
+      const snapshot={...selection.snapshot,meta:{...selection.snapshot.meta,syncFolder:selection.handle}};
+      return {snapshot};
+    }
     await storeFolderConnection(selection.handle,selection.snapshot.meta,selection.snapshot.meta.vaultId,{signal,transition:true});
     setWriteMode('readOnly');
     return {snapshot:await readVault(),target:'folder'};

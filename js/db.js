@@ -277,6 +277,21 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
   },transition);
 }
 
+export function replaceFolderHandle(handle,expected,{signal}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
+    if(!bindTransactionAbort(tx,signal,fail))return;
+    const request=meta.getAll();
+    request.onsuccess=()=>{
+      try {
+        const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
+        assertVaultSnapshot(current,expected);
+        meta.put({key:'syncFolder',value:handle});
+        done();
+      }catch(error){fail(error);}
+    };
+  },true);
+}
+
 function assertVaultSnapshot(current,expected,{allowNewEdits=false}={}) {
   const keys=['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
     'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'];

@@ -446,6 +446,7 @@ const en = {
   'import.backupPlaceholder': 'Enter the passphrase used for this backup',
   'import.importButton': 'Import backup',
   'import.importError': 'Error importing backup.',
+  'import.vaultChanged': 'The vault changed during the import. Nothing was replaced; try again.',
 
   // Backup errors
   'backup.invalidFile': 'Invalid backup file.',
@@ -902,6 +903,7 @@ const ptBR = {
   'import.backupPlaceholder': 'Digite a frase-senha usada neste backup',
   'import.importButton': 'Importar backup',
   'import.importError': 'Erro ao importar backup.',
+  'import.vaultChanged': 'O cofre mudou durante a importação. Nada foi substituído; tente de novo.',
 
   // Backup errors
   'backup.invalidFile': 'Arquivo de backup inválido.',
@@ -916,7 +918,7 @@ const ptBR = {
   'login.wrongPassword': 'Frase-senha incorreta.',
 };
 
-const dictionaries = { en, 'pt-BR': ptBR };
+export const dictionaries = Object.freeze({ en: Object.freeze(en), 'pt-BR': Object.freeze(ptBR) });
 
 /**
  * Translate a key, with optional parameter interpolation.

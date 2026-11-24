@@ -69,7 +69,10 @@ export function initImportForm(container,{signal,locked=false,onImported}) {
       const key=await importBackup(file,passphrase,{signal});
       if(!signal?.aborted)await onImported(key);
     }catch(error){
-      if(!signal?.aborted)errorText.textContent=t(typeof error.code==='string'?error.code:error.message||'import.importError');
+      if(!signal?.aborted){
+        const code=error.code==='vault.changed'?'import.vaultChanged':error.code;
+        errorText.textContent=t(typeof code==='string'?code:error.message||'import.importError');
+      }
     }finally{
       password.value='';
       importing=false;

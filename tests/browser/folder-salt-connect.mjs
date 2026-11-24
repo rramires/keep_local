@@ -9,13 +9,11 @@ import {folderCopyEvidence} from './folder-copy-view.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 
-async function choose(page,assert) {
+async function choose(page) {
   await page.eval("document.querySelector('#folder-settings-btn').click()");
   await page.until("!!document.querySelector('[data-folder-action=choose]')");
   await page.eval("document.querySelector('[data-folder-action=choose]').click()");
-  await page.until("folderTest.events.some(e=>e.kind==='picker')");
-  await page.eval("await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
-  assert.equal(await page.eval("!!document.querySelector('.app-dialog input[type=password]')"),true);
+  await page.until("!!document.querySelector('.app-dialog input[type=password]')");
 }
 
 async function password(page,value=NEW_PASSWORD) {
@@ -138,7 +136,7 @@ export async function run({check,assert}) {
       const page=await browser.page(undefined,folderFixtureSource());await create(page);
       const fixture=await backupFixture([note({title:'Fictional folder on a new computer'})],NEW_PASSWORD);
       await writeFolderFixture(page,'keeplocal-vault.keeplocal',fixture.base64);
-      await choose(page,assert);await password(page);
+      await choose(page);await password(page);
       await page.until("!!document.querySelector('.app-view')&&!(document.querySelector('#modal-overlay')?.classList.contains('open'))");
       await page.until("(await import('./js/app.js')).getNotes()[0]?.title==='Fictional folder on a new computer'");
       assert.equal(await page.eval("(await import('./js/app.js')).getNotes()[0].title"),'Fictional folder on a new computer');
@@ -155,7 +153,7 @@ export async function run({check,assert}) {
       const values=await page.eval("(await import('./js/app.js')).getNotes()");
       const fixture=await backupFixture(values,NEW_PASSWORD);
       await writeFolderFixture(page,'keeplocal-vault.keeplocal',fixture.base64);
-      await choose(page,assert);await password(page);
+      await choose(page);await password(page);
       await page.until(`(await import('./js/db.js')).getMeta('salt').then(salt=>salt===${JSON.stringify(Buffer.from(fixture.bytes.slice(0,16)).toString('base64'))})`);
       assert.deepEqual(await page.eval("(await import('./js/app.js')).getNotes()"),values);
       assert.equal(await readFolderFixture(page,'keeplocal-vault.keeplocal'),fixture.base64);
@@ -171,7 +169,7 @@ export async function run({check,assert}) {
       const remote={...local,content:'Fictional foreign text',updatedAt:local.updatedAt+1};
       const fixture=await backupFixture([remote],NEW_PASSWORD);
       await writeFolderFixture(page,'keeplocal-vault.keeplocal',fixture.base64);
-      await choose(page,assert);await password(page);
+      await choose(page);await password(page);
       await page.until("!!document.querySelector('[data-folder-status=conflict]')");
       for(const action of ['joinBoth','useFolder','useLocal'])
         assert.equal(await page.eval(`!!document.querySelector('[data-folder-action=${action}]')`),true);
@@ -197,7 +195,7 @@ export async function run({check,assert}) {
       const fixture=await backupFixture([note()],NEW_PASSWORD);
       await writeFolderFixture(page,'keeplocal-vault.keeplocal',fixture.base64);
       await page.eval("window.beforeCancelledConnection=JSON.stringify(await (await import('./js/db.js')).readVault());folderTest.clear()");
-      await choose(page,assert);
+      await choose(page);
       await page.eval("document.querySelector('[data-dialog-action=cancel]').click()");
       await page.until("!document.querySelector('.app-dialog')");
       await page.eval("await navigator.locks.request('keeplocal-vault-lineage',()=>{})");
@@ -215,10 +213,18 @@ export async function run({check,assert}) {
       await page.eval(`await (await import('./js/app.js')).saveNote(${JSON.stringify(note({title:'Fictional local read-only choice'}))})`);
       const fixture=await backupFixture([note({title:'Fictional other folder choice'})],NEW_PASSWORD);
       await writeFolderFixture(page,'keeplocal-vault.keeplocal',fixture.base64);
-      await choose(page,assert);await password(page);
+      await page.eval(`(()=>{
+        const pick=window.showDirectoryPicker;
+        window.showDirectoryPicker=async options=>{
+          const picked=await pick(options);
+          await new Promise(resolve=>setTimeout(resolve,500));
+          return picked;
+        };
+      })()`);
+      await choose(page);await password(page);
       await page.until("!!document.querySelector('[data-folder-status=conflict]')");
       await page.eval("window.beforeLocalReadOnly=JSON.stringify(await (await import('./js/db.js')).readVault());folderTest.clear();document.querySelector('[data-folder-action=openReadOnly]').click()");
-      await page.until("!!document.querySelector('.app-view')");
+      await page.until("!!document.querySelector('.app-view .note-card')");
       assert.equal(await page.eval("!!document.querySelector('.folder-banner [data-folder-action=chooseAnother]')"),true);
       assert.equal(await page.eval("(await import('./js/app.js')).getNotes()[0].title"),'Fictional local read-only choice');
       assert.equal(await page.eval("JSON.stringify(await (await import('./js/db.js')).readVault())===window.beforeLocalReadOnly"),true);

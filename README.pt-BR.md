@@ -50,7 +50,8 @@ python3 -m http.server 8080 --bind 127.0.0.1
 Abra `http://127.0.0.1:8080`. Mantenha a mesma origem/porta para acessar o mesmo
 IndexedDB. O servidor requer Python 3; Web Crypto requer contexto seguro (localhost
 ou HTTPS). Desenvolvimento validado em Chromium; outros navegadores não foram
-validados nesta execução. A extensão requer Chrome 120+.
+validados nesta execução. Use uma versão atual do Chrome para a extensão e
+o acesso a pastas.
 
 ## Backup e redefinição
 
@@ -66,9 +67,14 @@ validados nesta execução. A extensão requer Chrome 120+.
    o app servido por HTTP tem só o backup manual. O KeepLocal não enxerga o Mega
    nem outro serviço de nuvem e nunca informa sincronização com a nuvem.
 
-Importar aceita **apenas v2 binário**, pede a frase-senha, valida todos os registros,
-confirma as quantidades e grava numa transação. Cancelamento, frase-senha incorreta,
+Importar aceita **backup v2 binário** ou um JPEG/PNG com cópia v2 anexada.
+O app pede a frase-senha da cópia, valida cada registro, confirma as
+quantidades e grava numa transação. Cancelamento, frase-senha incorreta,
 formato não suportado, dados inválidos e falhas preservam o cofre anterior.
+Com a pasta do cofre conectada, a importação pelas Configurações grava e
+confere primeiro uma cópia do cofre local atual em `keeplocal-preserved/`.
+A importação bem-sucedida desconecta a pasta do cofre. Se uma alteração
+concorrente interromper a importação, o formulário pede para tentar de novo.
 Cofres antigos sem verificação cifrada não são suportados e permanecem intactos;
 **Apagar tudo e recomeçar** exige a palavra exata e só apaga por escolha explícita.
 Não há migração nem exclusão automática.
@@ -79,9 +85,9 @@ recupere-os antes de esperar uma importação integral da cópia.
 ## Extensão e testes
 
 ```bash
-bash build-extension.sh
-node --test tests/unit
-CHROME_BIN=/caminho/chromium node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 bash build-extension.sh
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/caminho/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
 ```
 
 O build lê a versão do manifest (atualmente 1.0.0), sincroniza as cópias versionadas
@@ -124,7 +130,9 @@ com dados fictícios; `SKIP` por falta de Chromium não comprova os critérios v
 ## Formato binário do backup e recuperação
 
 A [ferramenta de recuperação](recovery/keeplocal-recovery.html) abre cópias
-offline no Chrome ou Edge. Ela exibe cores desconhecidas como texto e ignora
+offline no Chrome ou Edge, a partir de um `.keeplocal` ou de uma foto com
+cópia anexada. Ela mostra a revisão e a data de exportação da cópia cifrada.
+A ferramenta exibe cores desconhecidas como texto e ignora
 chaves adicionais em notas, tarefas e blocos do cofre. Para um tipo de nota
 desconhecido, exibe o título e um aviso de formato mais novo. Para um bloco
 desconhecido, exibe só o aviso no lugar do bloco. Os campos conhecidos do cofre
@@ -139,7 +147,8 @@ UTF-8 sem normalização, chave AES-256-GCM e tag de 16 bytes no final. AAD =
 exportações dele. O comprimento total do arquivo permanece observável.
 
 Decifre os bytes a partir do offset 28 com o nonce do offset 16. O JSON UTF-8
-cifrado contém `v:2`, `profile:2`, `rev`, `exportedAt`, `preferences`, `notes` e
+cifrado contém `v:2`, `profile:2`, `rev`, `parent`, `exportedAt` em ISO,
+`preferences` (`lang`, `theme`), `notes` e
 `manifest:{count,ids}`. Os IDs devem corresponder à ordem exata do array de notas.
 O campo cifrado opcional `tombstones` contém até 10000 registros de exclusão
 definitiva `{id,deletedAt}`, com UUID e data em milissegundos como inteiro
@@ -154,7 +163,7 @@ Perfis ficam no código em ordem conhecida, limitados a 600000–5000000 iteraç
 antes da derivação; nenhum byte do arquivo controla o custo do KDF. Limites:
 64 MiB por arquivo, 10000 notas, 2 MiB por nota serializada em UTF-8.
 
-Apenas v2 binário é aceito. O conjunto e o manifesto são autenticados. Documentos
+O formato de backup aceito é o v2 binário. O conjunto e o manifesto são autenticados. Documentos
 JSON reconhecíveis são recusados sem interpretar esquemas antigos. Sem identificador
 em claro, um binário não autenticado não permite distinguir com certeza frase-senha
 incorreta, formato não suportado e arquivo danificado; o erro informa as possibilidades
@@ -209,10 +218,11 @@ O guia explica como reinstalar o KeepLocal e importar a cópia.
 - **Novo item** oferece um item em branco e modelos para servidor, banco de
   dados, chave de API, SSH, login web e Cloudflare R2 / S3. Os rótulos usam o
   idioma atual. Adicione conteúdo ou edite os rótulos para salvar o item.
+  Todo bloco de texto vazio do editor mostra a dica “Observações”.
 - Use as estrelas do editor para escolher um campo principal em cada classe,
   pública ou secreta. O principal público aparece no subtítulo, e o card oferece
-  cópia rápida para cada classe. O KeepLocal tenta limpar a área de transferência
-  após 20 segundos. Histórico e sincronização entre dispositivos podem reter
+  cópia rápida para cada classe com valor principal preenchido. O KeepLocal
+  tenta limpar a área de transferência após 20 segundos. Histórico e sincronização entre dispositivos podem reter
   valores copiados.
 - **Gerar** num campo secreto começa em 24 caracteres, ajustável entre 8 e 128.
   Selecione as classes e escolha se quer evitar caracteres parecidos.
@@ -242,8 +252,11 @@ obrigatória a cada abertura.
   semana também copia os bytes exatos do principal para `keeplocal-history/`.
   São sete vagas diárias e quatro semanais, no calendário local. Uma cópia
   válida do mesmo período que abre com a chave atual do cofre fica na vaga.
-  O rodízio reutiliza a vaga por sobrescrita. Se ela contiver uma revisão
-  válida maior, o KeepLocal confere uma cópia preservada antes de substituir.
+  O rodízio reutiliza a vaga por sobrescrita. Antes de substituir uma vaga
+  com revisão válida maior ou com um arquivo não vazio de até 64 MiB que
+  a chave atual não abre, o KeepLocal guarda os bytes exatos em
+  `keeplocal-preserved/` e os relê para conferir. Se a preservação falhar,
+  a vaga fica intacta e o arquivo principal continua gravado.
   O app nunca apaga os arquivos do histórico nem os carrega automaticamente.
   Em Configurações, veja quando a cópia do dia foi conferida.
 - **Entrar:** o pedido de permissão da pasta é a primeira ação do clique. A
@@ -321,7 +334,8 @@ obrigatória a cada abertura.
   Ao criar uma cópia de conflito ou ao escolher **Juntar as duas**, o app guarda
   os originais da pasta e do navegador em `keeplocal-preserved/` e os relê antes
   da substituição. Participam a maior revisão cifrada e as outras cópias com a
-  mesma revisão. O aviso lista as alterações que ocorreram.
+  mesma revisão. A mesclagem mantém o tema e o idioma deste navegador. O aviso
+  lista as alterações que ocorreram.
 - **Exclusões definitivas:** as cópias cifradas guardam até 10000 registros
   de exclusão por 365 dias. A exclusão vence quando a outra versão está igual
   à cópia em comum. Uma versão alterada ou sem base conhecida é mantida. Cada
@@ -336,8 +350,9 @@ obrigatória a cada abertura.
   imposto na camada de dados (nenhuma gravação ou mesclagem). Leituras da pasta têm prazo
   (15 s para metadados, 60 s por arquivo): uma pasta que não responde leva à tela
   "A pasta não respondeu", sem travar o login. Se continuar, escolha a mesma pasta
-  de novo, ou use Configurações → Desconectar pasta → Escolher pasta. Gravações
-  não têm prazo.
+  de novo em **Escolher outra pasta**. Quando o Chrome reconhece a mesma pasta,
+  o KeepLocal troca o handle e mantém o recibo, o histórico e a configuração
+  das fotos. Gravações não têm prazo.
 - **Desconectar e redefinir:** desconectar preserva o conteúdo da pasta. Redefinir
   na tela de login ou Começar do zero… apaga o cofre local e o vínculo com a
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
@@ -346,7 +361,9 @@ obrigatória a cada abertura.
 ### Fotos (só na extensão)
 
 O KeepLocal pode anexar uma cópia cifrada do arquivo principal do cofre a um
-JPEG ou PNG. A foto continua abrindo como imagem. Em **Configurações → Pasta do
+JPEG ou PNG. A foto continua abrindo como imagem. O trailer contém os bytes
+exatos do principal seguidos de seu tamanho em 4 bytes little-endian. A imagem
+tem limite de 32 MiB e a cópia cifrada, de 64 MiB. Em **Configurações → Pasta do
 cofre → Fotos**, escolha uma pasta separada com exatamente sete cópias
 dedicadas em JPEG ou PNG. Em ordem alfabética, a primeira fica para
 segunda-feira e a sétima para domingo. Confira os nomes e os dias antes de
@@ -362,7 +379,9 @@ separado.
 O KeepLocal lê as sete fotos ao escolher a pasta. Depois, só lê a foto do dia
 quando vai atualizá-la. O app nunca carrega o cofre automaticamente de uma
 foto nem cria, renomeia ou apaga fotos. Escolha a pasta de fotos de novo após
-importar um backup, começar do zero ou trocar a pasta do cofre.
+importar um backup, começar do zero, desconectar ou trocar a pasta do cofre.
+Carregar da pasta, mesclar, escolher um lado na revisão e trocar a frase-senha
+na mesma conexão mantêm a pasta de fotos e seu recibo.
 
 Para recuperar, abra as sete fotos em `keeplocal-recovery.html` e digite a
 senha de cada cópia. Escolha a maior revisão (rev) que abriu e selecione essa

@@ -1,6 +1,6 @@
 import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
-import {withTwoProfiles,connectBoth,editNote,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,editNote,editFromOtherTab,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
 import {connectedCopyPage,folderCopyEvidence,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {HISTORY_DIR,historySlots} from '../../js/folder-history.js';
@@ -130,6 +130,94 @@ const setDay=(page,day)=>page.eval(`historyTest.setDay(${JSON.stringify(day)})`)
 const clearOps=page=>page.eval('historyTest.ops=[]');
 const historyOps=page=>page.eval('historyTest.ops');
 const toasts=page=>page.eval("document.querySelector('#toast-container').textContent");
+
+function preservedHistoryFiles(page){
+  return page.eval(`(async()=>{
+    const copies={};
+    try{
+      const root=await folderTest.directory();
+      const directory=await root.getDirectoryHandle('keeplocal-preserved');
+      for await(const entry of directory.values()){
+        if(entry.kind==='file'&&entry.name.includes('-history-runknown-'))
+          copies[entry.name]=new Uint8Array(await (await entry.getFile()).arrayBuffer()).toBase64();
+      }
+    }catch(error){if(error.name!=='NotFoundError')throw error;}
+    return copies;
+  })()`);
+}
+
+export async function runP316({check,assert}){
+  await check('P3.16 history keeps the exact old-passphrase slots before the first write with the new passphrase',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      const oldDay=await readSlot(page,MONDAY),oldWeek=await readSlot(page,FIRST_WEEK);
+      assert.ok(oldDay&&oldWeek);
+      await rotate(page);
+      await waitForRev(page,2);
+      await waitForFolderLineage(page);
+      await signIn(page,NEW_PASSWORD);
+      await ready(page);
+      assert.equal(await readSlot(page,MONDAY),oldDay);
+      assert.equal(await readSlot(page,FIRST_WEEK),oldWeek);
+
+      const main=await editAndSave(page,id,3);
+      const copies=await preservedHistoryFiles(page);
+      assert.deepEqual(Object.values(copies).sort(),[oldDay,oldWeek].sort());
+      for(const bytes of Object.values(copies)){
+        const {payload}=await decodeV2(Buffer.from(bytes,'base64'),PASSWORD);
+        assert.equal(payload.rev,1);
+      }
+      for(const name of [MONDAY,FIRST_WEEK]){
+        const current=await readSlot(page,name);
+        assert.equal(current,main);
+        const {payload}=await decodeV2(Buffer.from(current,'base64'),NEW_PASSWORD);
+        assert.equal(payload.rev,3);
+      }
+
+      await clearOps(page);
+      assert.notEqual(await editAndSave(page,id,4),main);
+      assert.deepEqual(await historyOps(page),[]);
+      assert.deepEqual(await preservedHistoryFiles(page),copies);
+      assert.equal(await readSlot(page,MONDAY),main);
+    });
+  });
+
+  await check('P3.16 history preserves every byte of a truncated current daily slot',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      const day='2026-01-13',name=slots(day).day.name;
+      const first=Buffer.from(await readSlot(page,MONDAY),'base64');
+      const damaged=first.subarray(0,first.length-15).toString('base64');
+      await setDay(page,day);
+      await seedSlot(page,name,damaged);
+      const main=await editAndSave(page,id,2);
+      assert.deepEqual(Object.values(await preservedHistoryFiles(page)),[damaged]);
+      assert.equal(await readSlot(page,name),main);
+      assert.equal((await receipt(page)).folderHistoryDay,day);
+    });
+  });
+
+  await check('P3.16 failed preservation readback keeps the history slot and leaves the checked main write intact',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      const day='2026-01-13',name=slots(day).day.name;
+      const before=await readFolderFixture(page,MAIN);
+      const damaged=Buffer.from(before,'base64').subarray(0,20).toString('base64');
+      await setDay(page,day);
+      await seedSlot(page,name,damaged);
+      const previous=await receipt(page),beforeToast=await toasts(page);
+      const writes=await page.eval('folderTest.writeAttempts');
+      await page.eval("folderTest.failPreservation='tamper'");
+      const main=await editAndSave(page,id,2);
+      assert.notEqual(main,before);
+      const {key,payload}=await decodeV2(Buffer.from(main,'base64'),PASSWORD);
+      assert.equal(payload.rev,2);
+      assert.equal((await decryptRecords(payload.notes,key)).find(item=>item.id===id)?.content,'Fictional history edit 2');
+      assert.equal(await page.eval('folderTest.writeAttempts'),writes+1);
+      assert.equal(await readSlot(page,name),damaged);
+      assert.deepEqual(await receipt(page),previous);
+      assert.equal(await toasts(page),beforeToast);
+      assert.deepEqual(page.errors,[]);
+    });
+  });
+}
 
 export async function run({check,assert}){
   await check('P1.2 first write copies exact main bytes and rotates seven days and four weeks',async()=>{
@@ -794,5 +882,39 @@ export async function runImportErrors({check,assert}){
       assert.equal(await page.eval("document.querySelector('#import-error').textContent"),'Fictional storage quota reached');
       assert.deepEqual(await folderCopyEvidence(page),before);
     }finally{await browser.close();}
+  });
+}
+
+export async function runP35({check,assert}){
+  await check('P3.5 a competing edit during import keeps the vault and folder and shows the import error',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      await page.eval(`(async()=>{
+        await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved',{create:true});
+        const create=FileSystemFileHandle.prototype.createWritable;
+        FileSystemFileHandle.prototype.createWritable=async function(...args){
+          if(this.name.startsWith('preserved-')&&window.holdImportPreserve){
+            window.holdImportPreserve=false;
+            await new Promise(resolve=>{window.releaseImportPreserve=resolve;});
+          }
+          return create.apply(this,args);
+        };
+      })()`);
+      const files=(await folderCopyEvidence(page)).files;
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await page.until("!!document.querySelector('.app-dialog')");
+      await page.eval("window.holdImportPreserve=true;document.querySelector('[data-dialog-action=confirm]').click()");
+      await page.until('typeof window.releaseImportPreserve==="function"');
+      await editFromOtherTab(page,id,'Fictional competing edit during import');
+      const afterEdit=await folderCopyEvidence(page);
+      await page.eval("window.releaseImportPreserve()");
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      await waitForFolderLineage(page);
+      assert.equal(await page.eval("document.querySelector('#import-error').textContent"),
+        'The vault changed during the import. Nothing was replaced; try again.');
+      const after=await folderCopyEvidence(page);
+      assert.deepEqual(after.vault,afterEdit.vault);
+      assert.deepEqual(after.files,files);
+      assert.equal(after.folder,afterEdit.folder);
+    });
   });
 }

@@ -18,7 +18,7 @@ export function createVaultTemplate(name) {
   return templates[name].map(field=>{
     const id=crypto.randomUUID();
     if(typeof field==='string')return {id,kind:'field',label:label(field),value:''};
-    if(field.text)return {id,kind:'text',value:label(field.text)};
+    if(field.text)return {id,kind:'text',value:''};
     return {id,kind:'field',label:label(field.label),value:'',multiline:field.multiline};
   });
 }
