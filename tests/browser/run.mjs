@@ -16,6 +16,7 @@ const folderMerge=await import('./folder-merge.mjs');
 await folderMerge.run({check,assert});
 const folderHistory=await import('./folder-history.mjs');
 await folderHistory.run({check,assert});
+await folderHistory.runP316({check,assert});
 await folderHistory.runSettings({check,assert});
 await folderHistory.runRestore({check,assert});
 await folderHistory.runImportPreservation({check,assert});

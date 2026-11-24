@@ -60,7 +60,9 @@ export async function writeFolderHistory(handle,key,meta,head,bytes,signal) {
       try {
         // Recheck the bytes with the writer held before replacing an observed slot.
         await verifySlot(entry,observed);
-        if(valid&&old.rev>head.rev)await preserveHistoryCopy(handle,observed.bytes,old.rev,assertCurrent);
+        if(observed?.bytes?.length&&(!valid||old.rev>head.rev)){
+          await preserveHistoryCopy(handle,observed.bytes,valid?old.rev:'unknown',assertCurrent);
+        }
         assertCurrent();
         await stream.write(bytes);
         assertCurrent();
