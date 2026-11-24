@@ -218,7 +218,7 @@ O guia explica como reinstalar o KeepLocal e importar a cópia.
 - **Novo item** oferece um item em branco e modelos para servidor, banco de
   dados, chave de API, SSH, login web e Cloudflare R2 / S3. Os rótulos usam o
   idioma atual. Adicione conteúdo ou edite os rótulos para salvar o item.
-  O modelo Servidor mostra a dica “Observações” no bloco de texto do editor.
+  Todo bloco de texto vazio do editor mostra a dica “Observações”.
 - Use as estrelas do editor para escolher um campo principal em cada classe,
   pública ou secreta. O principal público aparece no subtítulo, e o card oferece
   cópia rápida para cada classe com valor principal preenchido. O KeepLocal
@@ -252,8 +252,11 @@ obrigatória a cada abertura.
   semana também copia os bytes exatos do principal para `keeplocal-history/`.
   São sete vagas diárias e quatro semanais, no calendário local. Uma cópia
   válida do mesmo período que abre com a chave atual do cofre fica na vaga.
-  O rodízio reutiliza a vaga por sobrescrita. Se ela contiver uma revisão
-  válida maior, o KeepLocal confere uma cópia preservada antes de substituir.
+  O rodízio reutiliza a vaga por sobrescrita. Antes de substituir uma vaga
+  com revisão válida maior ou com um arquivo não vazio de até 64 MiB que
+  a chave atual não abre, o KeepLocal guarda os bytes exatos em
+  `keeplocal-preserved/` e os relê para conferir. Se a preservação falhar,
+  a vaga fica intacta e o arquivo principal continua gravado.
   O app nunca apaga os arquivos do histórico nem os carrega automaticamente.
   Em Configurações, veja quando a cópia do dia foi conferida.
 - **Entrar:** o pedido de permissão da pasta é a primeira ação do clique. A

@@ -221,8 +221,8 @@ reinstalling KeepLocal and importing a backup. [Bilingual guide](recovery/LEIA-M
 
 - **New item** offers a blank item and templates for servers, databases, API keys,
   SSH, web logins and Cloudflare R2 / S3. Template labels use the current language.
-  Add content or edit the labels before saving an item. The Server template
-  shows a “Notes” placeholder in the editor’s text block.
+  Add content or edit the labels before saving an item. Every text block
+  in the editor shows a “Notes” placeholder when empty.
 - Use the editor's stars to pick one primary field for each class, public or
   secret. Cards use the primary public value as their subtitle and offer quick
   copy for each class whose primary value is nonempty. KeepLocal attempts to
@@ -255,9 +255,12 @@ is still required at every opening.
   week also copies the exact bytes of the main file into `keeplocal-history/`.
   The subfolder has seven daily slots and four weekly slots, on the local
   calendar. A valid copy from the same period that opens with the current vault
-  key is kept. Rotation reuses a slot by overwriting it. When a slot holds a
-  valid higher revision, KeepLocal verifies a preserved copy before replacing
-  it. The app never deletes history files or loads them automatically.
+  key is kept. Rotation reuses a slot by overwriting it. Before replacing a
+  slot that holds a higher valid revision or a nonempty file within the
+  64 MiB limit that the current key cannot open, KeepLocal saves the exact
+  bytes in `keeplocal-preserved/` and reads them back to verify them. If
+  preservation fails, the slot stays intact and the main file remains saved.
+  The app never deletes history files or loads them automatically.
   In Settings, you can see when the daily copy was last checked.
 - **Sign in:** the folder permission request is the first action of the click.
   Availability is decided by listing the folder. Every root `*.keeplocal`
