@@ -1,10 +1,10 @@
 import {withDialogs} from './dialog-driver.mjs';
-import {create,add,unlock,PASSWORD} from './harness.mjs';
+import {create,add,note,unlock,PASSWORD} from './harness.mjs';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 export async function run({browser,check,assert}) {
  await check('T2.15 unreadable export warning, truthful errors and recovery round trip',async()=>{
   const p=await browser.page();await create(p);await add(p,'Good','Preserve');
-  const unreadableText=JSON.stringify({type:'text',content:'A fictitious note without required metadata'});
+  const unreadableText=JSON.stringify(note({content:'Fictitious valid note whose outer record does not match'}));
   await p.eval(`const d=await import('./js/db.js'),c=await import('./js/crypto.js'),a=await import('./js/app.js');const e=await c.encrypt(a.getCryptoKey(),${JSON.stringify(unreadableText)});window.bad={id:crypto.randomUUID(),iv:c.arrayToBase64(e.iv),ciphertext:c.arrayBufferToBase64(e.ciphertext),updatedAt:1};await d.saveNoteRecord(window.bad)`);
   await p.reload();await unlock(p);await p.until("!!document.querySelector('.unreadable-warning')");
   await p.eval("window.downloads=[];URL.createObjectURL=b=>(downloads.push(b),'blob:fixture');URL.revokeObjectURL=()=>{};HTMLAnchorElement.prototype.click=()=>{}");

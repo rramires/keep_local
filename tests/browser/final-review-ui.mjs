@@ -1,8 +1,9 @@
-import {create,note} from './harness.mjs';
+import {create,note,unlock} from './harness.mjs';
 
 export async function run({browser,check,assert}){
   await runP47({browser,check,assert});
   await runP48({browser,check,assert});
+  await runP410({browser,check,assert});
 }
 
 export async function runP47({browser,check,assert}){
@@ -81,6 +82,73 @@ export async function runP48({browser,check,assert}){
       await page.eval("document.querySelector('#new-note-close').click()");
       await page.until("(await import('./js/app.js')).getNotes().length===1");
       assert.equal(await page.eval("(await import('./js/app.js')).getNotes()[0].content"),content);
+    }finally{await page.close();}
+  });
+}
+
+async function openRecoveryRecord(page,source){
+  await create(page);
+  await page.eval(`(async()=>{
+    const db=await import('./js/db.js'),cryptoLib=await import('./js/crypto.js');
+    const key=(await import('./js/app.js')).getCryptoKey();
+    const {iv,ciphertext}=await cryptoLib.encrypt(key,${JSON.stringify(source)});
+    await db.saveNoteRecord({id:crypto.randomUUID(),updatedAt:1,iv:cryptoLib.arrayToBase64(iv),
+      ciphertext:cryptoLib.arrayBufferToBase64(ciphertext)});
+  })()`);
+  await page.reload();
+  await unlock(page);
+  await page.eval("document.querySelector('#recover-notes-btn').click()");
+  await page.until("!!document.querySelector('.recovery-record')");
+  await page.eval("document.querySelector('.recovery-record').click()");
+  await page.until("!document.querySelector('#recovery-show-sensitive').hidden||document.querySelector('#recovery-content').value!==''");
+}
+
+export async function runP410({browser,check,assert}){
+  await check('P4.10 only known validated text and list records are shown and usable as a new note',async()=>{
+    const marker='Fictional future recovery content';
+    const {content,...base}=note();
+    const tasks=[{id:crypto.randomUUID(),text:content,done:false,order:0,parentId:null}];
+    const cases=[
+      [{type:'future',preview:marker},false],
+      [{type:'text',content:marker},false],
+      [{...base,type:'text',content,futureData:marker},false],
+      [{...base,type:'todo',tasks:[{...tasks[0],futureData:marker}]},false],
+      [{...base,type:'text',content},true],
+      [{...base,type:'todo',tasks},true],
+    ];
+    for(const [value,known] of cases){
+      const page=await browser.page();
+      const source=JSON.stringify(value);
+      try{
+        await openRecoveryRecord(page,source);
+        assert.deepEqual(await page.eval(`({
+          content:document.querySelector('#recovery-content').value,
+          reveal:!document.querySelector('#recovery-show-sensitive').hidden,
+          createNote:!document.querySelector('#recovery-copy').disabled,
+        })`),{content:known?source:'',reveal:!known,createNote:known},value.type);
+        if(!known){
+          await page.eval("document.querySelector('#recovery-show-sensitive').click()");
+          assert.equal(await page.eval("document.querySelector('#recovery-content').value"),source);
+          assert.equal(await page.eval("document.querySelector('#recovery-copy').disabled"),true);
+        }
+        assert.deepEqual(page.errors,[]);
+      }finally{await page.close();}
+    }
+  });
+
+  await check('P4.10 recovery clears explicitly revealed raw text when the window loses focus',async()=>{
+    const page=await browser.page();
+    const source=JSON.stringify({type:'vault',blocks:['Fictional encrypted recovery example']});
+    try{
+      await openRecoveryRecord(page,source);
+      await page.eval("document.querySelector('#recovery-show-sensitive').click()");
+      assert.equal(await page.eval("document.querySelector('#recovery-content').value"),source);
+      await page.eval("window.dispatchEvent(new Event('blur'))");
+      assert.deepEqual(await page.eval(`({
+        content:document.querySelector('#recovery-content').value,
+        pressed:document.querySelector('#recovery-show-sensitive').getAttribute('aria-pressed'),
+      })`),{content:'',pressed:'false'});
+      assert.deepEqual(page.errors,[]);
     }finally{await page.close();}
   });
 }

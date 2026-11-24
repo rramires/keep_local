@@ -437,8 +437,10 @@ An export in flight is cancelled when its session ends or changes.
 ## Recovery of unreadable records
 
 Export asks for confirmation when unreadable records exist and reports a partial
-recovery archive. Recovery can create a valid text note from decrypted raw
-content. Oversized content stays read-only for manual copying. **Export now**
+recovery archive. Recovery shows the decrypted JSON of validated text and
+list notes and can use it to create a new text note. Oversized content stays
+read-only. Other raw records require an explicit reveal and stay read-only.
+The reveal also clears when the window loses focus. **Export now**
 preserves the record. Verify the saved file, check the saved-file confirmation
 and type **DISCARD** to remove the unreadable record from this browser.
 Discarding local corruption does not send a deletion marker to other

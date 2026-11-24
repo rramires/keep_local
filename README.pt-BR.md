@@ -440,10 +440,13 @@ se a sessão terminar ou mudar.
 ## Recuperação de registros ilegíveis
 
 O export avisa antes quando houver registros ilegíveis e informa que o arquivo
-não pode ser restaurado integralmente nesse estado. A Recuperação permite criar
-uma nota válida contendo o texto bruto decifrado; conteúdo acima do limite fica
-somente para leitura e cópia manual. O descarte tem dois passos: Exportar agora preserva o registro sem excluir;
-depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR
+não pode ser restaurado integralmente nesse estado. A Recuperação mostra o
+JSON decifrado de notas de texto e listas que passam na validação e permite
+criar uma nota de texto a partir dele. Conteúdo acima do limite fica somente
+para leitura. Os demais registros exigem revelação explícita e ficam somente
+para leitura. O conteúdo revelado some quando a janela perde o foco.
+**Exportar agora** preserva o registro para o descarte.
+Depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR
 para remover o registro ilegível deste navegador. O descarte local não envia
 um marcador de exclusão aos outros computadores. Uma cópia legível em outro
 computador pode voltar pela mesclagem da pasta.
