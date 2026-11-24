@@ -6,3 +6,8 @@ test('extension action focuses its own context without permissions, otherwise cr
 });
 import {createHash} from 'node:crypto';
 test('vendored JS matches pinned SHA-256 checksums',()=>{const lines=readFileSync(new URL('../../lib/SHA256SUMS',import.meta.url),'utf8').trim().split('\n');assert.equal(lines.length,2);for(const line of lines){const[hash,file]=line.split(/\s+/);assert.match(file,/^(marked|purify)\.min\.js$/);assert.equal(createHash('sha256').update(readFileSync(new URL('../../lib/'+file,import.meta.url))).digest('hex'),hash);}});
+
+test('P4.11 the obsolete generic HTML escape helper is absent',async()=>{
+  const utils=await import('../../js/utils.js');
+  assert.equal(Object.hasOwn(utils,'escapeHTML'),false);
+});
