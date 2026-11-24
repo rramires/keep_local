@@ -89,7 +89,7 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
   return {status:'pulled',head:copy};
 }
 
-export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false,access}) {
+export async function executeFolderMerge({handle,writer,snapshot,state,key,signal,allowReadOnly=false,manual=false,access,skipPhoto=false}) {
   const {meta}=snapshot;
   const head=state.head;
   const candidates=state.candidates.filter(copy=>copy.status==='valid'&&copy.rev===head.rev);
@@ -125,18 +125,24 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
     preserved.push(await (access?access.preserveLocal():preserveLocalChoice(handle,snapshot,key,signal)));
     preserved.push(...await (access?access.preserve({...state,candidates:toPreserve}):preserveFolderChoice(handle,toPreserve,key,meta.salt,signal)));
   }
-  let target=head;
+  let target=head,finishPhoto;
   if(!equalsHead){
     await assertCurrent();
     const selected={hash:head.hash,payload:{notes:records,preferences,tombstones,
       ancestors:head.payload.ancestors,clock:head.payload.clock}};
-    target=await writer.writeChosen(snapshot,state,selected,{allowReadOnly,sourceHeads:otherHeads});
+    const options={allowReadOnly,sourceHeads:otherHeads};
+    if(equalsLocal&&meta.photoFolder&&!manual&&!access&&!skipPhoto&&!isReadOnly()){
+      const written=await writer.writeMerged(snapshot,state,selected,options);
+      target=written.head;
+      finishPhoto=written.finishPhoto;
+    }else target=await writer.writeChosen(snapshot,state,selected,options);
   }else{
     target=await readReviewedCopy(handle,head,key,meta.salt,access);
   }
   await assertCurrent();
   if(equalsLocal){
     await recordFolderWrite(meta,target,{signal,adopt:true,mergedHeads:[head,...otherHeads],saltChanged:!!access?.recordSaltClock});
+    await finishPhoto?.();
     if(access)setWriteMode('readWrite');
   }else{
     await applyFolderCopy(target,snapshot,key,signal,{mergedHeads:[head,...otherHeads],access});

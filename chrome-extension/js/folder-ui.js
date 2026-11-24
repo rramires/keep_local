@@ -2,8 +2,10 @@ import {t} from './i18n.js';
 import {focusPanel} from './form-ui.js';
 import {confirmDialog} from './dialogs.js';
 import {createFolderIndicator} from './folder-status.js';
-import {getMeta} from './db.js';
-import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,readSyncFolder,requestFolderAccess} from './folder-store.js';
+import {isReadOnly} from './db.js';
+import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,requestFolderAccess} from './folder-store.js';
+import {folderMetadata} from './photo-folder.js';
+import {createPhotoSettings} from './photo-settings.js';
 
 function element(tag, className, text) {
   const node=document.createElement(tag);
@@ -207,7 +209,8 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
 
   let busy=false;
   async function refresh(focus) {
-    const [handle,checkedAt]=await Promise.all([readSyncFolder(),getMeta('folderHistoryAt')]);
+    const meta=await folderMetadata();
+    const {syncFolder:handle,folderHistoryAt:checkedAt}=meta;
     if(signal.aborted) return;
     const heading=element('h3','',t('folder.section'));
     const groups=[
@@ -262,6 +265,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
       controls.append(link);
     }
     body.replaceChildren(...groups,controls);
+    if(handle&&!isReadOnly())body.append(createPhotoSettings(meta,{key,signal,notify}));
     if(focus) choose.focus();
   }
 

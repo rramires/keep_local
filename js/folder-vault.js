@@ -31,7 +31,7 @@ export async function decodeV2WithKey(bytes,key,localSaltB64) {
   }catch{return {status:'unreadable'};}
 }
 
-export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secondary}={}) {
+export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secondary,includeBytes=false}={}) {
   const result=await withFolderReadTimeout(async()=>{
     const file=await entry.getFile();
     if(allowEmpty&&file.size===0)return {status:'emptyMain'};
@@ -43,7 +43,7 @@ export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secon
   const selected=secondary?.salt===actualSalt?secondary:{key,salt};
   const decoded=await decodeV2WithKey(result.bytes,selected.key,selected.salt);
   if(decoded.status==='otherSalt')decoded.bytesHash=await bytesHash(result.bytes);
-  return {...decoded,salt:actualSalt};
+  return {...decoded,salt:actualSalt,...(includeBytes?result:{})};
 }
 
 export async function readFolderState(handle,key,salt,secondary) {

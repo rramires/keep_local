@@ -72,8 +72,8 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal,
   }
 }
 
-export function preserveHistoryCopy(handle,bytes,rev,beforeWrite) {
-  return preserve(handle,{bytes,side:'history',rev},null,null,null,{beforeWrite,cleanFailure:false});
+export function preserveHistoryCopy(handle,bytes,rev,beforeWrite,{side='history'}={}) {
+  return preserve(handle,{bytes,side,rev},null,null,null,{beforeWrite,cleanFailure:false});
 }
 
 export async function preserveOtherSaltChoice(handle,copy,signal) {

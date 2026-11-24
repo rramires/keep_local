@@ -221,10 +221,11 @@ function folderGateFor(handle,status,key,signal) {
 async function configureFolderSync({admit=false,selected}={}) {
   folderSync?.dispose();
   folderSync=null;
+  renderWriteNow();
   folderKey=cryptoKey;
   const signal=sessionController?.signal,key=cryptoKey;
   if(getFolderCopy()||!folderSupported()||!key||(!admit&&isReadOnly()))return false;
-  const handle=selected??await readSyncFolder();
+  const [handle,photoFolder]=await Promise.all([selected??readSyncFolder(),getMeta('photoFolder')]);
   if(signal?.aborted||key!==cryptoKey)return false;
   if(!handle){setFolderStatus(null);return false;}
   const rerenderPulled=async(head,stats)=>{
@@ -237,14 +238,14 @@ async function configureFolderSync({admit=false,selected}={}) {
     if(document.querySelector('.app-view'))await showApp();
   };
   const sync=createFolderSync({
-    handle,key,signal,onPulled:rerenderPulled,onMerged:stats=>{
+    handle,key,signal,photoFolder,onPulled:rerenderPulled,onMerged:stats=>{
       if(document.querySelector('.app-view'))showMergeNotice(stats);
       else folderLoaded={stats};
     },onIgnored:()=>showToast(t('folder.ignoredCopies')),
     onEmptyMainReplaced:()=>showToast(t('folder.emptyMainReplaced')),
     onUnavailable:(folder,status)=>{
       folderGate=folderGateFor(folder,status,key,signal);
-      if(document.querySelector('.app-view'))void showApp();
+      if(document.querySelector('.app-view'))return showApp();
       else folderGate.renderBlock();
     },
     onReview:review=>{
@@ -278,7 +279,12 @@ async function configureFolderSync({admit=false,selected}={}) {
     },
   });
   folderSync=sync;
-  if(admit)return sync.admit();
+  if(admit){
+    const ready=await sync.admit();
+    if(sync===folderSync)renderWriteNow();
+    return ready;
+  }
+  renderWriteNow();
   sync.schedule();
   return true;
 }
@@ -471,7 +477,59 @@ function renderAppShell() {
     addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
   if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator());
+  renderWriteNow();
   initAppListeners();
+}
+
+function renderWriteNow() {
+  const existing=document.getElementById('write-now-btn');
+  const backup=document.getElementById('backup-btn');
+  if(!backup||!folderSync||folderKey!==cryptoKey||isReadOnly()||getFolderCopy()){
+    existing?.remove();
+    return;
+  }
+  if(existing)return;
+  const sync=folderSync,signal=sessionController.signal;
+  const button=document.createElement('button');
+  button.id='write-now-btn';
+  button.type='button';
+  button.className='sidebar-item';
+  button.innerHTML=`<span class="sidebar-icon" aria-hidden="true">${icons.check_all}</span>
+    <span class="sidebar-item-text">${t('writeNow.button')}</span>`;
+  button.disabled=sync.writingNow();
+  button.addEventListener('click',async()=>{
+    if(button.disabled||sync!==folderSync)return;
+    button.disabled=true;
+    try{
+      const result=await sync.writeNow(async()=>await flushNewNoteBar()&&(!activeEdit||await activeEdit.flush()));
+      if(!result||signal.aborted)return;
+      closeMobileSidebar();
+      showWriteNowResult(result);
+    }finally{
+      const current=document.getElementById('write-now-btn');
+      if(current&&sync===folderSync)current.disabled=false;
+    }
+  });
+  backup.after(button);
+}
+
+function showWriteNowResult({review,reason,writtenAt,photo}) {
+  let message;
+  if(review){
+    message=t('writeNow.review');
+    if(!document.getElementById('toast-container')){
+      const host=document.createElement('div');
+      host.id='toast-container';
+      host.className='toast-container';
+      appContainer.append(host);
+    }
+  }else if(reason)message=t('writeNow.notWritten',{reason:t(reason)});
+  else{
+    const time=folderTime(writtenAt);
+    message=photo?.name?t('writeNow.writtenWithPhoto',{time,name:photo.name}):t('writeNow.written',{time});
+    if(photo?.failure)message+=' '+t('photo.notSaved',{reason:t(photo.failure.code,photo.failure.params)});
+  }
+  showToast(message,undefined,undefined,12000);
 }
 
 async function openFolderSettings(trigger) {
@@ -1232,7 +1290,7 @@ function initNewNoteBar() {
   bindDraftLimits(title,body,()=>showToast(t('note.tooLarge')));
   for(const input of [title,body])input.addEventListener('input',capture);
   body.addEventListener('input',()=>{body.style.height='auto';body.style.height=body.scrollHeight+'px';});
-  scope.listen('click',e=>{if(!cryptoKey||!bar.isConnected||!bar.classList.contains('expanded')||bar.contains(e.target)||e.target.closest('#search-input,#search-clear,#lang-toggle'))return;capture();void flushNewNoteBar();},'new-note-outside');
+  scope.listen('click',e=>{if(!cryptoKey||!bar.isConnected||!bar.classList.contains('expanded')||bar.contains(e.target)||e.target.closest('#search-input,#search-clear,#lang-toggle,#write-now-btn'))return;capture();void flushNewNoteBar();},'new-note-outside');
 }
 
 async function createNewNote(type, title = '', content = '', render=true) {

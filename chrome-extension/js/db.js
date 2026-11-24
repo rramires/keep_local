@@ -6,6 +6,7 @@ import {folderWriterState} from './folder-clock.js';
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
 const FOLDER_HISTORY_META=['folderHistoryDay','folderHistoryWeek','folderHistoryAt'];
+const PHOTO_META=['photoFolder','photoNames','photoWrittenAt','photoWrittenDay'];
 
 let dbInstance = null;
 let writeMode = 'readWrite';
@@ -217,17 +218,17 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
 }
 
 export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,head&&{head,mergedHeads,resetBases});
+  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases});
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReceipt) {
+function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReplacement) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=(current={})=>{
       let next=values;
-      if(folderReceipt){
-        const {head}=folderReceipt;
-        next={...values,...folderVersionState(current,head,folderReceipt),...folderWriterState(current,head.payload)};
+      if(folderReplacement?.head){
+        const {head}=folderReplacement;
+        next={...values,...folderVersionState(current,head,folderReplacement),...folderWriterState(current,head.payload)};
         if(current.writerId)next.writerId=current.writerId;
         delete next.folderPendingWrite;
         delete next.folderSyncedBase;
@@ -235,7 +236,10 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
       notes.clear();meta.clear();
       for(const record of records)notes.put(record);
       for(const[key,value]of Object.entries(next)){
-        if(!FOLDER_HISTORY_META.includes(key))meta.put({key,value});
+        if(!FOLDER_HISTORY_META.includes(key)&&!PHOTO_META.includes(key))meta.put({key,value});
+      }
+      if(folderReplacement&&current.syncFolder&&next.syncFolder&&current.folderConnectionId===next.folderConnectionId){
+        for(const key of PHOTO_META)if(Object.hasOwn(current,key))meta.put({key,value:current[key]});
       }
       done();
     };
@@ -266,7 +270,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
         }
         for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
           'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderSaltClock',
-          ...FOLDER_HISTORY_META])meta.delete(key);
+          ...FOLDER_HISTORY_META,...PHOTO_META])meta.delete(key);
         done();
       }catch(error){fail(error);}
     };
@@ -332,6 +336,29 @@ export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,
 }
 
 export function recordFolderHistory(expected,receipt,signal) {
+  return updateFolderMetadata(expected,signal,meta=>{
+    for(const [key,value] of Object.entries(receipt))meta.put({key,value});
+  });
+}
+
+export function storePhotoFolder(expected,handle,names,signal) {
+  return updateFolderMetadata(expected,signal,meta=>{
+    for(const key of PHOTO_META)meta.delete(key);
+    if(handle){
+      meta.put({key:'photoFolder',value:handle});
+      meta.put({key:'photoNames',value:names});
+    }
+  });
+}
+
+export function recordPhotoWrite(expected,at,day,signal) {
+  return updateFolderMetadata(expected,signal,meta=>{
+    meta.put({key:'photoWrittenAt',value:at});
+    meta.put({key:'photoWrittenDay',value:day});
+  });
+}
+
+function updateFolderMetadata(expected,signal,update) {
   return vaultTransaction(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
@@ -342,7 +369,7 @@ export function recordFolderHistory(expected,receipt,signal) {
         if(!current.syncFolder||current.vaultId!==expected.vaultId||
             current.folderConnectionId!==expected.folderConnectionId)
           throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
-        for(const [key,value] of Object.entries(receipt))meta.put({key,value});
+        update(meta);
         done();
       }catch(error){fail(error);}
     };

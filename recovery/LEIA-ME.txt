@@ -16,6 +16,12 @@ SHA256SUMS. Guarde a senha mestra separadamente do pen-drive.
    Se a abertura falhar, tente a senha anterior. A cópia pode ter sido
    criada antes da troca de senha.
 
+   Para recuperar pelas fotos, abra as sete fotos dedicadas, uma por vez,
+   com a senha de cada cópia. Confira a revisão e a data exibidas. Use a foto
+   com a maior revisão (rev) que abriu. Se o leitor indicar que a foto não
+   tem uma cópia do cofre, passe para a próxima. No app, escolha essa foto em
+   Importar backup para restaurar as notas.
+
 2. Reinstalar o app
    Descompacte o ZIP numa pasta local. Abra chrome://extensions, ative
    Modo do desenvolvedor e clique em Carregar sem compactação. Escolha
@@ -51,6 +57,12 @@ USB drive. Keep the master passphrase separate from the drive.
    copy one field at a time. Clipboard history (Win+V) can retain copies.
    If opening fails, try the previous passphrase. The copy may have been
    created before the passphrase change.
+
+   To recover from photos, open the seven dedicated photos one at a time
+   with the passphrase for each copy. Check the displayed revision and date.
+   Use the photo with the highest revision (rev) that opens. If a photo
+   contains no vault copy, move to the next one. In the app, select the
+   chosen photo in Import backup to restore your notes.
 
 2. Reinstall the app
    Unzip the archive to a local folder. Open chrome://extensions, enable
