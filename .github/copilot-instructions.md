@@ -19,8 +19,11 @@ handle), `folderConnectionId`, `folderSyncedHash`, `folderSyncedClock`, `folderS
 local-side versions of an unrecorded write), `writerId`/`writerCount` (this vault's folder
 writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev`,
 `folderWrittenAt` and `folderSaltClock` (folder clock when the vault passphrase last changed
-through the folder; decides which passphrase wins) and `folderHistoryDay`/`folderHistoryWeek`/`folderHistoryAt`
-(history slots last written); none of it is exported. Local-only vault preferences
+through the folder; decides which passphrase wins), `folderHistoryDay`/`folderHistoryWeek`/`folderHistoryAt`
+(history slots last written) and `photoFolder`/`photoNames`/`photoWrittenAt`/`photoWrittenDay`
+(photos folder handle, its seven names and the last photo write; they belong to the folder
+connection: kept across folder-driven replacements of the same connection, cleared by import,
+reset, changing or disconnecting the folder and "Disconnect photos"); none of it is exported. Local-only vault preferences
 (`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
@@ -43,6 +46,8 @@ manual exports (which carry the clock without incrementing) and vault-folder wri
 README documents the recovery contract. Preserve profile 2 for future readers.
 Only binary v2 imports are supported, with complete schema/crypto/model validation
 before one `replaceVault` transaction. Unsupported formats preserve the vault. Bounds: 64 MiB file, 10000 notes, 2 MiB UTF-8 note.
+A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE length]`,
+`photo-trailer.js`) imports that copy; a raw v2 file is still accepted.
 
 ## Modules
 
@@ -54,7 +59,8 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   dirty state, export compare-and-swap and download acknowledgement.
 - `backup-format.js`, `backup-v2.js`, `backup.js`: bounds/schema, binary crypto,
   file UI and pending state. Download initiation never confirms disk/cloud sync.
-- `import-ui.js`: backup import form shared by sign-in and Settings. With a connected folder
+- `import-ui.js`: backup import form shared by sign-in and Settings (accepts `.keeplocal` and
+  photos with an appended copy). With a connected folder
   (Settings only), the import runs in the lineage lock, preserves the current local vault in
   `keeplocal-preserved/` first (unreadable records kept as-is; a failure imports nothing),
   replaces under the reread snapshot guard and leaves the folder disconnected; choosing the
@@ -127,6 +133,22 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
     read back and hash-verified, and any failure is swallowed without touching the main file. The
     app never reads or cleans the history; `keeplocal-history`/`keeplocal-preserved` are refused as
     vault or copy folders (`isFolderCopyDirectory`).
+  - Photos (`photo-trailer.js`, `photo-folder.js`, `photo-settings.js`, `photo-write.js`):
+    `[image][exact main bytes][uint32 LE length]` appended to one of seven dedicated JPEG/PNG
+    copies. The image is found by signature and end marker (image at most 32 MiB, copy at most
+    64 MiB); an unrecognized end is never written. Settings → Photos picks a separate folder
+    (own picker id `keeplocal-photos`; never the vault folder or a reserved name) holding exactly
+    seven valid images; default string order maps them to Monday..Sunday and the confirmation
+    lists each name with its weekday. After a normal main write, inside the lineage lock, today's
+    photo is rewritten at most once per hour or on a new local day: exclusive writable, observed
+    bytes rechecked, an old copy with a higher `rev` or one the key cannot open preserved first in
+    the vault folder's `keeplocal-preserved/`, SHA-256 readback and a guarded receipt. Failures are
+    swallowed (status in memory only) and never touch the main file. The app never creates,
+    renames or deletes a photo and never loads a vault from a photo by itself.
+  - **Write now** (sidebar, below **Backup**; `writeNow` in `folder-sync.js`): the photo
+    `requestPermission` comes first in the click, then drafts are flushed, the folder sync runs in
+    the lineage lock, the main file is verified and today's photo is forced; a toast reports the
+    result. **Backup** still only exports.
   - Other passphrase in the folder (password changed on another PC):
     `folder-salt.js` converts records/copies between keys and picks the target with
     `folderSaltTarget` (no `folderSaltClock` → folder; otherwise the head's descent from
@@ -152,7 +174,7 @@ before one `replaceVault` transaction. Unsupported formats preserve the vault. B
   the documented profile 2 contract (imports nothing from `js/`; hash-based CSP; works
   from `file://`; no network, storage, download or data-derived HTML; every vault field
   value masked with one-at-a-time reveal/copy; newer note formats shown without raw
-  content) and the bilingual emergency kit guide. Keep its colors and model checks in
+  content; also opens the copy appended to a photo) and the bilingual emergency kit guide. Keep its colors and model checks in
   step with `note-model.js`. `tests/fixtures/profile2-golden.keeplocal` is a frozen
   profile 2 export with a pinned SHA-256; never regenerate it.
 - `trash.js`, `storage.js`: awaited retention and one persistence request per vault.
@@ -202,6 +224,8 @@ Phase 3 Etapas F–G3 (extension vault folder) are merged. Etapa H follows the o
 roadmap, one package per owner request (small or same-area items may share a package): H1 (standalone recovery tool and
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
-recovery, merged), H2c (rotating history copies, package P1, merged), H3 (photo replicas in dedicated copies only). Phase 4 Etapas D (core) and
+recovery, merged), H2c (rotating history copies, package P1, merged), H3 (vault copies in seven
+dedicated photos and Write now, package P2, merged). Package P3 (small details) remains before the
+final review. Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
