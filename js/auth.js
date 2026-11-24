@@ -184,15 +184,16 @@ function initAuthListeners(container,onAuthenticated,folder,{signal,onExit,onOpe
 
   container.querySelector('#create-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    createBtn.disabled = true;
-    createError.textContent = '';
+    const password = createPw.value;
+    createPw.value = '';
+    createConfirm.value = '';
+    updateCreateValidation();
 
     try {
-      const key = await createAccount(createPw.value);
+      const key = await createAccount(password);
       onAuthenticated(key);
     } catch (err) {
       createError.textContent = t(typeof err.code==='string'?err.code:err.message);
-      createBtn.disabled = false;
     }
   });
 
