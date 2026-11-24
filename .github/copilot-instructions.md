@@ -129,7 +129,8 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
     (7 daily `keeplocal-day-<n>-<weekday>` and 4 weekly `keeplocal-week-<n>` slots from the local
     day of the encrypted `exportedAt`). After a normal write's receipt (never on replace), the first
     write of a day or week copies the exact main bytes into its slot inside the lineage lock: a slot
-    already from that period is kept, a slot with a higher `rev` is preserved first, the copy is
+    already from that period is kept, a slot with a higher `rev` or one the current key cannot open is
+    preserved first (a failed preservation keeps the slot), the copy is
     read back and hash-verified, and any failure is swallowed without touching the main file. The
     app never reads or cleans the history; `keeplocal-history`/`keeplocal-preserved` are refused as
     vault or copy folders (`isFolderCopyDirectory`).
@@ -225,7 +226,7 @@ roadmap, one package per owner request (small or same-area items may share a pac
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
 recovery, merged), H2c (rotating history copies, package P1, merged), H3 (vault copies in seven
-dedicated photos and Write now, package P2, merged). Package P3 (small details) remains before the
-final review. Phase 4 Etapas D (core) and
+dedicated photos and Write now, package P2, merged). Package P3 (release details and preparation) is
+merged; the final review remains. Phase 4 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
