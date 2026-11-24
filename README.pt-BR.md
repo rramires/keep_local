@@ -321,7 +321,8 @@ obrigatória a cada abertura.
   Ao criar uma cópia de conflito ou ao escolher **Juntar as duas**, o app guarda
   os originais da pasta e do navegador em `keeplocal-preserved/` e os relê antes
   da substituição. Participam a maior revisão cifrada e as outras cópias com a
-  mesma revisão. O aviso lista as alterações que ocorreram.
+  mesma revisão. A mesclagem mantém o tema e o idioma deste navegador. O aviso
+  lista as alterações que ocorreram.
 - **Exclusões definitivas:** as cópias cifradas guardam até 10000 registros
   de exclusão por 365 dias. A exclusão vence quando a outra versão está igual
   à cópia em comum. Uma versão alterada ou sem base conhecida é mantida. Cada
@@ -336,8 +337,9 @@ obrigatória a cada abertura.
   imposto na camada de dados (nenhuma gravação ou mesclagem). Leituras da pasta têm prazo
   (15 s para metadados, 60 s por arquivo): uma pasta que não responde leva à tela
   "A pasta não respondeu", sem travar o login. Se continuar, escolha a mesma pasta
-  de novo, ou use Configurações → Desconectar pasta → Escolher pasta. Gravações
-  não têm prazo.
+  de novo em **Escolher outra pasta**. Quando o Chrome reconhece a mesma pasta,
+  o KeepLocal troca o handle e mantém o recibo, o histórico e a configuração
+  das fotos. Gravações não têm prazo.
 - **Desconectar e redefinir:** desconectar preserva o conteúdo da pasta. Redefinir
   na tela de login ou Começar do zero… apaga o cofre local e o vínculo com a
   pasta, nunca a cópia na pasta. Importar na tela de login é recusado enquanto
@@ -362,7 +364,7 @@ separado.
 O KeepLocal lê as sete fotos ao escolher a pasta. Depois, só lê a foto do dia
 quando vai atualizá-la. O app nunca carrega o cofre automaticamente de uma
 foto nem cria, renomeia ou apaga fotos. Escolha a pasta de fotos de novo após
-importar um backup, começar do zero ou trocar a pasta do cofre.
+importar um backup, começar do zero, desconectar ou trocar a pasta do cofre.
 
 Para recuperar, abra as sete fotos em `keeplocal-recovery.html` e digite a
 senha de cada cópia. Escolha a maior revisão (rev) que abriu e selecione essa

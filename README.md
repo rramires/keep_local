@@ -330,7 +330,8 @@ is still required at every opening.
   The app keeps the folder and local originals in `keeplocal-preserved/` and
   reads them back before replacing either source when it creates a conflict copy or you
   choose **Merge both**. The highest encrypted revision and other copies at
-  that revision take part. The notice lists changes that occurred.
+  that revision take part. The merge keeps this browser’s theme and language.
+  The notice lists changes that occurred.
 - **Permanent deletions:** encrypted backups carry up to 10,000 deletion
   markers for 365 days. A deletion wins when the other version is unchanged
   from the known shared snapshot. A changed version or a version without a
@@ -346,8 +347,9 @@ is still required at every opening.
   data layer (no writes or merging). Folder reads have deadlines (15 s for metadata, 60 s
   per file): a folder that does not answer leads to "The folder did not
   respond" instead of a stuck sign-in. If it persists, select the same folder
-  again, or use Settings → Disconnect folder → Choose folder. Writes have no
-  deadline.
+  again through **Choose another folder**. When Chrome recognizes the same
+  folder, KeepLocal replaces its handle and keeps the receipt, history and
+  photo setup. Writes have no deadline.
 - **Disconnect and reset:** disconnecting keeps the folder contents. Reset on the
   sign-in screen or Start over… erases the local vault and its folder link, never
   the folder copy. Import on the sign-in screen is refused while a folder is
@@ -370,8 +372,8 @@ still exports a separate file.
 KeepLocal reads the seven photos when you choose the folder, then only reads the
 day's photo when it is about to update it. It never loads vault data from photos
 automatically and never creates, renames or deletes a photo. Choose the photos
-folder again after importing a backup, starting over or changing the vault
-folder.
+folder again after importing a backup, starting over, disconnecting or
+changing the vault folder.
 
 To recover, open the seven photos in `keeplocal-recovery.html` and use the
 passphrase for each copy. Pick the highest revision (rev) that opens, then
