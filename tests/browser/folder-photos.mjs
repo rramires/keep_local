@@ -827,7 +827,8 @@ async function receivePhotoRevision(page,{merge=false}={}){
   const parent=await payloadHash(payloadText);
   const remoteTitle='Fictional note from the other PC';
   const notes=merge?[...payload.notes,...(await backupFixture([note({title:remoteTitle})],PASSWORD,salt)).records]:payload.notes;
-  const incoming=await encodeV2(key,salt,{...payload,rev:3,parent,
+  const revision=payload.rev+1;
+  const incoming=await encodeV2(key,salt,{...payload,rev:revision,parent,
     ancestors:[parent,...payload.ancestors].slice(0,32),
     clock:{...payload.clock,'00000000-0000-4000-8000-0000000000b2':1},
     preferences:{...payload.preferences,theme:'light'},notes,manifest:{count:notes.length,ids:notes.map(n=>n.id)}});
@@ -838,7 +839,7 @@ async function receivePhotoRevision(page,{merge=false}={}){
     await editNote(page,id,{content:'Fictional edit before the merge'});
   }
   await focus(page);
-  await waitForRev(page,merge?4:3);
+  await waitForRev(page,merge?revision+1:revision);
   await page.until("!!document.querySelector('#write-now-btn')&&document.querySelector('.app-view')!==previousPhotoShell");
   await ready(page);
   if(merge)await waitForNotes(page,[true,true],list=>[
@@ -1129,5 +1130,26 @@ export async function runFolderHandleRefresh({check,assert}){
       assert.deepEqual((await folderCopyEvidence(page)).files,files);
       assert.equal(await page.eval('folderTest.writeAttempts'),0);
     },{source:retiredSource});
+  });
+}
+
+export async function runP36({check,assert}){
+  await check('P3.6 an automatic photo failure survives a pull and clears after the next successful photo',async()=>{
+    await withPhotosPage(async page=>{
+      const {name,image,configured}=await photoReceipt(page,assert);
+      await setPhotoTime(page,'2026-01-12T17:00:00');
+      await page.eval("photoTest.permission='denied'");
+      await autoWrite(page,3);
+      await assertPhotoStatus(page,assert,/photos: not written.*permission/i);
+      await page.eval("photoTest.permission='granted'");
+      await setPhotoTime(page,'2026-01-12T17:10:00');
+      await receivePhotoRevision(page);
+      assert.deepEqual(await photoMeta(page),configured);
+      assert.deepEqual(await page.eval('photoTest.writes'),[]);
+      await assertPhotoStatus(page,assert,/photos: not written.*permission/i);
+      const main=await autoWrite(page,5);
+      await assertPhoto(page,assert,{name,image,main});
+      await assertPhotoStatus(page,assert,/photos: written on/i);
+    });
   });
 }

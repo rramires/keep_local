@@ -10,14 +10,14 @@ export const PHOTO_STATUS_CHANGE='keeplocal-photo-status';
 export const PHOTO_FOLDER_CHANGE='keeplocal-photo-folder';
 let lastFailure=null;
 
-export function photoFailureFor({vaultId,folderConnectionId}) {
-  if(lastFailure&&lastFailure.vaultId===vaultId&&lastFailure.folderConnectionId===folderConnectionId)
+export function photoFailureFor({folderConnectionId}) {
+  if(lastFailure&&lastFailure.folderConnectionId===folderConnectionId)
     return lastFailure.failure;
   return null;
 }
 
-export function updatePhotoStatus({vaultId,folderConnectionId},failure=null) {
-  lastFailure=failure?{vaultId,folderConnectionId,failure}:null;
+export function updatePhotoStatus({folderConnectionId},failure=null) {
+  lastFailure=failure?{folderConnectionId,failure}:null;
   globalThis.dispatchEvent?.(new Event(PHOTO_STATUS_CHANGE));
 }
 
