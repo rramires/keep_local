@@ -443,7 +443,10 @@ O export avisa antes quando houver registros ilegíveis e informa que o arquivo
 não pode ser restaurado integralmente nesse estado. A Recuperação permite criar
 uma nota válida contendo o texto bruto decifrado; conteúdo acima do limite fica
 somente para leitura e cópia manual. O descarte tem dois passos: Exportar agora preserva o registro sem excluir;
-depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR.
+depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR
+para remover o registro ilegível deste navegador. O descarte local não envia
+um marcador de exclusão aos outros computadores. Uma cópia legível em outro
+computador pode voltar pela mesclagem da pasta.
 O app não confirma gravação no disco. O comprovante fica somente nesta sessão e
 qualquer alteração do snapshot do cofre exige novo export. O snapshot completo
 é conferido novamente na transação de exclusão, incluindo outros registros. Depois de resolver todos os registros

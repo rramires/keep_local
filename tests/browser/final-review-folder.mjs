@@ -1,7 +1,7 @@
 import {launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {connectedCopyPage} from './folder-copy-view.mjs';
-import {connectBoth,editNote,focus,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
+import {connectBoth,editNote,focus,relogin,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
 import {copyFolderFiles,readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {backupFixture} from './backup-fixture.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
@@ -111,5 +111,56 @@ export async function runP42({check,assert}){
       assert.equal((await decode(current)).notes[0].content,'A3');
       assert.deepEqual(await preservedCopies(page),[lateMain]);
     }finally{await browser.close();}
+  });
+}
+
+export async function runP43({check,assert}){
+  await check('P4.3 discarding local corruption lets a clean second PC return the readable note',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const good=note({title:'Fictional note with a readable copy',content:'The readable text'});
+      const control=note({title:'Fictional control note',content:'Keep this too'});
+      await connectBoth(a,b,[good,control]);
+      await a.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const record=await db.getNoteRecord(${JSON.stringify(good.id)});
+        await db.saveNoteRecord({...record,ciphertext:'damaged'});
+      })()`);
+      await relogin(a);
+      await a.until("!!document.querySelector('.unreadable-warning')");
+      await a.eval("HTMLAnchorElement.prototype.click=()=>{};document.querySelector('#recover-notes-btn').click()");
+      await a.until("!!document.querySelector('.recovery-record')");
+      await a.eval("document.querySelector('.recovery-record').click();document.querySelector('#recovery-export').click()");
+      await a.until("document.querySelector('#recovery-status').textContent.includes('Download')");
+      await a.eval(`(async()=>{
+        const {t}=await import('./js/i18n.js');
+        const check=document.querySelector('#recovery-saved');
+        check.checked=true;
+        check.dispatchEvent(new Event('change'));
+        const word=document.querySelector('#recovery-confirmation');
+        word.value=t('recovery.discardWord');
+        word.dispatchEvent(new Event('input'));
+      })()`);
+      await a.until("!document.querySelector('#recovery-discard').disabled");
+      await a.eval("document.querySelector('#recovery-discard').click()");
+      await a.until("!document.querySelector('.unreadable-warning')");
+      await focus(a);
+      await a.until("(await (await import('./js/db.js')).getMeta('folderSeenRev'))>1");
+      await waitForFolderLineage(a);
+      const withoutDamaged=await decode(await readFolderFixture(a,MAIN));
+      assert.deepEqual(withoutDamaged.notes.map(item=>item.id),[control.id]);
+      assert.equal(withoutDamaged.tombstones.some(marker=>marker.id===good.id),false);
+      assert.equal(await a.eval(`!!await (await import('./js/db.js')).getNoteRecord(${JSON.stringify(good.id)})`),false);
+
+      await copyFolderFiles(a,b);
+      await focus(b);
+      const restored=await checkedWrite(b,withoutDamaged.rev+1);
+      assert.deepEqual((await decode(restored)).notes.map(item=>item.content).sort(),['Keep this too','The readable text']);
+      await copyFolderFiles(b,a);
+      await focus(a);
+      await waitForRev(a,withoutDamaged.rev+1);
+      await a.until(`(await import('./js/app.js')).getNotes().some(item=>item.id===${JSON.stringify(good.id)}&&item.content===${JSON.stringify(good.content)})`);
+      assert.deepEqual(a.errors,[]);
+      assert.deepEqual(b.errors,[]);
+    });
   });
 }

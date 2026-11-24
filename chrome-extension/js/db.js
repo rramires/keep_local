@@ -496,7 +496,6 @@ export function discardPreservedRecord(record,expected,{signal,snapshotJSON}={})
     const finish=()=>{if(++ready!==2)return;try{
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(typeof snapshotJSON!=='string'||JSON.stringify({notes:n.result,meta:values})!==snapshotJSON||values.vaultId!==expected.vaultId||!n.result.some(r=>JSON.stringify(r)===JSON.stringify(record)))throw Object.assign(Error('recovery.changed'),{code:'recovery.changed'});
-      recordDeletions(meta,values,[record]);
       notes.delete(record.id);markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;

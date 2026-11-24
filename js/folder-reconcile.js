@@ -3,7 +3,7 @@ import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
-import {folderPullNotices,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
+import {folderPullNotices,hasFolderDeletionProof,reconcileFolderNotes,sameTombstones} from './folder-merge.js';
 import {hasPendingDrafts} from './backup.js';
 import {descends} from './folder-clock.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
@@ -35,7 +35,8 @@ export function decideFolderAction(snapshot,state) {
     return sameRecords(notes,head.payload.notes)&&sameTombstones(meta.tombstones,head.payload.tombstones)?'adopt':'conflict';
   }
   if(!state.divergent&&!localFolderDirty(meta)&&head.rev>(meta.folderSeenRev||0)&&
-      descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock}))return 'pull';
+      descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})&&
+      hasFolderDeletionProof(notes,head.payload))return 'pull';
   return canMerge?'merge':'conflict';
 }
 

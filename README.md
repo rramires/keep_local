@@ -440,7 +440,10 @@ Export asks for confirmation when unreadable records exist and reports a partial
 recovery archive. Recovery can create a valid text note from decrypted raw
 content. Oversized content stays read-only for manual copying. **Export now**
 preserves the record. Verify the saved file, check the saved-file confirmation
-and type **DISCARD** to delete it. The app records the download attempt. The
+and type **DISCARD** to remove the unreadable record from this browser.
+Discarding local corruption does not send a deletion marker to other
+computers. A readable copy on another computer can return through a folder
+merge. The app records the download attempt. The
 receipt is session-only and a vault change requires another export. The whole
 snapshot is checked atomically before deletion, including unrelated records.
 After all unreadable records are resolved, full import and passphrase rotation

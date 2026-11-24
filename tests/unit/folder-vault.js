@@ -36,7 +36,7 @@ test('G3 reconciliation distinguishes dirty data, previous revisions and foreign
   const two={...one,id:'two'};
   const head={hash:'head',parent:'prior',rev:3,payload:{notes:[one,two]}};
   const state={head,candidates:[{name:'keeplocal-vault.keeplocal',status:'valid'}],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
-  const clean={notes:[{}],meta:{revision:4,folderSyncedRevision:4,folderSeenRev:2,folderSyncedHash:'prior'}};
+  const clean={notes:[one],meta:{revision:4,folderSyncedRevision:4,folderSeenRev:2,folderSyncedHash:'prior'}};
   assert.equal(decideFolderAction(clean,state),'pull');
   const unrelated={...state,head:{...head,parent:'other'}};
   const tracked={...clean,meta:{...clean.meta,folderSyncedVersions:{one:42}}};
@@ -193,4 +193,19 @@ test('H2a.8b a vector proves a common base after its hash leaves the ancestry li
   const state={head,candidates:[],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
   assert.equal(decideFolderAction({notes:[],meta},state),'pull');
   assert.equal(decideFolderAction({notes:[],meta:{...meta,revision:5}},state),'merge');
+});
+
+test('P4.3 a clean pull requires a current deletion marker for each omitted local record',async()=>{
+  const {decideFolderAction}=await import('../../js/folder-reconcile.js');
+  const one={id:crypto.randomUUID(),updatedAt:Date.now()};
+  const two={id:crypto.randomUUID(),updatedAt:one.updatedAt};
+  const snapshot={notes:[one,two],meta:{revision:4,folderSyncedRevision:4,folderSeenRev:2,
+    folderSyncedHash:'prior',folderSyncedVersions:{[one.id]:one.updatedAt,[two.id]:two.updatedAt}}};
+  const head={hash:'new',parent:'prior',rev:3,payload:{notes:[one]}};
+  const state={head,candidates:[],divergent:false,otherSalt:[],unreadable:[],tooLarge:[]};
+  const withTombstone=deletedAt=>({...state,head:{...head,payload:{...head.payload,
+    tombstones:[{id:two.id,deletedAt}]}}});
+  assert.equal(decideFolderAction(snapshot,state),'merge');
+  assert.equal(decideFolderAction(snapshot,withTombstone(two.updatedAt-1)),'merge');
+  assert.equal(decideFolderAction(snapshot,withTombstone(two.updatedAt)),'pull');
 });
