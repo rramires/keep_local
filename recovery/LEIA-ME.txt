@@ -7,7 +7,7 @@ o ZIP da versão em uso, keeplocal-recovery.html, este LEIA-ME.txt e
 SHA256SUMS. Guarde a senha mestra separadamente do pen-drive.
 
 1. Ver uma cópia
-   Dê duplo clique em keeplocal-recovery.html para abrir no Chrome.
+   Dê duplo clique em keeplocal-recovery.html para abrir no Chrome ou Edge.
    Escolha o .keeplocal mais recente, digite a senha daquela cópia e
    clique em Abrir. O leitor também abre qualquer cópia de keeplocal-history/.
    A ferramenta só lê o arquivo e permite ler as notas e revelar ou
@@ -34,8 +34,9 @@ SHA256SUMS. Guarde a senha mestra separadamente do pen-drive.
    Em seguida, abra http://127.0.0.1:8000 no navegador.
 
 3. Voltar a usar
-   Importe o .keeplocal pelo app. Na extensão, também é possível
-   escolher a pasta do cofre nas Configurações.
+   Use Importar backup para selecionar o .keeplocal ou uma foto com cópia.
+   Na extensão, a importação verificada desconecta a pasta do cofre.
+   Escolha a pasta de novo nas Configurações para comparar as cópias.
 
 Confira SHA256SUMS usando certutil -hashfile <arquivo> SHA256 no Windows
 ou sha256sum -c SHA256SUMS no Linux. Atualize o kit após mudanças
@@ -50,7 +51,7 @@ keeplocal-recovery.html, this LEIA-ME.txt and SHA256SUMS on an encrypted
 USB drive. Keep the master passphrase separate from the drive.
 
 1. View a copy
-   Double-click keeplocal-recovery.html to open it in Chrome. Choose the
+   Double-click keeplocal-recovery.html to open it in Chrome or Edge. Choose the
    latest .keeplocal file, enter the passphrase for that copy, and click
    Open. The reader also opens any copy from keeplocal-history/.
    The tool reads the file and lets you read notes and reveal or
@@ -76,8 +77,9 @@ USB drive. Keep the master passphrase separate from the drive.
    Then open http://127.0.0.1:8000 in the browser.
 
 3. Resume use
-   Import the .keeplocal file in the app. In the extension, you can
-   also choose a vault folder in Settings.
+   Use Import backup to select a .keeplocal file or a photo with a copy.
+   In the extension, a verified import disconnects the vault folder.
+   Choose the folder again in Settings to compare the copies.
 
 Check SHA256SUMS with certutil -hashfile <file> SHA256 on Windows or
 sha256sum -c SHA256SUMS on Linux. Update the kit after important changes

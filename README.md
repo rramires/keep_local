@@ -49,7 +49,7 @@ python3 -m http.server 8080 --bind 127.0.0.1
 Open `http://127.0.0.1:8080`. Keep the same origin and port for the same IndexedDB.
 The server requires Python 3; Web Crypto requires a secure context (localhost or
 HTTPS). This execution validated Chromium; other browsers were not validated.
-The extension requires Chrome 120+.
+Use an up-to-date Chrome for the extension and its file-system features.
 
 ## Backup and reset
 
@@ -65,9 +65,14 @@ The extension requires Chrome 120+.
    the HTTP app has manual backup only. KeepLocal cannot see Mega or any cloud
    service and never reports a cloud sync.
 
-Import accepts **binary v2 only**, asks for its passphrase, validates every record,
-confirms replacement counts and commits in one transaction. Cancellation, wrong
-passphrase, unsupported format, invalid data and write failure preserve the vault.
+Import accepts a **binary v2 backup** or a JPEG/PNG with an appended v2 copy.
+It asks for that copy’s passphrase, validates every record, confirms the note
+counts and commits in one transaction. Cancellation, a wrong passphrase,
+unsupported format, invalid data and write failure preserve the vault.
+With the vault folder connected, Settings import first writes and verifies a
+copy of the current local vault in `keeplocal-preserved/`. A successful import
+disconnects the vault folder. If a concurrent change interrupts the import, the
+form asks you to try again.
 Old vaults without an encrypted key check are unsupported and remain unchanged;
 **Erase everything and start again** requires the exact typed word and erases only
 by explicit choice. No automatic migration or erasure occurs.
@@ -78,9 +83,9 @@ recover them before expecting a complete reimport of that backup.
 ## Extension and tests
 
 ```bash
-bash build-extension.sh
-node --test tests/unit
-CHROME_BIN=/path/to/chromium node tests/browser/run.mjs
+taskset -c 0-3 nice -n 10 bash build-extension.sh
+taskset -c 0-3 nice -n 10 node --test --test-concurrency=4 tests/unit
+CHROME_BIN=/path/to/chromium taskset -c 0-3 nice -n 10 node tests/browser/run.mjs
 ```
 
 The build reads the manifest version (currently 1.0.0), synchronizes tracked copies
@@ -118,12 +123,14 @@ The runner uses disposable profiles and fictional data only; a missing-Chromium
 - `lib/`: local libraries, hashes and provenance.
 - `chrome-extension/`: manifest, worker, privacy, icons, locales and tracked copies
   of `js/`, `css/`, `lib/`, `index.html` synchronized by the build.
-- `tests/unit/`, `tests/browser/`: gate without npm dependencies.
+- `tests/unit/`, `tests/browser/`, `tests/fixtures/`: gate without npm dependencies.
 
 ## Binary backup format and recovery
 
 The standalone recovery reader implements this contract independently. Open
-the HTML file directly in Chrome or Edge to read a backup offline.
+the HTML file directly in Chrome or Edge to read a `.keeplocal` backup or a
+photo with an appended copy offline. The reader shows the encrypted copy’s
+revision and export date.
 [Open the recovery reader](recovery/keeplocal-recovery.html).
 
 The reader displays unrecognized color names as plain text and ignores extra
@@ -148,7 +155,7 @@ iterations, UTF-8 password without normalization, AES-256-GCM, 128-bit tag.
 Derive the key from the password and bytes `[0,16)`. The authenticated additional
 data is exactly **29 bytes**: `[0x02] || salt[16] || iv[12]`. Decrypt bytes `[28,end)`
 with nonce `[16,28)`. Decode the authenticated plaintext as UTF-8 JSON.
-The payload contains `v:2`, `profile:2`, `rev`, ISO `exportedAt`, `preferences`
+The payload contains `v:2`, `profile:2`, `rev`, `parent`, ISO `exportedAt`, `preferences`
 (`lang`, `theme`), `notes`, and `manifest:{count,ids}`. `ids` must equal note IDs
 in their exact array order. The optional encrypted `tombstones` array contains
 up to 10,000 permanent deletion markers `{id,deletedAt}`, with a UUID and a
@@ -159,16 +166,6 @@ same derived key and no additional authenticated data. Validate each note
 and its matching ID/timestamp. Keeping
 inner records also preserves unreadable local records in an export; such a
 backup requires recovery of those records before a complete import can succeed.
-Export asks for confirmation when unreadable records exist and reports a partial
-recovery archive, rather than a fully restorable backup. Recovery can create a valid
-text note containing decrypted raw content; oversized content stays read-only for
-manual copying. Discard has two steps: Export now preserves the record without deleting it;
-then verify the saved file, check the explicit saved-file confirmation and type
-DISCARD. The app cannot confirm disk writes. The receipt is session-only, and any
-change to the vault snapshot requires another export. The complete snapshot is
-checked again atomically before deletion, including unrelated records.
-After every unreadable record has been resolved, full import and password rotation
-work again. Password strength labels are heuristics, not measured entropy.
 No plaintext record identifiers, timestamps, counts or per-note lengths are in
 the outer envelope. Total ciphertext length and the salt remain observable;
 exports from the same vault share a salt. A file is limited to 64 MiB, 10,000
@@ -176,7 +173,7 @@ notes and 2 MiB per serialized UTF-8 note for editing/import. Profiles must enfo
 iterations **before** deriving; file bytes never select an arbitrary KDF cost.
 Future profiles must preserve profile 2 and append a documented recovery path.
 
-Only binary v2 is supported. V2 authenticates the complete payload and checks its
+The supported backup format is binary v2. V2 authenticates the complete payload and checks its
 manifest. Recognizable JSON documents are rejected without interpreting an older
 schema. Without plaintext magic, an unauthenticated binary file cannot be reliably
 distinguished from a wrong passphrase or damaged v2 file; the error names these
@@ -224,10 +221,12 @@ reinstalling KeepLocal and importing a backup. [Bilingual guide](recovery/LEIA-M
 
 - **New item** offers a blank item and templates for servers, databases, API keys,
   SSH, web logins and Cloudflare R2 / S3. Template labels use the current language.
-  Add content or edit the labels before saving an item.
+  Add content or edit the labels before saving an item. The Server template
+  shows a “Notes” placeholder in the editor’s text block.
 - Use the editor's stars to pick one primary field for each class, public or
   secret. Cards use the primary public value as their subtitle and offer quick
-  copy for each class. KeepLocal attempts to clear the clipboard after 20 seconds.
+  copy for each class whose primary value is nonempty. KeepLocal attempts to
+  clear the clipboard after 20 seconds.
   Clipboard history and cross-device sync may retain copied values.
 - **Generate** in a secret field offers 24 characters by default, adjustable
   from 8 to 128. Select character classes and optionally exclude similar
@@ -358,7 +357,9 @@ is still required at every opening.
 ### Photos (extension only)
 
 KeepLocal can append an encrypted copy of the main vault file to a JPEG or PNG.
-The photo still opens as an image. In **Settings → Vault folder → Photos**,
+The photo still opens as an image. Its trailer contains the exact bytes of the
+main file followed by its length as a 4-byte little-endian integer. The image
+limit is 32 MiB and the encrypted-copy limit is 64 MiB. In **Settings → Vault folder → Photos**,
 choose a separate folder with exactly seven dedicated JPEG or PNG copies.
 Alphabetical order assigns the first file to Monday and the seventh to Sunday.
 Check the names and weekdays before confirming.
@@ -373,7 +374,8 @@ KeepLocal reads the seven photos when you choose the folder, then only reads the
 day's photo when it is about to update it. It never loads vault data from photos
 automatically and never creates, renames or deletes a photo. Choose the photos
 folder again after importing a backup, starting over, disconnecting or
-changing the vault folder.
+changing the vault folder. Pulls, merges, explicit choices and passphrase
+changes on the same connection keep the photos folder and its receipt.
 
 To recover, open the seven photos in `keeplocal-recovery.html` and use the
 passphrase for each copy. Pick the highest revision (rev) that opens, then
@@ -422,6 +424,18 @@ validates every record strictly and rejects the complete import without mutation
 Repair legacy data before full reimport or password rotation. Automatic locks
 clear unsaved plaintext; a failed manual lock offers cancel or explicit discard.
 An export in flight is cancelled when its session ends or changes.
+
+## Recovery of unreadable records
+
+Export asks for confirmation when unreadable records exist and reports a partial
+recovery archive. Recovery can create a valid text note from decrypted raw
+content. Oversized content stays read-only for manual copying. **Export now**
+preserves the record. Verify the saved file, check the saved-file confirmation
+and type **DISCARD** to delete it. The app records the download attempt. The
+receipt is session-only and a vault change requires another export. The whole
+snapshot is checked atomically before deletion, including unrelated records.
+After all unreadable records are resolved, full import and passphrase rotation
+work again. Password strength labels estimate patterns and length.
 
 ## Editor persistence scope
 
