@@ -21,6 +21,7 @@ export async function chooseVaultTemplate(page,id) {
 
 export async function run({browser,check,assert}) {
   await runP31({browser,check,assert});
+  await runP32({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -402,4 +403,36 @@ export async function runP31({browser,check,assert}){
       }finally{await p.close();}
     });
   }
+}
+
+export async function runP32({browser,check,assert}){
+  await check('P3.2 quick copy omits empty primary fields and keeps whitespace values',async()=>{
+    const p=await browser.page();
+    try{
+      await create(p);
+      const cases=[
+        ['Fictitious secret only','','FICTIONAL-SENSITIVE-P3',['secret']],
+        ['Fictitious empty fields','','',[]],
+        ['Fictitious whitespace','   ','',['public']],
+      ];
+      for(const [title,pub,secret] of cases){
+        const blocks=[['Host',pub,false],['Password',secret,true]].map(([label,value,isSecret])=>({
+          id:crypto.randomUUID(),kind:'field',label,value,secret:isSecret,primary:true,
+        }));
+        const item=vaultFixture({title,blocks});
+        await p.eval(`(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      }
+      await openVaultSection(p);
+      for(const [title,,,expected] of cases){
+        const result=await p.eval(`(()=>{
+          const card=[...document.querySelectorAll('.vault-card')].find(card=>card.textContent.includes(${JSON.stringify(title)}));
+          return {actions:[...card.querySelectorAll('[data-vault-quick-copy]')].map(button=>button.dataset.vaultQuickCopy),
+            hasGroup:!!card.querySelector('.vault-quick-copy'),hasSecret:card.innerHTML.includes('FICTIONAL-SENSITIVE-P3')};
+        })()`);
+        assert.deepEqual(result.actions,expected);
+        assert.equal(result.hasGroup,expected.length>0);
+        assert.equal(result.hasSecret,false);
+      }
+    }finally{await p.close();}
+  });
 }
