@@ -1,7 +1,7 @@
 import {create,launch,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {backupFixture} from './backup-fixture.mjs';
-import {connectedCopyPage,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
+import {connectedCopyPage,folderCopyEvidence,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {submitExtensionLogin} from './extension.mjs';
 import {editNote,focus,ready,waitForFolderLineage,waitForNotes,waitForRev} from './folder-merge.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
@@ -117,10 +117,10 @@ async function installPhotoFixture(names){
   };
 }
 
-async function withPhotosPage(work,{connected=true}={}){
+async function withPhotosPage(work,{connected=true,source=''}={}){
   const browser=await launchExtension();
   try{
-    const photoSource=`void (${installPhotoFixture})(${JSON.stringify(photoNames)})`;
+    const photoSource=`void (async()=>{await (${installPhotoFixture})(${JSON.stringify(photoNames)});${source};})()`;
     const page=await browser.page(undefined,folderFixtureSource('KL-TEST-VAULT-PHOTOS',{metadata:2000,file:1500})+';'+photoSource);
     await page.until("!!window.photoTest");
     if(connected){
@@ -991,4 +991,143 @@ export async function runPhotoEmptyStatus({check,assert}){
       });
     });
   }
+}
+
+// A newly picked handle remains readable. IndexedDB clones of the retired
+// handle stall even after reload, but still compare equal to that same entry.
+function installRetiredFolderFixture(){
+  const retirement='fictional-retired-vault-handle';
+  const retired=new WeakSet();
+  const originalKeys=FileSystemDirectoryHandle.prototype.keys;
+  const same=FileSystemHandle.prototype.isSameEntry;
+  const put=IDBObjectStore.prototype.put;
+  window.retireFolderHandle=()=>sessionStorage.setItem(retirement,'yes');
+  window.folderHandleIsRetired=()=>sessionStorage.getItem(retirement)!==null;
+  folderTest.handleWrites=0;
+  for(const method of ['get','getAll']){
+    const read=IDBObjectStore.prototype[method];
+    IDBObjectStore.prototype[method]=function(...args){
+      const request=read.apply(this,args);
+      if(this.name==='meta'&&folderHandleIsRetired())request.addEventListener('success',()=>{
+        const rows=Array.isArray(request.result)?request.result:[request.result];
+        for(const row of rows)if(row?.key==='syncFolder')retired.add(row.value);
+      },{once:true});
+      return request;
+    };
+  }
+  IDBObjectStore.prototype.put=function(row,...args){
+    const request=put.call(this,row,...args);
+    if(this.name==='meta'&&row.key==='syncFolder'&&folderHandleIsRetired()){
+      this.transaction.addEventListener('complete',()=>{
+        folderTest.handleWrites++;
+        sessionStorage.removeItem(retirement);
+      },{once:true});
+    }
+    return request;
+  };
+  FileSystemDirectoryHandle.prototype.keys=async function*(...args){
+    if(retired.has(this))await new Promise(()=>{});
+    yield* originalKeys.apply(this,args);
+  };
+  FileSystemHandle.prototype.isSameEntry=async function(other){
+    if(retired.has(other)&&folderTest.beforeSameEntry)await folderTest.beforeSameEntry();
+    return same.call(this,other);
+  };
+}
+const retiredSource=`(${installRetiredFolderFixture})()`;
+
+async function connectionMetadata(page){
+  return page.eval(`(async()=>{
+    const rows=await (await import('./js/db.js')).getAllMetaRecords();
+    return Object.fromEntries(rows.filter(({key})=>/^(folder|writer|photo)/.test(key))
+      .map(({key,value})=>[key,key==='photoFolder'?value.name:value]));
+  })()`);
+}
+
+export async function runFolderHandleRefresh({check,assert}){
+  await check('P3.0 S4b a same-folder picker replaces the retired handle across sign-ins',async()=>{
+    await withPhotosPage(async page=>{
+      const {name,image}=await photoReceipt(page,assert);
+      const before=await connectionMetadata(page);
+      const bytes=(await folderCopyEvidence(page)).files;
+      await page.eval('retireFolderHandle()');
+      await page.reload();
+      await page.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(page);
+      await page.until("!!document.querySelector('[data-folder-status=unresponsive]')");
+      await page.eval("document.querySelector('[data-folder-action=chooseAnother]').click()");
+      await page.until("!!document.querySelector('.app-view .note-card')&&!document.querySelector('.folder-banner')");
+      await waitForFolderLineage(page);
+      assert.deepEqual(await connectionMetadata(page),before);
+      assert.deepEqual((await folderCopyEvidence(page)).files,bytes);
+      assert.equal(await page.eval('folderTest.writeAttempts'),0);
+      const refreshes=await page.eval('folderTest.handleWrites');
+
+      await page.reload();
+      await page.eval("folderTest.permission='granted'");
+      await submitExtensionLogin(page);
+      await page.until("!!document.querySelector('.app-view .note-card,[data-folder-status=unresponsive]')");
+      assert.equal(await page.eval("document.querySelector('[data-folder-status]')?.dataset.folderStatus??null"),null);
+      assert.equal(refreshes,1);
+      assert.deepEqual(await connectionMetadata(page),before);
+      await setPhotoTime(page,'2026-01-19T17:00:00');
+      const main=await autoWrite(page,3);
+      await assertPhoto(page,assert,{name,image,main});
+      const history=await page.eval(`(async()=>{
+        const {HISTORY_DIR,historySlots}=await import('./js/folder-history.js');
+        const dir=await (await folderTest.directory()).getDirectoryHandle(HISTORY_DIR);
+        return Promise.all(Object.values(historySlots(new Date())).map(async({name})=>
+          new Uint8Array(await (await (await dir.getFileHandle(name)).getFile()).arrayBuffer()).toBase64()));
+      })()`);
+      assert.deepEqual(history,[main,main]);
+    },{source:retiredSource});
+  });
+
+  await check('P3.0 a same folder with another passphrase refreshes just the handle before review',async()=>{
+    await withPhotosPage(async page=>{
+      await photoReceipt(page,assert);
+      const foreign='Fictional alternate folder phrase 42!';
+      const fixture=await backupFixture([note({title:'Fictional earlier copy'})],foreign);
+      await writeFolderFixture(page,MAIN,await fixture.seal({...fixture.payload,rev:1}));
+      const before=await connectionMetadata(page);
+      const files=(await folderCopyEvidence(page)).files;
+      await page.eval('retireFolderHandle();folderTest.writeAttempts=0');
+      await openPhotoSettings(page,assert);
+      await page.eval("document.querySelector('[data-folder-action=change]').click()");
+      await page.until("!!document.querySelector('.app-dialog input[type=password]')");
+      await page.eval(`const input=document.querySelector('.app-dialog input[type=password]');
+        input.value=${JSON.stringify(foreign)};input.dispatchEvent(new Event('input',{bubbles:true}));
+        input.closest('form').requestSubmit();`);
+      await page.until("!!document.querySelector('[data-folder-status=rollback]')");
+      assert.equal(await page.eval('folderTest.handleWrites'),1);
+      assert.deepEqual(await connectionMetadata(page),before);
+      assert.deepEqual((await folderCopyEvidence(page)).files,files);
+      assert.equal(await page.eval('folderTest.writeAttempts'),0);
+    },{source:retiredSource});
+  });
+
+  await check('P3.0 replacing a vault during the same-folder comparison refuses the new handle',async()=>{
+    await withPhotosPage(async page=>{
+      await photoReceipt(page,assert);
+      const before=await connectionMetadata(page);
+      const files=(await folderCopyEvidence(page)).files;
+      await page.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        retireFolderHandle();
+        folderTest.beforeSameEntry=()=>db.saveMeta('vaultId','fictional-vault-in-another-tab');
+        folderTest.writeAttempts=0;
+      })()`);
+      const code=await page.eval(`(async()=>{
+        const {chooseSyncFolder}=await import('./js/folder-store.js');
+        const key=(await import('./js/app.js')).getCryptoKey();
+        try {return (await chooseSyncFolder({key,hold:true})).status;}
+        catch(error){return error.code;}
+      })()`);
+      assert.equal(code,'vault.changed');
+      assert.equal(await page.eval('folderTest.handleWrites'),0);
+      assert.deepEqual(await connectionMetadata(page),before);
+      assert.deepEqual((await folderCopyEvidence(page)).files,files);
+      assert.equal(await page.eval('folderTest.writeAttempts'),0);
+    },{source:retiredSource});
+  });
 }
