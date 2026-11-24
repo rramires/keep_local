@@ -219,7 +219,11 @@ export function renderVaultEditor(modal, item, {signal, isNew, template, onClose
       const fieldLabel = element('label', 'vault-form-field', t('vault.fieldLabel'));
       fieldLabel.append(label);
       label.addEventListener('input', () => {
-        if (!patch(current => { current.label = label.value; },{typing:true})) label.value = get().label;
+        if (!patch(current => {
+          const populatedSecret = current.value !== '' && isSecretField(current);
+          current.label = label.value;
+          if (populatedSecret && !isSecretField(current)) current.secret = true;
+        },{typing:true})) label.value = get().label;
         syncValue();
       });
       label.addEventListener('blur',recordHistory);

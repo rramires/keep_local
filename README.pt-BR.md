@@ -219,6 +219,9 @@ O guia explica como reinstalar o KeepLocal e importar a cópia.
   dados, chave de API, SSH, login web e Cloudflare R2 / S3. Os rótulos usam o
   idioma atual. Adicione conteúdo ou edite os rótulos para salvar o item.
   Todo bloco de texto vazio do editor mostra a dica “Observações”.
+- Se o novo rótulo tornaria público um campo secreto preenchido, o KeepLocal
+  mantém o campo secreto. Use o cadeado para torná-lo público de propósito.
+  A escolha explícita do cadeado prevalece sobre o rótulo.
 - Use as estrelas do editor para escolher um campo principal em cada classe,
   pública ou secreta. O principal público aparece no subtítulo, e o card oferece
   cópia rápida para cada classe com valor principal preenchido. O KeepLocal

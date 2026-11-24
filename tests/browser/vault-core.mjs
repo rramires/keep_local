@@ -744,7 +744,7 @@ export async function run({browser,check,assert}) {
     } finally {await p.close();}
   });
 
-  await check('D1.1 editor follows the label until the user persists either lock choice',async()=>{
+  await check('D1.1 label changes can protect a populated field and either lock choice persists',async()=>{
     const p=await browser.page();
     const locked=()=>p.eval("document.querySelector('[data-vault-toggle-secret]').getAttribute('aria-pressed')==='true'");
     const toggle=()=>p.eval("document.querySelector('[data-vault-toggle-secret]').click()");
@@ -766,6 +766,8 @@ export async function run({browser,check,assert}) {
       assert.equal(Object.hasOwn(await savedBlock(),'secret'),false,'Automatic masking must not persist a flag');
       await enterVaultEditor(p,assert);
       await label('Host');
+      assert.equal(await locked(),true);
+      await toggle();
       assert.equal(await locked(),false);
       await toggle();
       await close();

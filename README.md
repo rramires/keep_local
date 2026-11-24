@@ -223,6 +223,9 @@ reinstalling KeepLocal and importing a backup. [Bilingual guide](recovery/LEIA-M
   SSH, web logins and Cloudflare R2 / S3. Template labels use the current language.
   Add content or edit the labels before saving an item. Every text block
   in the editor shows a “Notes” placeholder when empty.
+- If a new label would make a populated secret field public, KeepLocal keeps
+  the field secret. Use the lock to make it public deliberately. The lock's
+  explicit setting takes precedence over the label.
 - Use the editor's stars to pick one primary field for each class, public or
   secret. Cards use the primary public value as their subtitle and offer quick
   copy for each class whose primary value is nonempty. KeepLocal attempts to
