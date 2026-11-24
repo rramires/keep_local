@@ -39,12 +39,14 @@ export async function createSaltAccess({handle,snapshot,key,foreign,target,signa
     return state;
   }
 
-  async function preserve(state) {
+  async function preserve(state,namesBySource) {
     const copies=state.candidates.filter(copy=>copy.status==='valid'&&(copy.name===MAIN_FILE||copy.rev===state.head?.rev));
     const names=[];
     for(const copy of copies){
       const source=sourceFor(copy.salt);
-      names.push(...await preserveFolderChoice(handle,[copy],source.key,source.salt,signal,preservedBytes));
+      const [name]=await preserveFolderChoice(handle,[copy],source.key,source.salt,signal,preservedBytes);
+      names.push(name);
+      namesBySource?.set(copy.name,name);
     }
     return [...new Set(names)];
   }

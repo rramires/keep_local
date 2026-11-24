@@ -4,6 +4,7 @@ import {connectedCopyPage} from './folder-copy-view.mjs';
 import {connectBoth,editNote,focus,relogin,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
 import {copyFolderFiles,readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {backupFixture} from './backup-fixture.mjs';
+import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
 import {decryptRecords} from '../../js/backup-format.js';
 
@@ -231,5 +232,45 @@ export async function runP44({check,assert}){
       assert.equal(await b.eval("document.querySelector('.app-view').inert"),false);
       assert.equal(await b.eval("(await import('./js/db.js')).isReadOnly()"),false);
     });
+  });
+}
+
+export async function runP49({check,assert}){
+  await check('P4.9 rotation finds the preserved main by source name when an identical copy is listed first',async()=>{
+    const browser=await launchExtension();
+    try{
+      const duplicate='keeplocal-vault - Copy.keeplocal';
+      const page=await browser.page(undefined,folderFixtureSource());
+      await connectedCopyPage(browser,page);
+      await waitForRev(page,1);
+      await waitForFolderLineage(page);
+      const main=await readFolderFixture(page,MAIN);
+      await writeFolderFixture(page,duplicate,main);
+      await page.eval(`(()=>{
+        const entries=FileSystemDirectoryHandle.prototype.entries;
+        FileSystemDirectoryHandle.prototype.entries=async function*(...args){
+          const rows=entries.apply(this,args);
+          if(this.name!==folderTest.name){yield* rows;return;}
+          const ordered=[];
+          for await(const row of rows)ordered.push(row);
+          const beforeMain=ordered.findIndex(([name])=>name===${JSON.stringify(duplicate)});
+          if(beforeMain!==-1)yield* ordered.splice(beforeMain,1);
+          yield* ordered;
+        };
+      })()`);
+      assert.equal(await page.eval(`(async()=>{
+        for await(const [name] of (await folderTest.directory()).entries())return name;
+      })()`),duplicate);
+      await rotate(page);
+      await page.until("(await (await import('./js/db.js')).getMeta('folderSeenRev'))>1||!!document.querySelector('#change-password-error')?.textContent");
+      await waitForFolderLineage(page);
+      assert.equal(await seen(page),2);
+      const current=await readFolderFixture(page,MAIN);
+      const {key,payload}=await decodeV2(Buffer.from(current,'base64'),NEW_PASSWORD);
+      assert.equal((await decryptRecords(payload.notes,key))[0].title,'Fictional browser notes');
+      assert.deepEqual(await preservedCopies(page),[main]);
+      assert.equal(await readFolderFixture(page,duplicate),main);
+      assert.deepEqual(page.errors,[]);
+    }finally{await browser.close();}
   });
 }
