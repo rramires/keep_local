@@ -217,8 +217,8 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
   return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
-export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases});
+export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases,beforeReplace}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases,beforeReplace});
 }
 
 function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReplacement) {
@@ -247,6 +247,7 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       assertVaultSnapshot(current,expected);
+      folderReplacement?.beforeReplace?.();
       replace(current);
     }catch(error){fail(error);}};
   },explicitTransition);

@@ -164,3 +164,72 @@ export async function runP43({check,assert}){
     });
   });
 }
+
+export async function runP44({check,assert}){
+  await check('P4.4 typing during the final folder read defers the pull and publishes the draft in a merge',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const remote=note({title:'Fictional remote note',content:'Before the remote edit'});
+      const local=note({title:'Fictional local note',content:'Before the local draft'});
+      const text='Fictional text typed while the pull is reading';
+      await connectBoth(a,b,[remote,local]);
+      await waitForFolderLineage(b);
+      await editAndWrite(a,remote.id,'Remote edit',2);
+      await copyFolderFiles(a,b);
+      await b.eval(`[...document.querySelectorAll('.note-card')].find(card=>card.textContent.includes(${JSON.stringify(local.title)})).click()`);
+      await b.until("!!document.querySelector('#modal-editor')");
+      await b.eval(`(()=>{
+        let reads=0;
+        const getFile=FileSystemFileHandle.prototype.getFile;
+        FileSystemFileHandle.prototype.getFile=async function(...args){
+          if(this.name===${JSON.stringify(MAIN)}&&++reads===2)
+            await new Promise(resolve=>{window.resumePullRead=resolve;});
+          return getFile.apply(this,args);
+        };
+      })()`);
+      await focus(b);
+      await b.until("typeof window.resumePullRead==='function'");
+      const during=await b.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const editor=document.querySelector('#modal-editor');
+        editor.value=${JSON.stringify(text)};
+        editor.dispatchEvent(new Event('input',{bubbles:true}));
+        const draft=(await import('./js/backup.js')).hasPendingDrafts();
+        const status={readOnly:db.isReadOnly(),draft};
+        window.resumePullRead();
+        return status;
+      })()`);
+      await waitForFolderLineage(b);
+      assert.deepEqual(during,{readOnly:false,draft:true});
+      await b.until(`(await import('./js/app.js')).getNotes().some(item=>item.id===${JSON.stringify(local.id)}&&item.content===${JSON.stringify(text)})`);
+      const merged=await checkedWrite(b,3);
+      const result=await decode(merged);
+      assert.equal(result.notes.find(item=>item.id===local.id)?.content,text);
+      assert.equal(result.notes.find(item=>item.id===remote.id)?.content,'Remote edit');
+      assert.equal(result.notes.length,2);
+      assert.deepEqual(b.errors,[]);
+    });
+  });
+
+  await check('P4.4 a clean pull closes the input window at the guarded replacement and restores interaction',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Fictional note for a clean pull'});
+      await connectBoth(a,b,[item]);
+      await waitForFolderLineage(b);
+      await editAndWrite(a,item.id,'Clean pull text',2);
+      await copyFolderFiles(a,b);
+      await b.eval(`(()=>{
+        const clear=IDBObjectStore.prototype.clear;
+        IDBObjectStore.prototype.clear=function(...args){
+          if(this.name==='notes')window.inertAtReplacement=document.querySelector('.app-view')?.inert;
+          return clear.apply(this,args);
+        };
+      })()`);
+      await focus(b);
+      await waitForRev(b,2);
+      await b.until("(await import('./js/app.js')).getNotes()[0]?.content==='Clean pull text'");
+      assert.equal(await b.eval('window.inertAtReplacement'),true);
+      assert.equal(await b.eval("document.querySelector('.app-view').inert"),false);
+      assert.equal(await b.eval("(await import('./js/db.js')).isReadOnly()"),false);
+    });
+  });
+}

@@ -17,6 +17,7 @@ await folderMerge.run({check,assert});
 const finalReviewFolder=await import('./final-review-folder.mjs');
 await finalReviewFolder.runP42({check,assert});
 await finalReviewFolder.runP43({check,assert});
+await finalReviewFolder.runP44({check,assert});
 const folderHistory=await import('./folder-history.mjs');
 await folderHistory.run({check,assert});
 await folderHistory.runP316({check,assert});

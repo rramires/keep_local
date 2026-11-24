@@ -238,7 +238,14 @@ async function configureFolderSync({admit=false,selected}={}) {
     if(document.querySelector('.app-view'))await showApp();
   };
   const sync=createFolderSync({
-    handle,key,signal,photoFolder,onPulled:rerenderPulled,onMerged:stats=>{
+    handle,key,signal,photoFolder,onPulled:rerenderPulled,
+    onPullCommit:()=>{
+      const view=appContainer.querySelector('.app-view');
+      if(!view||view.inert)return;
+      view.inert=true;
+      return ()=>{view.inert=false;};
+    },
+    onMerged:stats=>{
       if(document.querySelector('.app-view'))showMergeNotice(stats);
       else folderLoaded={stats};
     },onIgnored:()=>showToast(t('folder.ignoredCopies')),

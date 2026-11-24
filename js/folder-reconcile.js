@@ -63,13 +63,13 @@ async function requireAccess(snapshot,key,signal,access) {
   if(signal.aborted||await getSessionKey())throw folderFailure('session.ended');
 }
 
-export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false,access}={}) {
+export async function pullFolderHead(handle,head,snapshot,key,signal,{notifyDeletions=false,resetBases=false,access,beforeReplace}={}) {
   const copy=await readReviewedCopy(handle,head,key,snapshot.meta.salt,access);
   const stats=notifyDeletions?folderPullNotices(snapshot,copy.payload):undefined;
-  return {...await applyFolderCopy(copy,snapshot,key,signal,{resetBases,access}),stats};
+  return {...await applyFolderCopy(copy,snapshot,key,signal,{resetBases,access,beforeReplace}),stats};
 }
 
-export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases,access}={}) {
+export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,resetBases,access,beforeReplace}={}) {
   await requireAccess(snapshot,key,signal,access);
   const previous=snapshot.meta,prefs=copy.payload.preferences;
   const revision=(previous.revision||0)+1,vaultId=crypto.randomUUID();
@@ -82,7 +82,7 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
   };
   if(access&&(previous.salt!==meta.salt||access.recordSaltClock))meta.folderSaltClock=copy.payload.clock??{};
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
-  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases});
+  await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases,beforeReplace});
   if(signal.aborted)throw folderFailure('session.ended');
   storeSessionKey(key,vaultId);
   setWriteMode('readWrite');
