@@ -68,7 +68,10 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
 - `vault-events.js`: cross-tab notifications; DB guards remain the authority.
 - `markdown.js`: escape raw HTML, omit images, restrict DOMPurify; fail closed.
 - `recovery.js`: safe viewing and copying of preserved invalid data; typed discard requires a
-  separate export, explicit saved-file confirmation and typed word. Session-only
+  separate export, explicit saved-file confirmation and typed word. Discard removes only the
+  local corruption and writes no tombstone, so a readable copy on another PC returns through a
+  folder merge. Only JSON that validates as a known text/list note is shown without an explicit
+  reveal; a reveal clears on window blur. Session-only
   receipts fingerprint the whole vault; deletion rechecks every encrypted record
   and meta atomically (`recovery-actions.js`). V2
   archive encode/decode must preserve unreadable records; strict record/model
@@ -81,8 +84,9 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
 - `record-health.js`: classify unreadable records before exports.
 - `vault-model.js`: vault block validation and the single secrecy rule:
   `isSecretField = secret ?? (secretLabel || !publicLabel)`. Fields are born
-  secret; only whole-word public labels are auto-public; only the lock button
-  writes `secret`, and a manual choice wins. Also subtitle and public-only search.
+  secret; only whole-word public labels are auto-public; the lock button writes
+  `secret` and a manual choice wins; a label change that would make a populated field
+  public writes `secret: true` instead (owner decision). Also subtitle and public-only search.
 - `vault-view.js`, `vault-editor.js`, `secret-ui.js`, `css/vault.css`: section
   list/grid, read-only detail, block editor through the note queue, reveal with
   auto-hide and copy with clipboard clearing (`dispose()` on teardown). Secrets
@@ -112,7 +116,10 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
     (push/pull/adopt/merge/conflict/rollback/otherSalt/unreadableCopy) and the typed
     review (remote/local/merge). First connection: 0 local records pull, identical
     record set adopts, anything else is a conflict. A direct pull needs a clean local
-    vault and a head that descends from the last synced state.
+    vault, a head that descends from the last synced state and a current tombstone for
+    every local note the head omits (otherwise merge). Drafts are rechecked inside the
+    replacement transaction and defer the pull; input is inert only from the replacement
+    until the view refreshes.
   - `folder-merge.js`, `folder-clock.js`: per-note three-way merge. A base is
     proven by hash lineage (`parent`/`ancestors`) or a nonempty dominated `clock`;
     order: pending write → stored bases → synced state → none. Without proof the
@@ -123,7 +130,9 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
     then id), never its own. Explicit remote/local choices reset the base list.
   - `folder-preserve.js`: before any replacement, the losing side goes to
     `keeplocal-preserved/` (exact bytes or encrypted local snapshot), read back and
-    verified; failure replaces nothing. Never cleaned; reads stay root-only. Within one
+    verified; failure replaces nothing. A normal write also preserves a valid main file
+    whose hash differs from the head (a late write left under the main name). Never cleaned;
+    reads stay root-only. Within one
     reconciliation the same bytes are preserved once (reuse rereads and verifies).
   - `folder-history.js`, `folder-history-write.js`: rotating history in `keeplocal-history/`
     (7 daily `keeplocal-day-<n>-<weekday>` and 4 weekly `keeplocal-week-<n>` slots from the local
@@ -226,7 +235,8 @@ roadmap, one package per owner request (small or same-area items may share a pac
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
 recovery, merged), H2c (rotating history copies, package P1, merged), H3 (vault copies in seven
-dedicated photos and Write now, package P2, merged). Package P3 (release details and preparation) is
-merged; the final review remains. Phase 4 Etapas D (core) and
+dedicated photos and Write now, package P2, merged). Packages P3 (release details and preparation)
+and P4 (final review fixes) are merged; the manual run and the v1.0.0 release remain. Phase 4
+Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
