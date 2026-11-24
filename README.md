@@ -254,6 +254,9 @@ is still required at every opening.
   focus, visibility change and page hide) the app writes a new revision, reads
   it back and verifies it. "Written to folder at HH:MM" means a local file write
   only. A folder write does not count as a manual backup.
+  If the valid main file differs from the newest folder copy, KeepLocal
+  saves and verifies its exact bytes in `keeplocal-preserved/` before
+  replacing it. If preservation fails, the main file stays intact.
 - **Folder history.** The first regular verified write of the day and of the
   week also copies the exact bytes of the main file into `keeplocal-history/`.
   The subfolder has seven daily slots and four weekly slots, on the local

@@ -251,6 +251,9 @@ obrigatória a cada abertura.
   também ao focar, ao mudar a visibilidade e ao sair da página), o app grava uma
   nova revisão, relê e confere. "Gravado na pasta às HH:MM" indica só a gravação
   do arquivo local. Gravar na pasta não conta como backup manual.
+  Se o principal válido for diferente da cópia mais recente da pasta, o
+  KeepLocal guarda e confere seus bytes exatos em `keeplocal-preserved/`
+  antes de substituí-lo. Se a preservação falhar, o principal fica intacto.
 - **Histórico da pasta.** A primeira gravação normal e conferida do dia e da
   semana também copia os bytes exatos do principal para `keeplocal-history/`.
   São sete vagas diárias e quatro semanais, no calendário local. Uma cópia
