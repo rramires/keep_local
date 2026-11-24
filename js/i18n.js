@@ -324,6 +324,7 @@ const en = {
   'app.title': 'KeepLocal — Secure Offline Notes',
 
   // Header
+  'header.menu': 'Menu',
   'header.search': 'Search',
   'header.clearSearch': 'Clear',
   'header.theme': 'Theme',
@@ -781,6 +782,7 @@ const ptBR = {
   'app.title': 'KeepLocal — Notas Seguras Offline',
 
   // Header
+  'header.menu': 'Menu',
   'header.search': 'Pesquisar',
   'header.clearSearch': 'Limpar',
   'header.theme': 'Tema',

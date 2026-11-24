@@ -390,7 +390,7 @@ function renderAppShell() {
       <!-- Header -->
       <header class="header">
         <div class="header-left">
-          <button class="icon-btn menu-btn" data-tooltip="Menu" id="menu-toggle" aria-label="Menu">
+          <button class="icon-btn menu-btn" data-tooltip="${t('header.menu')}" id="menu-toggle" aria-label="${t('header.menu')}">
             ${icons.menu}
           </button>
           <div class="app-title">Keep<span>Local</span></div>
@@ -2051,7 +2051,7 @@ function openLabelsPickerModal(note) {
   function renderPopup() {
     const labels = getAllLabels();
     popup.innerHTML = `
-      <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:8px;">Labels</div>
+      <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:8px;">${t('sidebar.labels')}</div>
       ${labels.map(l => {
         const checked = note.labels?.includes(l) ? 'checked' : '';
         return `<div class="label-opt" data-label="${escapeAttr(l)}" style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:4px;font-size:13px;">
