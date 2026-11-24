@@ -15,14 +15,28 @@ for(const file of ['README.md','README.pt-BR.md']) {
 }
 const zip=`dist/keep_local_extension_v${manifest.version}.zip`;
 const names=execFileSync('unzip',['-Z1',zip],{encoding:'utf8'}).trim().split('\n');
-for(const excluded of ['lib/VENDOR.md','lib/SHA256SUMS'])assert.equal(names.includes(excluded),false,excluded+' must stay out of the package');
-for(const required of ['manifest.json','index.html','js/app.js','js/recovery-actions.js','lib/purify.min.js','lib/marked.min.js'])assert.equal(names.includes(required),true,required);
-assert.equal(names.some(n=>n.startsWith('tests/')),false);
-assert.equal(names.some(name=>/\.pem$/i.test(name)),false);
+const vendorSupport=['lib/VENDOR.md','lib/SHA256SUMS'];
+function assertArchiveEntries(names) {
+  const tracked=execFileSync('git',['ls-files','-z','--','chrome-extension'],{encoding:'utf8'})
+    .split('\0').filter(Boolean).map(name=>name.slice('chrome-extension/'.length));
+  // T2.18 keeps vendor integrity and provenance files in the mirror for local verification.
+  const packaged=tracked.filter(name=>!vendorSupport.includes(name)).sort();
+  const files=names.filter(name=>!name.endsWith('/')).sort();
+  assert.deepEqual(files,packaged,'Extension ZIP files must match the tracked package files');
+  for(const required of ['manifest.json','index.html','js/app.js','js/recovery-actions.js','lib/purify.min.js','lib/marked.min.js'])assert.equal(names.includes(required),true,required);
+  assert.equal(names.some(n=>n.startsWith('tests/')),false);
+  assert.equal(names.some(name=>/\.pem$/i.test(name)),false);
+}
+assertArchiveEntries(names);
+const untracked='js/fictional-untracked-p4.js';
+assert.ok(!names.includes(untracked));
+assert.throws(()=>assertArchiveEntries([...names,untracked]),{code:'ERR_ASSERTION'},
+  'P4.12 ZIP admission must reject an untracked runtime asset');
 assert.deepEqual(JSON.parse(execFileSync('unzip',['-p',zip,'manifest.json'],{encoding:'utf8'})),manifest);
 
 assert.equal(manifest.version,'1.0.0');assert.deepEqual(manifest.permissions,[]);
 console.log('PASS T2.18 extension archive contains runtime assets and excludes vendor support files');
+console.log('PASS P4.12 extension ZIP matches tracked package files and rejects extra assets');
 
 const kitFiles = ['keeplocal-recovery.html', 'LEIA-ME.txt'];
 for (const name of kitFiles) {
