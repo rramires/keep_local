@@ -27,7 +27,7 @@ export function stopSessionTimer(){clearInterval(timer);controller?.abort();cont
 export function startSessionTimer(onExpire){
   stopSessionTimer();onExpired=onExpire;controller=new AbortController();
   const options={capture:true,passive:true,signal:controller.signal};
-  for(const event of ['click','keydown','mousemove','touchstart','scroll'])document.addEventListener(event,refreshSession,options);
+  for(const event of ['click','keydown','mousemove','touchstart','wheel'])document.addEventListener(event,refreshSession,options);
   document.addEventListener('visibilitychange',checkDeadline,options);
   window.addEventListener('focus',checkDeadline,options);
   timer=setInterval(checkDeadline,1000);

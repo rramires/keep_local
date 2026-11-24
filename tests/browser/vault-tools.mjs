@@ -23,6 +23,7 @@ export async function run({browser,check,assert}) {
   await runP31({browser,check,assert});
   await runP32({browser,check,assert});
   await runP33({browser,check,assert});
+  await runP34({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -463,4 +464,51 @@ export async function runP33({browser,check,assert}){
       }
     }finally{await p.close();}
   });
+}
+
+export async function runP34({browser,check,assert}){
+  for(const [scope,idle] of [['app',300000],['vault',60000]]){
+    await check(`P3.4 scripted scroll does not extend the ${scope} timeout, while wheel does`,async()=>{
+      for(const action of ['scroll','wheel']){
+        const clock="let fixtureTime=Date.now(); Date.now=()=>fixtureTime;window.advanceActivityClock=ms=>{fixtureTime+=ms}";
+        const p=await browser.page(undefined,clock);
+        try{
+          await create(p);
+          if(scope==='vault'){
+            await openVaultSection(p);
+            await p.until("!!document.querySelector('[data-vault-lock]')");
+            await p.eval("const lock=document.querySelector('[data-vault-lock]');lock.value='1';lock.dispatchEvent(new Event('change',{bubbles:true}))");
+            await p.until("(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===1)");
+          }
+          const active=await p.eval(`(async()=>{
+            const session=await import('./js/session.js');
+            const scroller=document.createElement('div');
+            scroller.style.cssText='width:50px;height:50px;overflow:auto';
+            const content=document.createElement('div');content.style.height='1000px';
+            scroller.append(content);document.querySelector('#main-inner').append(scroller);
+            const later=${idle};
+            advanceActivityClock(2000);session.refreshSession();
+            if(${JSON.stringify(action)}==='scroll'){
+              for(const top of [100,200]){
+                advanceActivityClock(later/3);
+                await new Promise(resolve=>{
+                  scroller.addEventListener('scroll',resolve,{once:true});
+                  scroller.scrollTop=top;
+                });
+              }
+              advanceActivityClock(later/3+1);
+              return session.checkDeadline();
+            }
+            advanceActivityClock(later/2);
+            scroller.dispatchEvent(new WheelEvent('wheel',{bubbles:true}));
+            advanceActivityClock(later/2+1);
+            const before=session.checkDeadline();
+            advanceActivityClock(later/2);
+            return [before,session.checkDeadline()];
+          })()`);
+          assert.deepEqual(active,action==='scroll'?false:[true,false]);
+        }finally{await p.close();}
+      }
+    });
+  }
 }
