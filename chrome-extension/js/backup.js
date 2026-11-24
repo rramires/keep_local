@@ -169,9 +169,11 @@ export async function importBackup(file,password,{signal}={}) {
       if(await probeFolder(syncFolder)!=='ok')throw folderFailure('backup.preserveConnectedFailed');
       await requireFolderSession(snapshot,sessionKey,importSignal);
       assertWritable();
-      try{await preserveLocalChoice(syncFolder,snapshot,sessionKey,importSignal,{allowUnreadable:true});}
-      catch{
+      const verifySnapshot=()=>verifyFolderWrite(snapshot.meta,{signal:importSignal,replaceLocal:true});
+      try{await preserveLocalChoice(syncFolder,snapshot,sessionKey,importSignal,{allowUnreadable:true,verifySnapshot});}
+      catch(error){
         importSignal.throwIfAborted();
+        if(error.code==='vault.changed')throw error;
         throw folderFailure('backup.preserveConnectedFailed');
       }
       await replaceVault(replacement,snapshot.meta,{signal:importSignal});

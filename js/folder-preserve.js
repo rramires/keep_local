@@ -39,9 +39,10 @@ async function verifyPreserved(file,size,hash,key,salt,allowUnreadable=false) {
 }
 
 async function preserve(handle,{bytes,side,rev},key,salt,signal,
-  {beforeWrite=()=>signal.throwIfAborted(),cleanFailure=true,allowUnreadable=false}={}) {
+  {beforeWrite=()=>signal.throwIfAborted(),cleanFailure=true,allowUnreadable=false,verifySnapshot}={}) {
   const hash=await bytesHash(bytes);
   const time=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}Z$/,'Z');
+  if(verifySnapshot)await verifySnapshot();
   beforeWrite();
   const directory=await handle.getDirectoryHandle(PRESERVED_DIR,{create:true});
   const file=await allocateFile(directory,`preserved-${time}-${side}-r${rev}-${hash.slice(0,8)}`,beforeWrite);
@@ -50,9 +51,11 @@ async function preserve(handle,{bytes,side,rev},key,salt,signal,
     beforeWrite();
     stream=await file.createWritable({mode:'exclusive'});
     if((await withFolderReadTimeout(()=>file.getFile(),'file')).size!==0)throw folderFailure('folder.preserveFailed');
+    if(verifySnapshot)await verifySnapshot();
     beforeWrite();
     writeStarted=true;
     await stream.write(bytes);
+    if(verifySnapshot)await verifySnapshot();
     beforeWrite();
     await stream.close();
     await verifyPreserved(file,bytes.length,hash,key,salt,allowUnreadable);
@@ -124,7 +127,7 @@ export async function preserveFolderChoice(handle,copies,key,salt,signal,preserv
   }
 }
 
-export async function preserveLocalChoice(handle,{notes,meta},key,signal,{allowUnreadable=false}={}) {
+export async function preserveLocalChoice(handle,{notes,meta},key,signal,{allowUnreadable=false,verifySnapshot}={}) {
   try {
     if(!allowUnreadable){
       validateRecords(notes);
@@ -134,9 +137,9 @@ export async function preserveLocalChoice(handle,{notes,meta},key,signal,{allowU
     const rev=meta.exportRev||0;
     const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock);
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
-    return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal,{allowUnreadable});
+    return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal,{allowUnreadable,verifySnapshot});
   } catch(error) {
-    if(error.name==='TimeoutError'||signal.aborted)throw error;
+    if(error.code==='vault.changed'||error.name==='TimeoutError'||signal.aborted)throw error;
     throw folderFailure('folder.preserveFailed');
   }
 }

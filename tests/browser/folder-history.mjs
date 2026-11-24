@@ -1,6 +1,6 @@
 import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
-import {withTwoProfiles,connectBoth,editNote,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
+import {withTwoProfiles,connectBoth,editNote,editFromOtherTab,focus,ready,waitForNotes,waitForRev,waitForFolderLineage} from './folder-merge.mjs';
 import {connectedCopyPage,folderCopyEvidence,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {readFolderFixture,writeFolderFixture} from './folder-transfer.mjs';
 import {HISTORY_DIR,historySlots} from '../../js/folder-history.js';
@@ -794,5 +794,39 @@ export async function runImportErrors({check,assert}){
       assert.equal(await page.eval("document.querySelector('#import-error').textContent"),'Fictional storage quota reached');
       assert.deepEqual(await folderCopyEvidence(page),before);
     }finally{await browser.close();}
+  });
+}
+
+export async function runP35({check,assert}){
+  await check('P3.5 a competing edit during import keeps the vault and folder and shows the import error',async()=>{
+    await withHistoryPage(async(page,id)=>{
+      await page.eval(`(async()=>{
+        await (await folderTest.directory()).getDirectoryHandle('keeplocal-preserved',{create:true});
+        const create=FileSystemFileHandle.prototype.createWritable;
+        FileSystemFileHandle.prototype.createWritable=async function(...args){
+          if(this.name.startsWith('preserved-')&&window.holdImportPreserve){
+            window.holdImportPreserve=false;
+            await new Promise(resolve=>{window.releaseImportPreserve=resolve;});
+          }
+          return create.apply(this,args);
+        };
+      })()`);
+      const files=(await folderCopyEvidence(page)).files;
+      await importHistoryFromSettings(page,MONDAY,PASSWORD,assert);
+      await page.until("!!document.querySelector('.app-dialog')");
+      await page.eval("window.holdImportPreserve=true;document.querySelector('[data-dialog-action=confirm]').click()");
+      await page.until('typeof window.releaseImportPreserve==="function"');
+      await editFromOtherTab(page,id,'Fictional competing edit during import');
+      const afterEdit=await folderCopyEvidence(page);
+      await page.eval("window.releaseImportPreserve()");
+      await page.until("!!document.querySelector('#import-error')?.textContent");
+      await waitForFolderLineage(page);
+      assert.equal(await page.eval("document.querySelector('#import-error').textContent"),
+        'The vault changed during the import. Nothing was replaced; try again.');
+      const after=await folderCopyEvidence(page);
+      assert.deepEqual(after.vault,afterEdit.vault);
+      assert.deepEqual(after.files,files);
+      assert.equal(after.folder,afterEdit.folder);
+    });
   });
 }

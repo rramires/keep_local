@@ -20,6 +20,7 @@ await folderHistory.runSettings({check,assert});
 await folderHistory.runRestore({check,assert});
 await folderHistory.runImportPreservation({check,assert});
 await folderHistory.runImportErrors({check,assert});
+await folderHistory.runP35({check,assert});
 const folderPhotos=await import('./folder-photos.mjs');
 await folderPhotos.runPhotoSettings({check,assert});
 await folderPhotos.runAutomaticPhotos({check,assert});
