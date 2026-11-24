@@ -238,7 +238,14 @@ async function configureFolderSync({admit=false,selected}={}) {
     if(document.querySelector('.app-view'))await showApp();
   };
   const sync=createFolderSync({
-    handle,key,signal,photoFolder,onPulled:rerenderPulled,onMerged:stats=>{
+    handle,key,signal,photoFolder,onPulled:rerenderPulled,
+    onPullCommit:()=>{
+      const view=appContainer.querySelector('.app-view');
+      if(!view||view.inert)return;
+      view.inert=true;
+      return ()=>{view.inert=false;};
+    },
+    onMerged:stats=>{
       if(document.querySelector('.app-view'))showMergeNotice(stats);
       else folderLoaded={stats};
     },onIgnored:()=>showToast(t('folder.ignoredCopies')),
@@ -383,7 +390,7 @@ function renderAppShell() {
       <!-- Header -->
       <header class="header">
         <div class="header-left">
-          <button class="icon-btn menu-btn" data-tooltip="Menu" id="menu-toggle" aria-label="Menu">
+          <button class="icon-btn menu-btn" data-tooltip="${t('header.menu')}" id="menu-toggle" aria-label="${t('header.menu')}">
             ${icons.menu}
           </button>
           <div class="app-title">Keep<span>Local</span></div>
@@ -1251,7 +1258,7 @@ function renderNewNoteBar() {
       </div>
       <div class="new-note-expanded">
         <input class="new-note-title" placeholder="${t('modal.titlePlaceholder')}" id="new-note-title" value="${escapeAttr(newDraft.title)}" autocomplete="off" spellcheck="false" autocapitalize="off">
-        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1" autocomplete="off" spellcheck="false" autocapitalize="off">${escapeHTMLString(newDraft.content)}</textarea>
+        <textarea class="new-note-body" placeholder="${t('notes.createNote')}" id="new-note-body" rows="1" autocomplete="off" spellcheck="false" autocapitalize="off"></textarea>
         <div class="new-note-toolbar">
           <div class="toolbar-left">
 
@@ -1283,6 +1290,7 @@ async function flushNewNoteBar() {
 function initNewNoteBar() {
   const bar=document.getElementById('new-note-bar');if(!bar)return;
   const title=bar.querySelector('#new-note-title'),body=bar.querySelector('#new-note-body');
+  body.value=newDraft.content;
   const capture=()=>{newDraft={title:title.value,content:body.value,expanded:bar.classList.contains('expanded')};setDraftDirty('bar',!!(title.value||body.value));};
   bar.querySelector('.new-note-collapsed').addEventListener('click',e=>{if(e.target.closest('#new-todo-btn'))return;bar.classList.add('expanded');newDraft.expanded=true;title.focus();});
   bar.querySelector('#new-todo-btn').addEventListener('click',async e=>{e.stopPropagation();if(await flushNewNoteBar())await createNewNote('todo');});
@@ -1397,7 +1405,7 @@ function openTextModal(note) {
       </button>
     </div>
     <div class="modal-body">
-      <textarea class="note-editor" placeholder="${t('textModal.placeholder')}" id="modal-editor" autocomplete="off" spellcheck="false" autocapitalize="off">${escapeHTMLString(note.content || '')}</textarea>
+      <textarea class="note-editor" placeholder="${t('textModal.placeholder')}" id="modal-editor" autocomplete="off" spellcheck="false" autocapitalize="off"></textarea>
       <div class="note-preview hidden" id="modal-preview"></div>
     </div>
     <div class="modal-footer">
@@ -1477,6 +1485,7 @@ function openTextModal(note) {
 
   // --- Text modal listeners ---
   const editor = document.getElementById('modal-editor');
+  editor.value=note.content??'';
   const titleInput = document.getElementById('modal-title');
   const preview = document.getElementById('modal-preview');
   const mdToggle = document.getElementById('modal-md-toggle');
@@ -2044,7 +2053,7 @@ function openLabelsPickerModal(note) {
   function renderPopup() {
     const labels = getAllLabels();
     popup.innerHTML = `
-      <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:8px;">Labels</div>
+      <div style="font-size:12px;font-weight:500;color:var(--text-secondary);margin-bottom:8px;">${t('sidebar.labels')}</div>
       ${labels.map(l => {
         const checked = note.labels?.includes(l) ? 'checked' : '';
         return `<div class="label-opt" data-label="${escapeAttr(l)}" style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:4px;font-size:13px;">

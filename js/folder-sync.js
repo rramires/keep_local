@@ -8,7 +8,7 @@ import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {PHOTO_FOLDER_CHANGE,photoErrorDetails,requestPhotoPermission,updatePhotoStatus} from './photo-folder.js';
 import {writeFolderPhoto} from './photo-write.js';
 
-export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
+export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
@@ -46,9 +46,23 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     }
     if(decision==='pull'){
       const reading=isReadOnly();
-      setWriteMode('readOnly');
-      try{return await pullFolderHead(handle,state.head,snapshot,key,lifetime,{notifyDeletions:true});}
-      catch(error){if(!lifetime.aborted&&!reading&&error.name!=='TimeoutError')setWriteMode('readWrite');throw error;}
+      let restoreInput;
+      try{
+        const outcome=await pullFolderHead(handle,state.head,snapshot,key,lifetime,{
+          notifyDeletions:true,
+          beforeReplace:()=>{
+            if(!admitting&&hasPendingDrafts())throw folderFailure('folder.pendingDrafts');
+            setWriteMode('readOnly');
+            restoreInput=onPullCommit();
+          },
+        });
+        return {...outcome,restoreInput};
+      }catch(error){
+        restoreInput?.();
+        if(error.code==='folder.pendingDrafts')return {status:'push'};
+        if(!lifetime.aborted&&!reading&&error.name!=='TimeoutError')setWriteMode('readWrite');
+        throw error;
+      }
     }
     if(decision==='adopt'){
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
@@ -70,6 +84,11 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   }
 
   async function interpret(outcome) {
+    try{return await interpretOutcome(outcome);}
+    finally{outcome.restoreInput?.();}
+  }
+
+  async function interpretOutcome(outcome) {
     if(lifetime.aborted)return false;
     if(['rollback','conflict','otherSalt','unreadableCopy'].includes(outcome.status)){
       onStatus('readOnly');
@@ -191,7 +210,9 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       const {outcome,result}=await withVaultLineage(async()=>{
         const outcome=await inspect(false,true);
         if(['rollback','conflict','otherSalt','unreadableCopy'].includes(outcome.status))return {outcome};
-        return {outcome,result:await finishWriteNow(permissionFailure)};
+        if(outcome.status==='push')return {outcome,result:{reason:'writeNow.pending'}};
+        try{return {outcome,result:await finishWriteNow(permissionFailure)};}
+        catch(error){outcome.restoreInput?.();throw error;}
       });
       if(!await interpret(outcome))return lifetime.aborted?null:{review:true};
       return result;

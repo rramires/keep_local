@@ -47,3 +47,16 @@ test('P3.8 labels never claim cloud or file synchronization',()=>{
     }
   }
 });
+
+test('P4.6 menu and label picker read their labels through the dictionary',()=>{
+  const source=readFileSync(new URL('../../js/app.js',import.meta.url),'utf8');
+  const menu=source.match(/<button\b[^>]+id="menu-toggle"[^>]*>/)?.[0]??'';
+  const menuLabel="${t('header.menu')}";
+  assert.ok(menu.includes(`aria-label="${menuLabel}"`)&&menu.includes(`data-tooltip="${menuLabel}"`),'Menu labels');
+  const picker=source.slice(source.indexOf('function openLabelsPickerModal'));
+  assert.ok(picker.slice(0,picker.indexOf('${labels.map')).includes("${t('sidebar.labels')}"),'Label picker heading');
+  for(const dict of [en,ptBR]){
+    assert.ok(dict['header.menu']?.trim());
+    assert.ok(dict['sidebar.labels']?.trim());
+  }
+});

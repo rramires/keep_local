@@ -15,7 +15,7 @@ export async function run({check,assert,cpuThrottlingRate}) {
   await integration({check,assert,cpuThrottlingRate});
   await reviewMerge({check,assert});
   await e2e({check,assert});
-  await check('H2a.0 permanent deletions and their tombstones commit or roll back together',async()=>{
+  await check('H2a.0 permanent deletions record markers and recovery discards only the local corruption',async()=>{
     const browser=await launchExtension();
     try {
       const page=await browser.page(undefined,folderFixtureSource());
@@ -37,8 +37,12 @@ export async function run({check,assert,cpuThrottlingRate}) {
         const stored=notes.map(item=>initial.notes.find(record=>record.id===item.id));
         const get=IDBObjectStore.prototype.put;
         const del=IDBObjectStore.prototype.delete;
-        let failAt, active, seen=[];
+        let failAt, active, dirty, seen=[];
         IDBObjectStore.prototype.put=function(row){
+          if(row.key==='revision'){
+            if(failAt==='dirty') throw Error('Fictional revision write failure');
+            dirty=this.transaction;
+          }
           if(row.key==='tombstones'){
             if(failAt==='tombstone') throw Error('Fictional tombstone write failure');
             seen.push(this.transaction);
@@ -65,18 +69,21 @@ export async function run({check,assert,cpuThrottlingRate}) {
         for(const [index,operation] of operations.entries()){
           const before=JSON.stringify(await db.readVault());
           const rollbacks=[];
-          for(const point of ['tombstone','delete']){
+          const permanent=index!==2;
+          for(const point of [permanent?'tombstone':'dirty','delete']){
             failAt=point;
             let error;
             try{await operation();}catch(caught){error=caught.message;}
             rollbacks.push([error,before===JSON.stringify(await db.readVault())]);
           }
-          failAt=null;active=null;seen=[];
+          failAt=null;active=null;dirty=null;seen=[];
           let committed,error;
           try{await operation();}catch(caught){error=caught.message;}
           const after=await db.readVault(),id=notes[index].id;
-          committed=!after.notes.some(record=>record.id===id)&&after.meta.tombstones?.some(row=>row.id===id&&row.deletedAt>=notes[index].updatedAt);
-          results.push({rollbacks,error,committed:!!committed,sameTransaction:!!active&&seen.includes(active)});
+          const marker=!!after.meta.tombstones?.some(row=>row.id===id&&row.deletedAt>=notes[index].updatedAt);
+          committed=!after.notes.some(record=>record.id===id)&&after.meta.revision===JSON.parse(before).meta.revision+1;
+          const sameTransaction=!!active&&active===dirty&&(permanent?seen.includes(active):seen.length===0);
+          results.push({rollbacks,error,committed,marker,permanent,sameTransaction});
         }
         db.setWriteMode('readOnly');
         folderTest.clear();
@@ -88,7 +95,8 @@ export async function run({check,assert,cpuThrottlingRate}) {
         return {results,rejected,writes:folderTest.writes,unchanged:before===JSON.stringify(await db.readVault())};
       })()`);
       for(const result of evidence.results){
-        assert.deepEqual(result.rollbacks,[['Fictional tombstone write failure',true],['Fictional note delete failure',true]]);
+        assert.deepEqual(result.rollbacks,[[result.permanent?'Fictional tombstone write failure':'Fictional revision write failure',true],['Fictional note delete failure',true]]);
+        assert.equal(result.marker,result.permanent);
         assert.equal(result.error,undefined);
         assert.equal(result.committed,true);
         assert.equal(result.sameTransaction,true);

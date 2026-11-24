@@ -2,13 +2,20 @@ import { decrypt,base64ToArray } from './crypto.js';
 import { recoveredNote,discardRecord,exportForDiscard,validateDiscardReceipt,forgetDiscardReceipt } from './recovery-actions.js';
 import { t,tp } from './i18n.js';
 import { focusPanel } from './form-ui.js';
-function needsExplicitReveal(text) {
+import { validateNote } from './note-model.js';
+
+const sharedNoteKeys=new Set(['id','type','title','color','pinned','labels','createdAt','updatedAt','order','deletedAt','archivedAt']);
+const taskKeys=new Set(['id','text','done','order','parentId']);
+
+function isKnownNote(text) {
   try {
-    const record = JSON.parse(text);
-    return record !== null && typeof record === 'object' &&
-      (Object.hasOwn(record, 'blocks') || String(record.type).trim().toLowerCase() === 'vault');
-  } catch {
-    return true;
+    const note=validateNote(JSON.parse(text));
+    if(note.type!=='text'&&note.type!=='todo')return false;
+    const body=note.type==='text'?'content':'tasks';
+    if(Object.keys(note).some(key=>key!==body&&!sharedNoteKeys.has(key)))return false;
+    return note.type==='text'||note.tasks.every(task=>Object.keys(task).every(key=>taskKeys.has(key)));
+  }catch{
+    return false;
   }
 }
 
@@ -53,6 +60,7 @@ export function renderRecovery(container,issues,key,{signal,secretUI,onClose,onC
       secretUI?.toggle(content,reveal,sensitiveText,signal,{property:'value',mask:'',revealLabel:sensitiveLabel});
     }
   });
+  window.addEventListener('blur',()=>secretUI?.hide(content),{signal});
   const invalidate=()=>{forgetDiscardReceipt(receipt);receipt=null;saved.checked=false;confirmation.value='';checks++;discard.disabled=true;};
   const refresh=async()=>{
     const request=++checks;copy.disabled=busy||!note;exportButton.disabled=busy||!active;discard.disabled=true;
@@ -89,7 +97,7 @@ export function renderRecovery(container,issues,key,{signal,secretUI,onClose,onC
       try{
         const text=await decrypt(key,base64ToArray(issue.record.iv),base64ToArray(issue.record.ciphertext));
         if(!signal.aborted&&request===selected&&container.isConnected){
-          if(needsExplicitReveal(text)){
+          if(!isKnownNote(text)){
             sensitiveText=text;
             reveal.hidden=false;
           } else {

@@ -5,6 +5,7 @@ import {assertWritable,reserveFolderWrite,readVault,recordFolderWrite,verifyFold
 import {pruneTombstones} from './folder-merge.js';
 import {writeFolderHistory} from './folder-history-write.js';
 import {writeFolderPhoto} from './photo-write.js';
+import {preserveFolderChoice} from './folder-preserve.js';
 import {MAIN_FILE,readFolderCandidate,readFolderState} from './folder-vault.js';
 
 export function folderFailure(code) {
@@ -33,7 +34,7 @@ export function unsafeFolder(state) {
 export function createFolderWriter(handle,key,signal,access) {
   const scan=access?.scan??(salt=>readFolderState(handle,key,salt));
 
-  async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected}={}) {
+  async function writeFile(snapshot,state,{replace,selected,sourceHeads=[],allowReadOnly=!!selected,preservedBytes}={}) {
     const {meta}=snapshot;
     const notes=selected?selected.payload.notes:snapshot.notes;
     const assertCurrent=()=>{
@@ -67,6 +68,8 @@ export function createFolderWriter(handle,key,signal,access) {
     };
     await verify();
     if(access)await access.preserve(state);
+    else if(main?.status==='valid'&&main.hash!==state.head?.hash)
+      await preserveFolderChoice(handle,[main],key,meta.salt,signal,preservedBytes);
     const heads=[state.head,selected,...sourceHeads].filter(Boolean);
     const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
       replaceLocal:!!selected,allowReadOnly});

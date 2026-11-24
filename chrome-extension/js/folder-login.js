@@ -5,6 +5,7 @@ import {MAIN_FILE,decodeV2WithKey,readFolderState,readFolderCandidate} from './f
 import {folderFailure,localFolderDirty,unsafeFolder,withVaultLineage} from './folder-write.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {descends} from './folder-clock.js';
+import {hasFolderDeletionProof} from './folder-merge.js';
 import {applyFolderCopy} from './folder-reconcile.js';
 import {passwordDialog} from './dialogs.js';
 import {focusPanel} from './form-ui.js';
@@ -17,7 +18,8 @@ export function canLoadChangedFolder({notes,meta},state) {
     head.rev>=(meta.folderSeenRev||0)&&notes.length===Object.keys(versions).length&&
     notes.every(note=>Object.hasOwn(versions,note.id)&&versions[note.id]===note.updatedAt)&&
     !state.candidates.some(copy=>copy.status==='otherSalt'&&copy.salt===meta.salt)&&
-    descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock}));
+    descends(head,{hash:meta.folderSyncedHash,clock:meta.folderSyncedClock})&&
+    hasFolderDeletionProof(notes,head.payload));
 }
 
 export async function tryChangedFolderPassword(password,handle,permissionFailure,signal) {

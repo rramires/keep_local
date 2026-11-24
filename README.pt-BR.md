@@ -219,6 +219,9 @@ O guia explica como reinstalar o KeepLocal e importar a cópia.
   dados, chave de API, SSH, login web e Cloudflare R2 / S3. Os rótulos usam o
   idioma atual. Adicione conteúdo ou edite os rótulos para salvar o item.
   Todo bloco de texto vazio do editor mostra a dica “Observações”.
+- Se o novo rótulo tornaria público um campo secreto preenchido, o KeepLocal
+  mantém o campo secreto. Use o cadeado para torná-lo público de propósito.
+  A escolha explícita do cadeado prevalece sobre o rótulo.
 - Use as estrelas do editor para escolher um campo principal em cada classe,
   pública ou secreta. O principal público aparece no subtítulo, e o card oferece
   cópia rápida para cada classe com valor principal preenchido. O KeepLocal
@@ -248,6 +251,9 @@ obrigatória a cada abertura.
   também ao focar, ao mudar a visibilidade e ao sair da página), o app grava uma
   nova revisão, relê e confere. "Gravado na pasta às HH:MM" indica só a gravação
   do arquivo local. Gravar na pasta não conta como backup manual.
+  Se o principal válido for diferente da cópia mais recente da pasta, o
+  KeepLocal guarda e confere seus bytes exatos em `keeplocal-preserved/`
+  antes de substituí-lo. Se a preservação falhar, o principal fica intacto.
 - **Histórico da pasta.** A primeira gravação normal e conferida do dia e da
   semana também copia os bytes exatos do principal para `keeplocal-history/`.
   São sete vagas diárias e quatro semanais, no calendário local. Uma cópia
@@ -434,10 +440,16 @@ se a sessão terminar ou mudar.
 ## Recuperação de registros ilegíveis
 
 O export avisa antes quando houver registros ilegíveis e informa que o arquivo
-não pode ser restaurado integralmente nesse estado. A Recuperação permite criar
-uma nota válida contendo o texto bruto decifrado; conteúdo acima do limite fica
-somente para leitura e cópia manual. O descarte tem dois passos: Exportar agora preserva o registro sem excluir;
-depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR.
+não pode ser restaurado integralmente nesse estado. A Recuperação mostra o
+JSON decifrado de notas de texto e listas que passam na validação e permite
+criar uma nota de texto a partir dele. Conteúdo acima do limite fica somente
+para leitura. Os demais registros exigem revelação explícita e ficam somente
+para leitura. O conteúdo revelado some quando a janela perde o foco.
+**Exportar agora** preserva o registro para o descarte.
+Depois confira o arquivo salvo, marque a confirmação explícita e digite DESCARTAR
+para remover o registro ilegível deste navegador. O descarte local não envia
+um marcador de exclusão aos outros computadores. Uma cópia legível em outro
+computador pode voltar pela mesclagem da pasta.
 O app não confirma gravação no disco. O comprovante fica somente nesta sessão e
 qualquer alteração do snapshot do cofre exige novo export. O snapshot completo
 é conferido novamente na transação de exclusão, incluindo outros registros. Depois de resolver todos os registros

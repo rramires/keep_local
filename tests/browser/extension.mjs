@@ -1309,7 +1309,8 @@ export async function run({check,assert}) {
         await submitExtensionLogin(p);
         await p.until("(await import('./js/db.js')).getMeta('folderSeenRev').then(rev=>rev>0)");
         const {salt,folderSeenRev,folderSyncedHash}=await p.eval("(await(await import('./js/db.js')).readVault()).meta");
-        const remote=await backupFixture([harness.note({title:'Fictitious remote note'})],harness.PASSWORD,Buffer.from(salt,'base64'));
+        const local=await p.eval("(await import('./js/app.js')).getNotes()[0]");
+        const remote=await backupFixture([{...local,title:'Fictitious remote note',updatedAt:local.updatedAt+1}],harness.PASSWORD,Buffer.from(salt,'base64'));
         const remoteBytes=await remote.seal({...remote.payload,rev:folderSeenRev+1,parent:folderSyncedHash});
         await writeFolderFixture(p,primary,remoteBytes);
         await p.reload();

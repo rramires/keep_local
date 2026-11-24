@@ -22,12 +22,6 @@ export function formatDate(ts) {
   return d.toLocaleDateString([], { day: '2-digit', month: 'short' }) + ' ' + time;
 }
 
-export function escapeHTML(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
 export function deepClone(obj) {
   return structuredClone(obj);
 }

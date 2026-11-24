@@ -112,9 +112,11 @@ test('H2b.2 direct replacement requires every receipt, version and lineage proof
   const {canLoadChangedFolder}=await import('../../js/folder-login.js');
   const snapshot={notes:[{id:'one',updatedAt:42}],meta:{salt:'local',revision:4,folderSyncedRevision:4,
     folderSyncedHash:'shared',folderSyncedClock:{[writer]:1},folderSyncedVersions:{one:42},folderSeenRev:2}};
-  const state={head:{hash:'new',parent:'shared',rev:3,payload:{clock:{[writer]:2}}},
+  const state={head:{hash:'new',parent:'shared',rev:3,payload:{notes:snapshot.notes,clock:{[writer]:2}}},
     candidates:[{name:MAIN_FILE,status:'valid',salt:'foreign'}],otherSalt:[],unreadable:[],tooLarge:[],divergent:false};
   assert.equal(canLoadChangedFolder(snapshot,state),true);
+  const omitted={...state,head:{...state.head,payload:{...state.head.payload,notes:[]}}};
+  assert.equal(canLoadChangedFolder(snapshot,omitted),false,'A new password does not prove deletion');
   for(const patch of [
     {folderSyncedHash:undefined},{folderSyncedVersions:undefined},{revision:5},
     {folderSyncedVersions:{one:41}},{folderSyncedVersions:{two:42}},{folderSeenRev:4},

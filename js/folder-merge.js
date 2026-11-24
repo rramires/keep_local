@@ -112,6 +112,12 @@ function tombstoneTimes(rows, now) {
   return new Map(pruneTombstones(rows,now).map(({id,deletedAt})=>[id,deletedAt]));
 }
 
+export function hasFolderDeletionProof(local,payload,now=Date.now()) {
+  const incoming=new Set(payload.notes.map(record=>record.id));
+  const deleted=tombstoneTimes(payload.tombstones??[],now);
+  return local.every(record=>incoming.has(record.id)||(deleted.get(record.id)??-1)>=record.updatedAt);
+}
+
 export function folderPullNotices(snapshot, payload, now = Date.now()) {
   const before=tombstoneTimes(snapshot.meta.tombstones??[],now);
   const after=tombstoneTimes(payload.tombstones??[],now);

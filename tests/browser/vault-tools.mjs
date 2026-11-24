@@ -24,6 +24,7 @@ export async function run({browser,check,assert}) {
   await runP32({browser,check,assert});
   await runP33({browser,check,assert});
   await runP34({browser,check,assert});
+  await runP41({browser,check,assert});
   await check('E0 clipboard warning names cross-device sync in English and Portuguese',async()=>{
     const page=await browser.page();
     try {
@@ -511,4 +512,68 @@ export async function runP34({browser,check,assert}){
       }
     });
   }
+}
+
+export async function runP41({browser,check,assert}){
+  await check('P4.1 typing a label keeps a populated secret masked and stored as secret',async()=>{
+    const page=await browser.page();
+    const value='Fictional typed label secret';
+    const item=vaultFixture({blocks:[
+      {id:crypto.randomUUID(),kind:'field',label:'Password',value},
+      {id:crypto.randomUUID(),kind:'field',label:'Password',value:''},
+      {id:crypto.randomUUID(),kind:'field',label:'Host',value:'example.invalid',secret:false},
+    ]});
+    const row=index=>`.vault-block:nth-child(${index+1})`;
+    const label=index=>row(index)+' [data-vault-label]';
+    const toggle=index=>JSON.stringify(row(index)+' [data-vault-toggle-secret]');
+    const state=index=>page.eval(`(()=>{
+      const row=document.querySelector(${JSON.stringify(row(index))});
+      const field=row.querySelector('[data-vault-value]');
+      return {value:field.value,masked:field.classList.contains('vault-edit-secret'),
+        secret:row.querySelector('[data-vault-toggle-secret]').getAttribute('aria-pressed')==='true'};
+    })()`);
+    async function persisted(index,expectedLabel){
+      await page.until(`(await import('./js/app.js')).getNotes().find(n=>n.id===${JSON.stringify(item.id)})
+        ?.blocks[${index}].label===${JSON.stringify(expectedLabel)}`);
+      return page.eval(`(async()=>{
+        const app=await import('./js/app.js'),db=await import('./js/db.js');
+        const {decryptRecords}=await import('./js/backup-format.js');
+        const {isSecretField}=await import('./js/vault-model.js');
+        const [item]=await decryptRecords([await db.getNoteRecord(${JSON.stringify(item.id)})],app.getCryptoKey());
+        const block=item.blocks[${index}];
+        return {label:block.label,secret:isSecretField(block),flag:block.secret??null};
+      })()`);
+    }
+    const rename=(index,text)=>fillVaultInput(page,label(index),text);
+    try{
+      await create(page);
+      await page.eval(`(await import('./js/app.js')).saveNote(${JSON.stringify(item)})`);
+      await openVaultSection(page);
+      await page.eval("document.querySelector('[data-vault-open]').click()");
+      await page.until("!!document.querySelector('[data-vault-edit]')");
+      await page.eval("document.querySelector('[data-vault-edit]').click()");
+      await page.until("document.querySelectorAll('[data-vault-label]').length===3");
+      let typed='';
+      for(const character of 'DB password'){
+        typed+=character;
+        await rename(0,typed);
+        assert.deepEqual(await state(0),{value:'',masked:true,secret:true},typed);
+        assert.deepEqual(await persisted(0,typed),{label:typed,secret:true,flag:typed==='D'?null:true});
+      }
+      await rename(0,'Email');
+      assert.deepEqual(await state(0),{value:'',masked:true,secret:true});
+      assert.deepEqual(await persisted(0,'Email'),{label:'Email',secret:true,flag:true});
+      await page.eval(`document.querySelector(${toggle(0)}).click()`);
+      await page.until("(await import('./js/app.js')).getNotes()[0].blocks[0].secret===false");
+      assert.deepEqual(await state(0),{value,masked:false,secret:false});
+      assert.deepEqual(await persisted(0,'Email'),{label:'Email',secret:false,flag:false});
+
+      await rename(1,'Email');
+      assert.deepEqual(await state(1),{value:'',masked:false,secret:false});
+      assert.deepEqual(await persisted(1,'Email'),{label:'Email',secret:false,flag:null});
+      await rename(2,'Private key');
+      assert.deepEqual(await state(2),{value:'example.invalid',masked:false,secret:false});
+      assert.deepEqual(await persisted(2,'Private key'),{label:'Private key',secret:false,flag:false});
+    }finally{await page.close();}
+  });
 }

@@ -223,6 +223,9 @@ reinstalling KeepLocal and importing a backup. [Bilingual guide](recovery/LEIA-M
   SSH, web logins and Cloudflare R2 / S3. Template labels use the current language.
   Add content or edit the labels before saving an item. Every text block
   in the editor shows a “Notes” placeholder when empty.
+- If a new label would make a populated secret field public, KeepLocal keeps
+  the field secret. Use the lock to make it public deliberately. The lock's
+  explicit setting takes precedence over the label.
 - Use the editor's stars to pick one primary field for each class, public or
   secret. Cards use the primary public value as their subtitle and offer quick
   copy for each class whose primary value is nonempty. KeepLocal attempts to
@@ -251,6 +254,9 @@ is still required at every opening.
   focus, visibility change and page hide) the app writes a new revision, reads
   it back and verifies it. "Written to folder at HH:MM" means a local file write
   only. A folder write does not count as a manual backup.
+  If the valid main file differs from the newest folder copy, KeepLocal
+  saves and verifies its exact bytes in `keeplocal-preserved/` before
+  replacing it. If preservation fails, the main file stays intact.
 - **Folder history.** The first regular verified write of the day and of the
   week also copies the exact bytes of the main file into `keeplocal-history/`.
   The subfolder has seven daily slots and four weekly slots, on the local
@@ -431,10 +437,15 @@ An export in flight is cancelled when its session ends or changes.
 ## Recovery of unreadable records
 
 Export asks for confirmation when unreadable records exist and reports a partial
-recovery archive. Recovery can create a valid text note from decrypted raw
-content. Oversized content stays read-only for manual copying. **Export now**
+recovery archive. Recovery shows the decrypted JSON of validated text and
+list notes and can use it to create a new text note. Oversized content stays
+read-only. Other raw records require an explicit reveal and stay read-only.
+The reveal also clears when the window loses focus. **Export now**
 preserves the record. Verify the saved file, check the saved-file confirmation
-and type **DISCARD** to delete it. The app records the download attempt. The
+and type **DISCARD** to remove the unreadable record from this browser.
+Discarding local corruption does not send a deletion marker to other
+computers. A readable copy on another computer can return through a folder
+merge. The app records the download attempt. The
 receipt is session-only and a vault change requires another export. The whole
 snapshot is checked atomically before deletion, including unrelated records.
 After all unreadable records are resolved, full import and passphrase rotation

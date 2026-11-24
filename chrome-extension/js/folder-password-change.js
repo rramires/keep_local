@@ -19,12 +19,12 @@ function guardRotationReadback(access,handle,state,key,salt,signal) {
   let original;
   const preserve=access.preserve;
   access.preserve=async observed=>{
-    const names=await preserve(observed);
-    const copies=observed.candidates.filter(copy=>copy.status==='valid'&&(copy.name===MAIN_FILE||copy.rev===observed.head?.rev));
-    const mainIndex=copies.findIndex(copy=>copy.name===MAIN_FILE);
-    if(mainIndex>=0){
+    const namesBySource=new Map();
+    const names=await preserve(observed,namesBySource);
+    const main=namesBySource.get(MAIN_FILE);
+    if(main){
       const directory=await withFolderReadTimeout(()=>handle.getDirectoryHandle('keeplocal-preserved'));
-      original=await readBytes(await withFolderReadTimeout(()=>directory.getFileHandle(names[mainIndex])));
+      original=await readBytes(await withFolderReadTimeout(()=>directory.getFileHandle(main)));
     }else if(state.candidates.some(copy=>copy.name===MAIN_FILE))original=new Uint8Array();
     return names;
   };

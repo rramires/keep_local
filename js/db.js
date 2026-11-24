@@ -217,8 +217,8 @@ export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
   return replaceLocalVault([],{vaultId},expected,signal,true);
 }
 
-export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases});
+export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases,beforeReplace}={}) {
+  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases,beforeReplace});
 }
 
 function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReplacement) {
@@ -247,6 +247,7 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
     const request=meta.getAll();request.onsuccess=()=>{try{
       const current=Object.fromEntries(request.result.map(r=>[r.key,r.value]));
       assertVaultSnapshot(current,expected);
+      folderReplacement?.beforeReplace?.();
       replace(current);
     }catch(error){fail(error);}};
   },explicitTransition);
@@ -496,7 +497,6 @@ export function discardPreservedRecord(record,expected,{signal,snapshotJSON}={})
     const finish=()=>{if(++ready!==2)return;try{
       const values=Object.fromEntries(m.result.map(r=>[r.key,r.value]));
       if(typeof snapshotJSON!=='string'||JSON.stringify({notes:n.result,meta:values})!==snapshotJSON||values.vaultId!==expected.vaultId||!n.result.some(r=>JSON.stringify(r)===JSON.stringify(record)))throw Object.assign(Error('recovery.changed'),{code:'recovery.changed'});
-      recordDeletions(meta,values,[record]);
       notes.delete(record.id);markVaultDirty(meta,values);done();
     }catch(error){fail(error);}};
     m.onsuccess=finish;n.onsuccess=finish;
