@@ -1,5 +1,5 @@
 import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
-import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
+import {getSessionKey,getSessionVaultId,replaceSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
@@ -42,7 +42,7 @@ export function decideFolderAction(snapshot,state) {
 
 export function folderLocalStamp({meta}) {
   return JSON.stringify(['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
-    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'].map(key=>meta[key]));
+    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt','folderWrittenBy'].map(key=>meta[key]));
 }
 
 export async function requireFolderSession(snapshot,key,signal) {
@@ -79,12 +79,13 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
     exportClock:copy.payload.clock??{},
     folderSyncedHash:copy.hash,folderSyncedClock:copy.payload.clock??{},folderSyncedRevision:revision,
     folderSeenRev:Math.max(previous.folderSeenRev||0,copy.rev),folderWrittenAt:Date.parse(copy.exportedAt),
+    folderWrittenBy:copy.payload.writtenBy??null,
   };
   if(access&&(previous.salt!==meta.salt||access.recordSaltClock))meta.folderSaltClock=copy.payload.clock??{};
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
   await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases,beforeReplace});
   if(signal.aborted)throw folderFailure('session.ended');
-  storeSessionKey(key,vaultId);
+  replaceSessionKey(key,vaultId);
   setWriteMode('readWrite');
   publishVaultEvent('vault-replaced',{vaultId});
   return {status:'pulled',head:copy};
@@ -118,7 +119,7 @@ export async function executeFolderMerge({handle,writer,snapshot,state,key,signa
   await assertCurrent();
   if(folderStamp(await writer.scan(meta.salt))!==folderStamp(state))throw folderFailure('folder.changed');
   if(!access&&!manual&&equalsLocal&&equalsHead&&meta.folderSyncedHash===head.hash&&!localFolderDirty(meta))
-    return {status:'saved',writtenAt:meta.folderWrittenAt};
+    return {status:'saved',writtenAt:meta.folderWrittenAt,writtenBy:meta.folderWrittenBy};
 
   const preserved=[],preservedBytes=new Map();
   if(manual||stats.conflicts){

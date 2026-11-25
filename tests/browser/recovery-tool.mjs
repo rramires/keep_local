@@ -173,6 +173,7 @@ export async function assertReadsMergedCopy({browser,assert,base64,titles,secret
 
 export async function run({ browser, check, assert }) {
   await runPhotoRecovery({browser,check,assert});
+  await runP52({browser,check,assert});
   await check('H1.1 standalone file opens the golden backup and renders plaintext safely', async () => {
     await withRecovery(browser, async ({ page, directory, url }) => {
       await openGolden(page, directory);
@@ -714,5 +715,27 @@ export async function runPhotoRecovery({browser,check,assert}) {
       await page.until("!document.querySelector('#results').hidden");
       assert.equal(await page.eval("document.querySelector('.note-title').textContent"),'Fictional raw backup with PNG salt prefix');
     },instrumentFilePage);
+  });
+}
+
+export async function runP52({browser,check,assert}){
+  await check('P5.2 the independent reader opens a named copy and rejects an invalid writer name',async()=>{
+    const sample=note({title:'Fictional authored recovery note'});
+    const fixture=await backupFixture([sample]);
+    const name='Fictional Notebook P5.2';
+    for(const writtenBy of [name,'not trimmed ']){
+      await withRecovery(browser,async({page,directory})=>{
+        const path=join(directory,'authored-v2.keeplocal');
+        await writeFile(path,Buffer.from(await fixture.seal({...fixture.payload,writtenBy}),'base64'));
+        await selectFile(page,path);
+        await submit(page,PASSWORD);
+        await page.until("!document.querySelector('#results').hidden||(!document.querySelector('#error').hidden&&!document.querySelector('#open-backup').disabled)");
+        if(writtenBy===name){
+          assert.equal(await page.eval("document.querySelector('#notes .note-title')?.textContent"),sample.title);
+          assert.equal(await page.eval(`document.body.textContent.includes(${JSON.stringify(name)})`),false);
+        }else assert.equal(await page.eval("document.querySelector('#results').hidden"),true);
+        assert.deepEqual(page.errors,[]);
+      });
+    }
   });
 }

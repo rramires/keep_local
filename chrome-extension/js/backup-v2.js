@@ -3,6 +3,7 @@ import { MAX_BACKUP_NOTES, MAX_BACKUP_BYTES } from './backup-format.js';
 import { UUID } from './note-model.js';
 import { MAX_TOMBSTONES } from './folder-merge.js';
 import {validateClock} from './folder-clock.js';
+import {normalizeDeviceName} from './device-name.js';
 
 export const BACKUP_PROFILES=Object.freeze([Object.freeze({id:2,iterations:600000})]);
 const MAX_ANCESTORS=32;
@@ -12,6 +13,9 @@ export function validateProfile(profile) {
 export function backupAAD(profile,salt,iv){validateProfile(profile);return new Uint8Array([profile.id,...salt,...iv]);}
 export function validatePayload(payload,profile) {
   if(!payload||payload.v!==2||payload.profile!==profile.id||!Number.isSafeInteger(payload.rev)||payload.rev<0||(payload.parent!==null&&!/^[a-f0-9]{64}$/.test(payload.parent))||typeof payload.exportedAt!=='string'||!Number.isFinite(Date.parse(payload.exportedAt)))throw new Error('backup.invalidFile');
+  if(Object.hasOwn(payload,'writtenBy')&&
+      (typeof payload.writtenBy!=='string'||normalizeDeviceName(payload.writtenBy)!==payload.writtenBy))
+    throw new Error('backup.invalidFile');
   const prefs=payload.preferences;
   if(!prefs||Object.keys(prefs).some(k=>!['theme','lang'].includes(k))||(prefs.lang!==undefined&&!['en','pt-BR'].includes(prefs.lang))||(prefs.theme!==undefined&&!['light','dark'].includes(prefs.theme)))throw new Error('backup.invalidFile');
   // Archive decoding preserves damaged records; strict record checks belong to import.
@@ -59,10 +63,11 @@ export async function decodeV2(bytes,password) {
   }
   throw new Error('backup.wrongPasswordOrCorrupted');
 }
-export function makePayload(notes,preferences,rev=0,parent=null,tombstones=[],parentAncestors=[],clock={}){
+export function makePayload(notes,preferences,rev=0,parent=null,tombstones=[],parentAncestors=[],clock={},writtenBy){
   return {v:2,profile:BACKUP_PROFILES[0].id,rev,parent,exportedAt:new Date().toISOString(),preferences,notes,
     manifest:{count:notes.length,ids:notes.map(n=>n.id)},tombstones:tombstones.toSorted((left,right)=>left.id.localeCompare(right.id)),
-    ancestors:[parent,...parentAncestors].filter(hash=>hash!==null).slice(0,MAX_ANCESTORS),clock};
+    ancestors:[parent,...parentAncestors].filter(hash=>hash!==null).slice(0,MAX_ANCESTORS),clock,
+    ...(writtenBy!==undefined?{writtenBy}:{})};
 }
 
 export async function payloadHash(text){const digest=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)));return Array.from(digest,b=>b.toString(16).padStart(2,'0')).join('');}

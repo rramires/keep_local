@@ -1,3 +1,4 @@
+import {normalizeDeviceName} from './device-name.js';
 import {confirmDialog} from './dialogs.js';
 import {pruneTombstones} from './folder-merge.js';
 import {folderUnloadWarning} from './folder-status.js';
@@ -80,7 +81,8 @@ async function makeBackupDownload({recovery=false,source}={}) {
   const preferences=Object.fromEntries(['theme','lang'].filter(k=>meta[k]!==undefined).map(k=>[k,meta[k]]));
   const rev=(meta.exportRev||0)+1;
   if(!Number.isSafeInteger(rev))throw new Error(t('backup.invalidFile'));
-  const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock);
+  const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock,
+      normalizeDeviceName(meta.deviceName)??undefined);
   const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
   let receiptMeta=meta;
   if(!readOnly){

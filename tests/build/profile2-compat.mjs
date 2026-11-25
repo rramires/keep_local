@@ -18,18 +18,22 @@ for(const ref of ['a968ee2','47310be']){
     assert.deepEqual(legacy.payload.ancestors,[]);
     assert.deepEqual(legacy.payload.tombstones,[]);
     assert.deepEqual(legacy.payload.clock,{});
+    assert.equal(Object.hasOwn(legacy.payload,'writtenBy'),false);
     assert.deepEqual(await decryptRecords(legacy.payload.notes,legacy.key),[note]);
 
     const parent=await payloadHash(legacy.payloadText);
     const tombstones=[{id:crypto.randomUUID(),deletedAt:now}];
     const clock={[crypto.randomUUID()]:12};
-    const payload=makePayload(records,{},2,parent,tombstones,[],clock);
+    const name='Fictional Notebook';
+    const payload=makePayload(records,{},2,parent,tombstones,[],clock,name);
+    assert.equal(payload.writtenBy,name);
     const newer=await old.decodeV2(await encodeV2(key,salt,payload),password);
     assert.deepEqual(newer.payload.ancestors,[parent]);
     assert.deepEqual(newer.payload.tombstones,tombstones);
     assert.deepEqual(newer.payload.clock,clock);
+    assert.equal(newer.payload.writtenBy,name);
     oldFormat.validateRecords(newer.payload.notes);
     assert.deepEqual(await oldFormat.decryptRecords(newer.payload.notes,newer.key),[note]);
-    console.log(`PASS archived master ${ref} opens profile 2 with ancestors, tombstones and clock in both reader directions`);
+    console.log(`PASS archived master ${ref} opens profile 2 with ancestors, tombstones, clock and writtenBy in both reader directions`);
   });
 }

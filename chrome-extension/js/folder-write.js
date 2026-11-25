@@ -1,3 +1,4 @@
+import {normalizeDeviceName} from './device-name.js';
 import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
@@ -73,7 +74,8 @@ export function createFolderWriter(handle,key,signal,access) {
     const heads=[state.head,selected,...sourceHeads].filter(Boolean);
     const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
       replaceLocal:!!selected,allowReadOnly});
-    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock,
+      normalizeDeviceName(meta.deviceName)??undefined);
     const hash=await payloadHash(JSON.stringify(payload));
     const salt=access?.salt??meta.salt;
     const bytes=await encodeV2(key,base64ToArray(salt),payload);
@@ -120,7 +122,7 @@ export function createFolderWriter(handle,key,signal,access) {
       }
       if(!options?.skipPhoto)await writeFolderPhoto(snapshot.meta,head,bytes,key,signal);
     }
-    return {rev,hash,writtenAt,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
+    return {rev,hash,writtenAt,writtenBy:head.payload.writtenBy??null,replacedEmptyMain,inventoryMain:[MAIN_FILE,...head.fileStat],hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.

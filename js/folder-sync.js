@@ -7,12 +7,20 @@ import {decideFolderAction,executeFolderMerge,pullFolderHead,requireFolderSessio
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {PHOTO_FOLDER_CHANGE,photoErrorDetails,requestPhotoPermission,updatePhotoStatus} from './photo-folder.js';
 import {writeFolderPhoto} from './photo-write.js';
+import {versionFromHead} from './folder-version.js';
+import {createFolderPoll} from './folder-poll.js';
 
-export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
+function mainInventoryEntry(head) {
+  return head?.name===MAIN_FILE&&head.fileStat?[MAIN_FILE,...head.fileStat]:undefined;
+}
+
+export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onBusyChange=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
-  let timer=null,running=false,queued=false,backoff=1000,lastWarning=null,writingNow=false;
+  let timer=null,running=false,queued=false,backoff=1000,lastWarning=null,writingNow=false,admitting=false;
+  const checking=()=>running||writingNow||admitting;
+  const poll=createFolderPoll({handle,signal:lifetime,canCheck:()=>!checking()&&!isReadOnly(),check:()=>run()});
   window.addEventListener(PHOTO_FOLDER_CHANGE,event=>{photoFolder=event.detail;},{signal:lifetime});
 
   function schedule(delay=1500) {
@@ -29,6 +37,10 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))
       throw folderFailure('folder.changed');
     const state=await writer.scan(snapshot.meta.salt);
+    const complete=(outcome,replacement)=>{
+      poll.remember(state.inventory,replacement);
+      return outcome;
+    };
     await requireFolderSession(snapshot,key,lifetime);
     if(!admitting&&isReadOnly())return {status:'paused'};
     if(!admitting&&hasPendingDrafts())return {status:'push'};
@@ -42,7 +54,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(decision==='merge'){
       const outcome=await executeFolderMerge({handle,writer,snapshot,state,key,signal:lifetime,allowReadOnly:admitting,skipPhoto});
       if(admitting&&isReadOnly())await enableFolderWrites({key,signal:lifetime});
-      return outcome;
+      return complete(outcome,mainInventoryEntry(outcome.head));
     }
     if(decision==='pull'){
       const reading=isReadOnly();
@@ -56,7 +68,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
             restoreInput=onPullCommit();
           },
         });
-        return {...outcome,restoreInput};
+        return complete({...outcome,restoreInput},mainInventoryEntry(outcome.head));
       }catch(error){
         restoreInput?.();
         if(error.code==='folder.pendingDrafts')return {status:'push'};
@@ -68,19 +80,18 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
         throw folderFailure('folder.changed');
       await requireFolderSession(snapshot,key,lifetime);
-      const writtenAt=Date.parse(state.head.exportedAt);
       await recordFolderWrite(snapshot.meta,state.head,{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
-      return {status:'saved',writtenAt};
+      return complete({status:'saved',...versionFromHead(state.head)});
     }
     if(decision!=='push'&&decision!=='saved'){
       setWriteMode('readOnly');
       return {status:decision,snapshot,state};
     }
     if(admitting)await enableFolderWrites({key,signal:lifetime});
-    if(admitting||decision==='saved')return {status:decision,writtenAt:snapshot.meta.folderWrittenAt};
+    if(admitting||decision==='saved')return complete({status:decision,writtenAt:snapshot.meta.folderWrittenAt,writtenBy:snapshot.meta.folderWrittenBy});
     const result=await writer.write(snapshot,state,{skipPhoto});
-    return {...result,status:'saved'};
+    return complete({...result,status:'saved'},result.inventoryMain);
   }
 
   async function interpret(outcome) {
@@ -100,15 +111,15 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       if(lifetime.aborted)return false;
     }
     if(outcome.status==='merged'){
-      onStatus('saved',Date.parse(outcome.head.exportedAt));
+      onStatus('saved',versionFromHead(outcome.head));
       if(outcome.applied)await onPulled(outcome.head,outcome.stats);
       else onMerged(outcome.stats);
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();
     }else if(outcome.status==='pulled'){
-      onStatus('saved',Date.parse(outcome.head.exportedAt));
+      onStatus('saved',versionFromHead(outcome.head));
       await onPulled(outcome.head,outcome.stats);
     }else if(outcome.status==='saved'){
-      onStatus('saved',outcome.writtenAt);
+      onStatus('saved',outcome);
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();
     }
     else if(outcome.status==='push')schedule();
@@ -126,6 +137,16 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   }
 
   async function admit() {
+    admitting=true;
+    onBusyChange();
+    try{return await admitFolder();}
+    finally{
+      admitting=false;
+      onBusyChange();
+    }
+  }
+
+  async function admitFolder() {
     while(!lifetime.aborted){
       try {return interpret(await withVaultLineage(()=>inspect(true)));}
       catch(error) {
@@ -146,6 +167,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(running||writingNow){queued=true;return;}
     if(hasPendingDrafts()){schedule();return;}
     running=true;
+    onBusyChange();
     let retry;
     try {
       const outcome=await withVaultLineage(async()=>{
@@ -164,6 +186,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       }
     }finally{
       running=false;
+      onBusyChange();
       if(queued){queued=false;schedule();}
       else if(retry!==undefined&&!lifetime.aborted&&!isReadOnly())timer=setTimeout(()=>void run(),retry);
     }
@@ -196,6 +219,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   async function writeNow(flushDrafts) {
     if(writingNow||lifetime.aborted||isReadOnly())return null;
     writingNow=true;
+    onBusyChange();
     clearTimeout(timer);
     try{
       // Ask in the click's user activation, before flushing drafts or waiting for the lock.
@@ -225,6 +249,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       return {reason};
     }finally{
       writingNow=false;
+      onBusyChange();
       if(queued&&!running){
         queued=false;
         schedule();
@@ -239,16 +264,17 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       return result;
     });
     photoFolder=await getMeta('photoFolder');
+    poll.remember(review.state.inventory,result.result?.inventoryMain??mainInventoryEntry(result.head));
     if(['pulled','merged'].includes(result.status))await interpret(result);
-    else onStatus('saved',result.result.writtenAt);
+    else onStatus('saved',result.result);
     return result;
   }
 
-  const flush=()=>void run();
+  const flush=()=>run();
   document.addEventListener('visibilitychange',flush,{signal:lifetime});
   window.addEventListener('focus',flush,{signal:lifetime});
   window.addEventListener('pagehide',flush,{signal:lifetime});
   const unwatch=watchLocalChanges(()=>schedule());
   lifetime.addEventListener('abort',()=>{clearTimeout(timer);unwatch();},{once:true});
-  return {schedule,flush,admit,resolve,writeNow,writingNow:()=>writingNow,dispose:()=>controller.abort()};
+  return {schedule,flush,admit,resolve,writeNow,checking,writingNow:()=>writingNow,dispose:()=>controller.abort()};
 }

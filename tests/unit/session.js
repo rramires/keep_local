@@ -51,3 +51,30 @@ test('H2b.5 a read-only view expires without activating a vault key',async conte
     assert.equal(checkDeadline(),false);
   }finally{clearSession();}
 });
+
+test('P5.8 folder key replacement retains activity and initializes an inactive session',async context=>{
+  const {replaceSessionKey,setIdleTimeout}=await import('../../js/session.js');
+  let now=10_000;
+  context.mock.method(Date,'now',()=>now);
+  const oldKey={},newKey={};
+  try{
+    storeSessionKey(oldKey,'fictitious-original-vault');
+    setIdleTimeout(120_000);
+    now+=40_000;
+    replaceSessionKey(newKey,'fictitious-replacement-vault');
+    assert.equal(await getSessionKey(),newKey);
+    assert.equal(getSessionVaultId(),'fictitious-replacement-vault');
+    setIdleTimeout(60_000);
+    now+=19_999;
+    assert.equal(await getSessionKey(),newKey);
+    now++;
+    assert.equal(await getSessionKey(),null);
+
+    replaceSessionKey(newKey,'fictitious-admitted-vault');
+    assert.equal(getSessionVaultId(),'fictitious-admitted-vault');
+    now+=299_999;
+    assert.equal(await getSessionKey(),newKey);
+    now++;
+    assert.equal(await getSessionKey(),null);
+  }finally{clearSession();}
+});

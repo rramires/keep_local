@@ -6,6 +6,7 @@ import {isReadOnly} from './db.js';
 import {checkFolder,chooseSyncFolder,disconnectSyncFolder,enableFolderWrites,requestFolderAccess} from './folder-store.js';
 import {folderMetadata} from './photo-folder.js';
 import {createPhotoSettings} from './photo-settings.js';
+import {createDeviceNameSettings,offerDeviceName} from './device-name-ui.js';
 
 function element(tag, className, text) {
   const node=document.createElement(tag);
@@ -78,6 +79,8 @@ export function createFolderGate(root,{handle,status,key,signal,onOpen,onExit,no
       else root.querySelector('[data-folder-message]').textContent=folderReason(result.status);
       return;
     }
+    await offerDeviceName(signal,notify);
+    if(signal.aborted)return;
     if(onResume&&!await onResume(result.handle))return;
     await openVault();
   }
@@ -237,6 +240,7 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
           pauseFolder();
         }});
         if(chosen.status==='otherSalt'&&onOtherSalt)handled=await onOtherSalt(chosen);
+        if(chosen.status==='ok')await offerDeviceName(signal,notify);
       }
       finally{
         if(paused&&!handled)await onFolderChange(chosen?.status==='ok'?chosen.handle:undefined);
@@ -265,21 +269,22 @@ export function renderFolderSettings(container,{key,signal,trigger,onClose,notif
       controls.append(link);
     }
     body.replaceChildren(...groups,controls);
+    if(!isReadOnly())body.append(createDeviceNameSettings(meta,{signal,notify}));
     if(handle&&!isReadOnly())body.append(createPhotoSettings(meta,{key,signal,notify}));
     if(focus) choose.focus();
   }
 
   async function run(work) {
     if(busy||signal.aborted) return;
-    const buttons=[...body.querySelectorAll('button')];
+    const buttons=[...body.querySelectorAll('button')].map(button=>[button,button.disabled]);
     busy=true;
-    for(const button of buttons) button.disabled=true;
+    for(const [button] of buttons) button.disabled=true;
     try {await work();}
     catch(error) {
       if(!signal.aborted&&error?.name!=='AbortError') notify(folderActionError(error));
     } finally {
       busy=false;
-      for(const button of buttons) button.disabled=false;
+      for(const [button,disabled] of buttons) button.disabled=disabled;
     }
   }
 

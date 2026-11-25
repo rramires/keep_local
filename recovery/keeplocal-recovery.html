@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HMMIIg5ghworPX5xwc4fZ29omNoI9uGnEjcSxM8X9Dc='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-P31vZPNPqNTgLV5G1voaP01uS727fORPNfQPwRksjZs='; style-src 'sha256-Otn9dC2u18/+VHQP5OlmGdYfEP1YAVgTziwUeyxOvsc='; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <meta name="color-scheme" content="light dark">
 <title>KeepLocal · Recovery</title>
 <style>
@@ -452,6 +452,9 @@
     return isObject(payload) && payload.v === 2 && payload.profile === profile.id &&
       isTime(payload.rev) && (payload.parent === null || (typeof payload.parent === 'string' && /^[a-f0-9]{64}$/.test(payload.parent))) &&
       isString(payload.exportedAt, 80) && Number.isFinite(Date.parse(payload.exportedAt)) &&
+      (!Object.hasOwn(payload, 'writtenBy') ||
+        (typeof payload.writtenBy === 'string' && payload.writtenBy === payload.writtenBy.trim() &&
+          [...payload.writtenBy].length >= 1 && [...payload.writtenBy].length <= 40 && !/\p{Cc}/u.test(payload.writtenBy))) &&
       isObject(payload.preferences) && Object.keys(payload.preferences).every(key => key === 'theme' || key === 'lang') &&
       (payload.preferences.theme === undefined || ['light', 'dark'].includes(payload.preferences.theme)) &&
       (payload.preferences.lang === undefined || ['en', 'pt-BR'].includes(payload.preferences.lang)) &&

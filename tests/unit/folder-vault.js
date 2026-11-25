@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as vault from '../../js/folder-vault.js';
@@ -208,4 +209,14 @@ test('P4.3 a clean pull requires a current deletion marker for each omitted loca
   assert.equal(decideFolderAction(snapshot,state),'merge');
   assert.equal(decideFolderAction(snapshot,withTombstone(two.updatedAt-1)),'merge');
   assert.equal(decideFolderAction(snapshot,withTombstone(two.updatedAt)),'pull');
+});
+
+test('P5.6 both READMEs document the local name, visible version, manual check and foreground inventory',()=>{
+  for(const [file,expected] of [
+    ['README.md',[/This computer's name/,/encrypted writer name/,/From Desktop, version:/,/Check the folder now/,/every 60 seconds/i,/visible and the window has focus/,/name, size and modification date/,/clock of the computer that wrote it/]],
+    ['README.pt-BR.md',[/Nome deste computador/,/computador que gravou fica cifrado/,/De Desktop, versão:/,/Verificar a pasta agora/,/a cada 60 segundos/i,/visível e a janela em foco/,/nome, tamanho e data de modificação/,/relógio do computador que gravou/]],
+  ]){
+    const source=readFileSync(new URL('../../'+file,import.meta.url),'utf8').replace(/\s+/gu,' ');
+    for(const fragment of expected)assert.ok(fragment.test(source),`${file} must document ${fragment}`);
+  }
 });

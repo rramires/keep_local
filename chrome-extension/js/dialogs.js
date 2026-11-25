@@ -9,9 +9,10 @@ const top=()=>[...dialogs].at(-1);
 // Used by the auth/session boundary as well as each dialog's AbortSignal.
 export function closeDialogs(){for(const dialog of [...dialogs].reverse())dialog.cancel();}
 
-function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),danger=false,word=null,passwordLabel=null,notice=false,returnFocus=null,choices=null}={}) {
+function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),danger=false,word=null,passwordLabel=null,notice=false,returnFocus=null,choices=null,entryField=null,cancelLabel=t('confirm.cancel')}={}) {
   const password=passwordLabel!==null;
-  const canceled=choices||word!==null||password?null:false;
+  const expectsInput=word!==null||password||entryField;
+  const canceled=choices||expectsInput?null:false;
   if(signal?.aborted)return Promise.resolve(canceled);
   const trigger=document.activeElement,id='app-dialog-'+(++sequence);
   return new Promise(resolve=>{
@@ -20,15 +21,19 @@ function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),
     const heading=document.createElement('h2');heading.id=id+'-title';heading.textContent=title;
     const text=document.createElement('p');text.id=id+'-message';text.className='dialog-message';text.textContent=message;card.append(heading,text);
     let input=null;
-    if(word!==null||password){
+    if(expectsInput){
       const field=document.createElement('div');field.className='form-field';
-      const label=document.createElement('label');label.htmlFor=id+'-word';label.textContent=password?passwordLabel:t('confirm.typeWord',{word});
+      const label=document.createElement('label');label.htmlFor=id+'-word';label.textContent=entryField?.label??(password?passwordLabel:t('confirm.typeWord',{word}));
       input=document.createElement('input');input.id=label.htmlFor;input.autocomplete='off';input.spellcheck=false;input.setAttribute('autocapitalize','off');input.setAttribute('aria-describedby',text.id);field.append(label,input);card.append(field);
       if(password)input.type='password';
+      if(entryField){
+        input.name=entryField.name;
+        input.setAttribute('autocorrect','off');
+      }
     }
     const actions=document.createElement('div');actions.className='dialog-actions';
-    const cancel=document.createElement('button');cancel.type='button';cancel.className='btn-secondary';cancel.id=id+'-cancel';cancel.dataset.dialogAction='cancel';cancel.textContent=t('confirm.cancel');
-    const confirm=document.createElement('button');confirm.type='submit';confirm.className=danger?'btn-danger':'btn-primary';confirm.id=id+'-confirm';confirm.dataset.dialogAction='confirm';confirm.textContent=t('confirm.ok');confirm.disabled=word!==null||password;
+    const cancel=document.createElement('button');cancel.type='button';cancel.className='btn-secondary';cancel.id=id+'-cancel';cancel.dataset.dialogAction='cancel';cancel.textContent=cancelLabel;
+    const confirm=document.createElement('button');confirm.type='submit';confirm.className=danger?'btn-danger':'btn-primary';confirm.id=id+'-confirm';confirm.dataset.dialogAction='confirm';confirm.textContent=t('confirm.ok');confirm.disabled=!!expectsInput;
     const choiceButtons=new Map();
     if(choices){
       actions.classList.add('dialog-choices');
@@ -49,7 +54,7 @@ function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),
 
     const finish=(accepted,choice)=>{
       if(done)return;done=true;
-      const result=accepted?(choices?choice:word!==null||password?input.value:true):canceled;
+      const result=accepted?(choices?choice:expectsInput?input.value:true):canceled;
       if(input)input.value='';
       dialogs.delete(entry);overlay.remove();
       if(top())top().overlay.inert=false;else{for(const [element,inert] of background)element.inert=inert;background.clear();}
@@ -76,7 +81,7 @@ function openDialog(message,{title=t('confirm.title'),signal=getSessionSignal(),
     const keepFocus=event=>{if(top()===entry&&!card.contains(event.target))focus();};
     const entry={cancel:abort,focus,overlay};dialogs.add(entry);
     cancel.addEventListener('click',abort);card.addEventListener('submit',event=>{event.preventDefault();if(!choices&&!confirm.disabled)finish(true);});
-    input?.addEventListener('input',()=>{confirm.disabled=password?!input.value:input.value!==word;});
+    input?.addEventListener('input',()=>{confirm.disabled=entryField?!entryField.validate(input.value):password?!input.value:input.value!==word;});
     overlay.addEventListener('click',event=>{if(event.target===overlay)finish(false);});
     document.body.append(overlay);
     for(const sibling of document.body.children)if(sibling!==overlay){if(!sibling.classList.contains('app-dialog')&&!background.has(sibling))background.set(sibling,sibling.inert);sibling.inert=true;}
@@ -92,3 +97,4 @@ export function wordDialog(message,{word,...options}){
 
 export const choiceDialog=(message,choices,options={})=>openDialog(message,{...options,choices});
 export const passwordDialog=(message,{label,...options})=>openDialog(message,{...options,passwordLabel:label});
+export const textDialog=(message,{label,name,validate,...options})=>openDialog(message,{...options,entryField:{label,name,validate}});

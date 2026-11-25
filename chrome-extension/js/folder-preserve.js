@@ -1,3 +1,4 @@
+import {normalizeDeviceName} from './device-name.js';
 import {BACKUP_PROFILES,decodePayloadV2,makePayload,encodeV2} from './backup-v2.js';
 import {base64ToArray,bytesHash} from './crypto.js';
 export {bytesHash} from './crypto.js';
@@ -135,7 +136,8 @@ export async function preserveLocalChoice(handle,{notes,meta},key,signal,{allowU
     }
     const preferences=Object.fromEntries(['theme','lang'].filter(name=>meta[name]!==undefined).map(name=>[name,meta[name]]));
     const rev=meta.exportRev||0;
-    const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock);
+    const payload=makePayload(notes,preferences,rev,meta.exportParent||null,pruneTombstones(meta.tombstones??[]),meta.exportAncestors,meta.exportClock,
+      normalizeDeviceName(meta.deviceName)??undefined);
     const bytes=await encodeV2(key,base64ToArray(meta.salt),payload);
     return await preserve(handle,{bytes,side:'local',rev},key,meta.salt,signal,{allowUnreadable,verifySnapshot});
   } catch(error) {

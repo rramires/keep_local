@@ -17,7 +17,7 @@ import {openSaltReconciliation} from './folder-salt-ui.js';
 import {connectSaltFolder} from './folder-salt-connect.js';
 import {beginFolderCopy,discardFolderCopy,getFolderCopy,pickFolderCopy,renderFolderCopies,renderFolderCopyBanner,selectFolderCopy} from './folder-copy-view.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
-import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
+import {createFolderIndicator,folderTime,setFolderStatus,updateFolderRefresh} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import {renderSettingsImport} from './import-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode,readVault } from './db.js';
@@ -280,6 +280,7 @@ async function configureFolderSync({admit=false,selected}={}) {
         },
       });
     },
+    onBusyChange:updateFolderRefresh,
     onStatus:(status,detail)=>{
       setFolderStatus(status,detail,{onRetry:()=>folderSync?.flush()});
       if(detail==='folder.unreadable')showToast(t(detail));
@@ -311,7 +312,7 @@ async function finishSaltReview(outcome,handle,signal) {
 function connectOtherSaltSelection(selection) {
   const signal=sessionController.signal;
   return connectSaltFolder({root:appContainer,selection,key:cryptoKey,signal,
-    onExit:logout,onOpenReadOnly:async()=>{
+    notify:showToast,onExit:logout,onOpenReadOnly:async()=>{
       folderGate=folderGateFor(selection.handle,'otherSalt',cryptoKey,signal);
       await closeModal();
       await showApp();
@@ -483,7 +484,10 @@ function renderAppShell() {
   } else if(folderSupported()){
     addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
-  if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator());
+  if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator({
+    onRefresh:()=>folderSync?.flush(),
+    canRefresh:()=>!isReadOnly()&&!!folderSync&&!folderSync.checking(),
+  }));
   renderWriteNow();
   initAppListeners();
 }
