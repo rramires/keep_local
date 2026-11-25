@@ -147,7 +147,7 @@ UTF-8 sem normalização, chave AES-256-GCM e tag de 16 bytes no final. AAD =
 exportações dele. O comprimento total do arquivo permanece observável.
 
 Decifre os bytes a partir do offset 28 com o nonce do offset 16. O JSON UTF-8
-cifrado contém `v:2`, `profile:2`, `rev`, `parent`, `exportedAt` em ISO,
+cifrado contém `v:2`, `profile:2`, `rev`, `parent`, `exportedAt` em ISO e `writtenBy` opcional,
 `preferences` (`lang`, `theme`), `notes` e
 `manifest:{count,ids}`. Os IDs devem corresponder à ordem exata do array de notas.
 O campo cifrado opcional `tombstones` contém até 10000 registros de exclusão
@@ -249,11 +249,26 @@ obrigatória a cada abertura.
 - **Arquivo:** `keeplocal-vault.keeplocal` na raiz da pasta, exatamente no formato
   binário v2 perfil 2 acima. Depois de uma alteração (cerca de 1,5 s depois, e
   também ao focar, ao mudar a visibilidade e ao sair da página), o app grava uma
-  nova revisão, relê e confere. "Gravado na pasta às HH:MM" indica só a gravação
-  do arquivo local. Gravar na pasta não conta como backup manual.
+  nova revisão, relê e confere. Gravar na pasta não conta como backup manual.
   Se o principal válido for diferente da cópia mais recente da pasta, o
   KeepLocal guarda e confere seus bytes exatos em `keeplocal-preserved/`
   antes de substituí-lo. Se a preservação falhar, o principal fica intacto.
+- **Nome deste computador.** Ao conectar a pasta do cofre, escolha um nome
+  opcional de 1 a 40 caracteres. Edite em **Configurações → Pasta do cofre**.
+  O nome permanece neste navegador após importar, trocar a pasta ou trocar a
+  frase-senha. Nas gravações da pasta e nos backups manuais, o nome do
+  computador que gravou fica cifrado.
+- **Versão da pasta.** A barra lateral mostra a versão gravada, carregada,
+  mesclada ou adotada. Ela diz **De Desktop, versão:** ou **Versão:** quando
+  o arquivo não tem nome. A data e a hora incluem segundos e seguem o
+  relógio do computador que gravou. O KeepLocal confere a cópia local.
+  O serviço de entrega controla quando o arquivo chega a outro computador.
+- **Verificar a pasta agora.** O ícone ao lado da versão faz a mesma
+  verificação que voltar à janela. Se nada mudou, não há gravações. O
+  controle fica desativado em somente leitura. A cada 60 segundos com a
+  aba visível e a janela em foco, o KeepLocal confere nome, tamanho e data de modificação
+  dos backups na raiz da pasta. Uma mudança dispara a verificação normal.
+  A revisão cifrada determina qual cópia é mais recente.
 - **Histórico da pasta.** A primeira gravação normal e conferida do dia e da
   semana também copia os bytes exatos do principal para `keeplocal-history/`.
   São sete vagas diárias e quatro semanais, no calendário local. Uma cópia

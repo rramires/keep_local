@@ -193,13 +193,13 @@ function waitForNotes(page,expected,select) {
 const ready=page=>page.until("!!document.querySelector('.app-view #main-inner')?.firstElementChild");
 const focus=page=>page.eval("window.dispatchEvent(new Event('focus'))");
 
-async function withTwoProfiles(run,timeouts) {
+async function withTwoProfiles(run,timeouts,source=folderFixtureSource) {
   const first=await launchExtension();
   try {
     const second=await launchExtension();
     try {
-      const a=await first.page(undefined,folderFixtureSource('KL-TEST-H2A-PC-A',timeouts));
-      const b=await second.page(undefined,folderFixtureSource('KL-TEST-H2A-PC-B',timeouts));
+      const a=await first.page(undefined,source('KL-TEST-H2A-PC-A',timeouts));
+      const b=await second.page(undefined,source('KL-TEST-H2A-PC-B',timeouts));
       await run(a,b);
     } finally {await second.close();}
   } finally {await first.close();}

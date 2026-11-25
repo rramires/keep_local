@@ -3,7 +3,7 @@ import {folderFixtureSource} from './folder-fixture.mjs';
 import {pollFixture} from './folder-poll-fixture.mjs';
 import {connectBoth,editNote,focus,relogin,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
 import {copyFolderFiles,readFolderFixture} from './folder-transfer.mjs';
-import {connectedCopyPage} from './folder-copy-view.mjs';
+import {connectedCopyPage,openCopyList,openSelectedCopy} from './folder-copy-view.mjs';
 import {exportFromApp} from './recovery-tool.mjs';
 import {decodeV2} from '../../js/backup-v2.js';
 import {backupFixture,importExpression} from './backup-fixture.mjs';
@@ -328,6 +328,126 @@ export async function runP55({check,assert}){
       const settled=await stats();
       await tick();
       assert.equal((await stats()).reads,settled.reads);
+      assert.deepEqual(page.errors,[]);
+    }finally{await browser.close();}
+  });
+}
+
+async function changeDeviceName(page,name){
+  await openSettings(page,'change');
+  await page.until("!!document.querySelector('[data-device-name]')");
+  await page.eval(`(()=>{
+    const input=document.querySelector('[data-device-name]');
+    input.value=${JSON.stringify(name)};
+    input.dispatchEvent(new Event('input'));
+    input.form.requestSubmit();
+  })()`);
+  await page.until(`(await import('./js/db.js')).getMeta('deviceName').then(value=>value===${JSON.stringify(name)})`);
+  await page.eval("document.querySelector('#modal-close').click()");
+  await page.until("!document.querySelector('.folder-settings')");
+}
+
+const MAIN='keeplocal-vault.keeplocal';
+const versionLabel=".sidebar [data-folder-version-label]";
+const stateLabel=page=>page.eval(`document.querySelector(${JSON.stringify(versionLabel)})?.textContent??null`);
+const waitForAuthor=(page,name)=>page.until(`document.querySelector(${JSON.stringify(versionLabel)})?.textContent===${JSON.stringify(`From ${name}, version:`)}`);
+const folderPayload=async page=>(await decodeV2(Buffer.from(await readFolderFixture(page,MAIN),'base64'),PASSWORD)).payload;
+async function editAndCheck(page,id,content,rev){
+  await editNote(page,id,{content});
+  await focus(page);
+  await waitForRev(page,rev);
+  await waitForFolderLineage(page);
+}
+
+export async function runP56({check,assert}){
+  await check('P5.6 two named computers see a delayed delivery by interval, then author a draft merge',async()=>{
+    const interval=1000;
+    const source=(name,timeouts)=>pollFixture(folderFixtureSource(name,timeouts),{manual:false,interval})+
+      ";pollTest.focused=false;pollTest.focusEvents=0;window.addEventListener('focus',()=>pollTest.focusEvents++);";
+    await withTwoProfiles(async(a,b)=>{
+      const left=note({title:'Fictional left note',content:'Original left'});
+      const right=note({title:'Fictional right note',content:'Original right'});
+      await connectBoth(a,b,[left,right]);
+      await changeDeviceName(a,'Desktop');
+      await changeDeviceName(b,'Notebook');
+      await b.until(`document.querySelector(${JSON.stringify(versionLabel)})?.textContent==='Version:'`);
+      const oldDate=await b.eval("document.querySelector('.sidebar [data-folder-state=saved] time').dateTime");
+      await editAndCheck(a,left.id,'Fictional edit on Desktop',2);
+      await waitForAuthor(a,'Desktop');
+      const fresh=await folderPayload(a);
+      assert.equal(fresh.writtenBy,'Desktop');
+      assert.equal(await stateLabel(b),'Version:');
+      assert.equal(await b.eval("document.querySelector('.sidebar [data-folder-state=saved] time').dateTime"),oldDate);
+      assert.equal(await meta(b,'folderSeenRev'),1);
+
+      await copyFolderFiles(a,b);
+      const focusEvents=await b.eval('pollTest.focusEvents');
+      const ticks=await b.eval('pollTest.onlyNext=true;pollTest.focused=true;pollTest.ticks');
+      await waitForRev(b,2);
+      await waitForAuthor(b,'Desktop');
+      await b.until('!pollTest.focused');
+      assert.ok(await b.eval('pollTest.ticks')>ticks);
+      assert.equal(await b.eval('pollTest.focusEvents'),focusEvents);
+      assert.equal(await b.eval("document.querySelector('.sidebar [data-folder-state=saved] time').dateTime"),fresh.exportedAt);
+      assert.equal(await meta(b,'deviceName'),'Notebook');
+      await b.eval('pollTest.focused=false');
+      await editAndCheck(b,right.id,'Fictional edit on Notebook',3);
+      await waitForAuthor(b,'Notebook');
+      assert.equal((await folderPayload(b)).writtenBy,'Notebook');
+      await copyFolderFiles(b,a);
+      await a.eval("document.querySelector('[data-folder-refresh]').click()");
+      await waitForRev(a,3);
+      await waitForAuthor(a,'Notebook');
+      assert.equal(await meta(a,'deviceName'),'Desktop');
+
+      await editAndCheck(a,left.id,'Fictional newer Desktop edit',4);
+      await b.eval(`[...document.querySelectorAll('.note-card')].find(card=>card.textContent.includes(${JSON.stringify(right.title)})).click()`);
+      await b.until("!!document.querySelector('#modal-editor')");
+      const draft='Fictional draft still being edited on Notebook';
+      await b.eval(`(()=>{
+        const set=window.setTimeout.bind(window);
+        window.setTimeout=(action,delay,...args)=>delay===2000&&document.querySelector('#modal-editor')
+          ?set(action,30000,...args):set(action,delay,...args);
+        const field=document.querySelector('#modal-editor');
+        field.value=${JSON.stringify(draft)};
+        field.dispatchEvent(new Event('input',{bubbles:true}));
+      })()`);
+      await copyFolderFiles(a,b);
+      await b.eval("pollTest.beforeDraftList=pollTest.lists;pollTest.beforeDraftTick=pollTest.completed;pollTest.focused=true");
+      await b.until("pollTest.lists>pollTest.beforeDraftList&&pollTest.completed>pollTest.beforeDraftTick");
+      assert.equal(await meta(b,'folderSeenRev'),3);
+      assert.equal(await b.eval("document.querySelector('#modal-editor').value"),draft);
+      await b.eval("document.querySelector('#modal-close').click()");
+      await waitForRev(b,5);
+      await waitForAuthor(b,'Notebook');
+      const merged=await folderPayload(b);
+      assert.equal(merged.writtenBy,'Notebook');
+      assert.equal(await meta(b,'deviceName'),'Notebook');
+      await b.until(`(await import('./js/app.js')).getNotes().some(note=>note.content==='Fictional newer Desktop edit')`);
+      assert.deepEqual(await b.eval("(await import('./js/app.js')).getNotes().map(note=>note.content).sort()"),
+        ['Fictional newer Desktop edit',draft].sort());
+      assert.deepEqual([...a.errors,...b.errors],[]);
+    },undefined,source);
+  });
+
+  await check('P5.6 the sidebar treats a hostile computer name as text and hides the version in copy view',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await connectedCopyPage(browser);
+      const name='<img src=x onerror=fixture>';
+      await changeDeviceName(page,name);
+      const id=await page.eval("(await import('./js/app.js')).getNotes()[0].id");
+      await editAndCheck(page,id,'Fictional note with a literal writer name',2);
+      await waitForAuthor(page,name);
+      assert.equal(await stateLabel(page),`From ${name}, version:`);
+      assert.equal(await page.eval("document.querySelectorAll('.sidebar [data-folder-indicator] img').length"),0);
+      assert.equal((await folderPayload(page)).writtenBy,name);
+      const attempts=await page.eval('folderTest.writeAttempts');
+      await openCopyList(page,assert);
+      await openSelectedCopy(page);
+      assert.equal(await page.eval("!!document.querySelector('.sidebar [data-folder-indicator]')"),false);
+      assert.equal(await page.eval('folderTest.writeAttempts'),attempts);
+      assert.deepEqual(await page.eval('folderTest.writes'),{});
       assert.deepEqual(page.errors,[]);
     }finally{await browser.close();}
   });

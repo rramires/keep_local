@@ -155,7 +155,7 @@ iterations, UTF-8 password without normalization, AES-256-GCM, 128-bit tag.
 Derive the key from the password and bytes `[0,16)`. The authenticated additional
 data is exactly **29 bytes**: `[0x02] || salt[16] || iv[12]`. Decrypt bytes `[28,end)`
 with nonce `[16,28)`. Decode the authenticated plaintext as UTF-8 JSON.
-The payload contains `v:2`, `profile:2`, `rev`, `parent`, ISO `exportedAt`, `preferences`
+The payload contains `v:2`, `profile:2`, `rev`, `parent`, ISO `exportedAt`, optional `writtenBy`, `preferences`
 (`lang`, `theme`), `notes`, and `manifest:{count,ids}`. `ids` must equal note IDs
 in their exact array order. The optional encrypted `tombstones` array contains
 up to 10,000 permanent deletion markers `{id,deletedAt}`, with a UUID and a
@@ -252,11 +252,27 @@ is still required at every opening.
 - **File:** `keeplocal-vault.keeplocal` in the folder root, byte-for-byte the
   binary v2 profile 2 format above. After a change (about 1.5 s later, and on
   focus, visibility change and page hide) the app writes a new revision, reads
-  it back and verifies it. "Written to folder at HH:MM" means a local file write
-  only. A folder write does not count as a manual backup.
+  it back and verifies it. A folder write does not count as a manual backup.
   If the valid main file differs from the newest folder copy, KeepLocal
   saves and verifies its exact bytes in `keeplocal-preserved/` before
   replacing it. If preservation fails, the main file stays intact.
+- **This computer's name.** Choose an optional name of 1 to 40 characters
+  after connecting the vault folder. You can edit it in **Settings → Vault
+  folder**. It stays local to this browser across imports, folder changes and
+  passphrase changes. Folder writes and manual exports include the encrypted writer name
+  when one has been set.
+- **Folder version.** The sidebar shows the version that was written, loaded,
+  merged or adopted. It shows **From Desktop, version:** or **Version:** for
+  a file without a name. The date and time include seconds and use the
+  clock of the computer that wrote it. KeepLocal verifies the local file.
+  Your delivery service controls when that file reaches another computer.
+- **Check the folder now.** Use the refresh icon beside the version to run
+  the same check as returning focus to the window. It makes no writes if
+  nothing has changed and is disabled in read-only mode. Every 60 seconds
+  while the tab is visible and the window has focus, KeepLocal compares the
+  name, size and modification date of backup files in the folder root. A
+  change triggers a normal check. The encrypted revision decides which copy
+  is newer.
 - **Folder history.** The first regular verified write of the day and of the
   week also copies the exact bytes of the main file into `keeplocal-history/`.
   The subfolder has seven daily slots and four weekly slots, on the local
