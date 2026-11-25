@@ -1,3 +1,4 @@
+import {normalizeDeviceName} from './device-name.js';
 import {base64ToArray} from './crypto.js';
 import {encodeV2,makePayload,payloadHash} from './backup-v2.js';
 import {decryptRecords,validateRecords} from './backup-format.js';
@@ -73,7 +74,8 @@ export function createFolderWriter(handle,key,signal,access) {
     const heads=[state.head,selected,...sourceHeads].filter(Boolean);
     const clock=await reserveFolderWrite(meta,snapshot.notes,heads,{signal,replace,
       replaceLocal:!!selected,allowReadOnly});
-    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock);
+    const payload=makePayload(notes,preferences,rev,parent,tombstones,parentAncestors,clock,
+      normalizeDeviceName(meta.deviceName)??undefined);
     const hash=await payloadHash(JSON.stringify(payload));
     const salt=access?.salt??meta.salt;
     const bytes=await encodeV2(key,base64ToArray(salt),payload);

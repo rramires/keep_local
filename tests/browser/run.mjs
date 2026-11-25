@@ -50,3 +50,4 @@ const folderSaltE2e=await import('./folder-salt-e2e.mjs');
 await folderSaltE2e.run({check,assert});
 const deviceVersion=await import('./device-version.mjs');
 await deviceVersion.runP51({check,assert});
+await deviceVersion.runP52({check,assert});

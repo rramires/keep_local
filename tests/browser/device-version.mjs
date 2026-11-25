@@ -1,7 +1,10 @@
 import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
 import {connectBoth,editNote,focus,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
-import {copyFolderFiles} from './folder-transfer.mjs';
+import {copyFolderFiles,readFolderFixture} from './folder-transfer.mjs';
+import {connectedCopyPage} from './folder-copy-view.mjs';
+import {exportFromApp} from './recovery-tool.mjs';
+import {decodeV2} from '../../js/backup-v2.js';
 import {backupFixture,importExpression} from './backup-fixture.mjs';
 import {withDialogs} from './dialog-driver.mjs';
 import {rotate,NEW_PASSWORD} from './folder-salt.mjs';
@@ -107,5 +110,37 @@ export async function runP51({check,assert}){
       await b.eval("(await import('./js/account.js')).resetVault((await import('./js/i18n.js')).t('account.resetWord'))");
       assert.equal(await meta(b,'deviceName'),null);
     });
+  });
+}
+
+export async function runP52({check,assert}){
+  await check('P5.2 named computers author folder writes, manual exports and password rotation',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await connectedCopyPage(browser);
+      const file='keeplocal-vault.keeplocal',name='Fictional Desktop P5.2';
+      const main=async(password=PASSWORD)=>{
+        const bytes=Buffer.from(await readFolderFixture(page,file),'base64');
+        assert.equal(bytes.includes(Buffer.from(name)),false);
+        return (await decodeV2(bytes,password)).payload;
+      };
+      assert.equal(Object.hasOwn(await main(),'writtenBy'),false);
+      await page.eval(`(await import('./js/db.js')).saveMeta('deviceName',${JSON.stringify(name)})`);
+      const id=await page.eval("(await import('./js/app.js')).getNotes()[0].id");
+      await editNote(page,id,{content:'Fictional authored folder edit'});
+      await focus(page);
+      await waitForRev(page,2);
+      await waitForFolderLineage(page);
+      assert.equal((await main()).writtenBy,name);
+      const exported=(await decodeV2(Buffer.from(await exportFromApp(page),'base64'),PASSWORD)).payload;
+      assert.equal(exported.writtenBy,name);
+      assert.equal(Object.hasOwn(exported.preferences,'deviceName'),false);
+      assert.equal(Object.hasOwn(exported,'deviceName'),false);
+      await rotate(page);
+      await waitForRev(page,4);
+      await waitForFolderLineage(page);
+      assert.equal((await main(NEW_PASSWORD)).writtenBy,name);
+      assert.equal(await meta(page,'deviceName'),name);
+    }finally{await browser.close();}
   });
 }

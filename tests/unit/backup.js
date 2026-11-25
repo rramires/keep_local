@@ -55,3 +55,21 @@ test('H2a.8a profile 2 accepts optional UUID clocks and rejects malformed counte
     assert.throws(()=>validatePayload({...payload,clock:invalid},BACKUP_PROFILES[0]),/backup.invalidFile/);
   }
 });
+
+test('P5.2 the encrypted payload accepts an optional trimmed writer name and rejects invalid names',async()=>{
+  const profile=BACKUP_PROFILES[0],legacy=makePayload([],{},1);
+  assert.equal(Object.hasOwn(validatePayload(legacy,profile),'writtenBy'),false);
+  for(const writtenBy of [null,undefined,42,'','  ',' Desktop','Desktop ','a'.repeat(41),'a\u0000b','a\u007fb']){
+    assert.throws(()=>validatePayload({...legacy,writtenBy},profile),/backup.invalidFile/);
+  }
+  for(const name of ['Notebook','😀'.repeat(40),'<Fictional PC>']){
+    const payload=makePayload([],{},2,null,[],[],{},name);
+    assert.equal(payload.writtenBy,name);
+    assert.equal(validatePayload(payload,profile),payload);
+  }
+  const salt=generateSalt(),key=await deriveKey('Fictitious authored backup',salt);
+  const name='Fictional Desktop P5.2';
+  const bytes=await encodeV2(key,salt,makePayload([],{},2,null,[],[],{},name));
+  assert.equal(Buffer.from(bytes).includes(Buffer.from(name)),false);
+  assert.equal((await decodeV2(bytes,'Fictitious authored backup')).payload.writtenBy,name);
+});
