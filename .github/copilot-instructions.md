@@ -18,29 +18,39 @@ handle), `folderConnectionId`, `folderSyncedHash`, `folderSyncedClock`, `folderS
 `folderSyncedBases` (up to 4 proven merge bases, newest first), `folderPendingWrite` (clock and
 local-side versions of an unrecorded write), `writerId`/`writerCount` (this vault's folder
 writer and reserved counter, never reused), `folderSyncedRevision`, `folderSeenRev`,
-`folderWrittenAt` and `folderSaltClock` (folder clock when the vault passphrase last changed
+`folderWrittenAt`/`folderWrittenBy` (time and PC name of the folder version shown in the sidebar)
+and `folderSaltClock` (folder clock when the vault passphrase last changed
 through the folder; decides which passphrase wins), `folderHistoryDay`/`folderHistoryWeek`/`folderHistoryAt`
 (history slots last written) and `photoFolder`/`photoNames`/`photoWrittenAt`/`photoWrittenDay`
 (photos folder handle, its seven names and the last photo write; they belong to the folder
 connection: kept across folder-driven replacements of the same connection, cleared by import,
 reset, changing or disconnecting the folder and "Disconnect photos"); none of it is exported. Local-only vault preferences
-(`vaultLayout`, `vaultLockMinutes`) are never exported. An existing salt without an encrypted
+(`vaultLayout`, `vaultLockMinutes`) are never exported. `deviceName` (this PC's name: trimmed, 1–40
+code points, no control characters; `normalizeDeviceName`) is local meta that survives every vault
+replacement (import, pull, merge, review choices); only the typed reset and "start over" clear it.
+It reaches files only as the payload's `writtenBy`. An existing salt without an encrypted
 `keyCheck` is an unsupported old vault: fail clearly and preserve data until explicit reset.
 
 Keys are nonextractable and memory-only (`session.js`). Reload requires a password;
 5-minute deadline is checked on intervals, focus and visibility, with activity
 throttled to 1 second. While the vault section or a vault item is open, the local
 `vaultLockMinutes` preference (1 or 2) shortens it through `setIdleTimeout`, which never
-moves the last activity. Never persist a key or password. A typed reset is explicit.
+moves the last activity. Only user events (click, key, mouse move, touch, wheel) move the
+last activity; focus and visibility only check the deadline. Folder loads (pull, applied merge,
+review choices, other-passphrase flows) rebind the key through `replaceSessionKey`, which keeps the
+last activity and deadline of an active session (with no session it starts one, as at sign-in).
+Never persist a key or password. A typed reset is explicit.
 New passphrases require 14 characters, no composition rules, an embedded denylist and sequence/pattern checks; recommend 5+ randomly chosen words.
 
 Backup v2 is raw `[salt16][iv12][ciphertext+tag]`, no plaintext magic/header.
 Immutable profile 2: PBKDF2-HMAC-SHA-256 600000, AES-256-GCM, AAD
 `[0x02] || salt || iv`. The encrypted UTF-8 JSON payload carries `v`, `profile`,
 `rev`, `parent`, `exportedAt`, preferences, records and ordered count/ID manifest, plus
-three optional fields older readers ignore: `tombstones` (deletion records, at most 10000,
-kept 1 year), `ancestors` (up to 32 previous hashes) and `clock` (`{writerUUID: n}`, at most
-64 entries, safe integers ≥ 1; absent means `{}`). `parent` hashes the previous exact
+four optional fields older readers ignore: `tombstones` (deletion records, at most 10000,
+kept 1 year), `ancestors` (up to 32 previous hashes), `clock` (`{writerUUID: n}`, at most
+64 entries, safe integers ≥ 1; absent means `{}`) and `writtenBy` (the writing PC's
+`deviceName`, carried by folder writes, manual exports and preserved local snapshots; when present
+it must already be normalized, otherwise the file is invalid, also in the recovery reader). `parent` hashes the previous exact
 plaintext JSON bytes using SHA-256 hex. Export lineage is recorded atomically and shared by
 manual exports (which carry the clock without incrementing) and vault-folder writes.
 README documents the recovery contract. Preserve profile 2 for future readers.
@@ -180,6 +190,18 @@ A JPEG/PNG photo carrying an appended copy (`[image][exact main bytes][uint32 LE
   - `folder-sync.js`, `folder-status.js`, `folder-ui.js`, `css/folder.css`:
     scheduling, status text (never "synced"/"cloud"), blocking screen, read-only
     banner and settings. Read-only mode is enforced in `db.js` (0 writes).
+  - `device-name.js`, `device-name-ui.js`: name validation, the optional prompt after choosing a
+    folder (only when no name is stored; Skip) and the form in Settings → Vault folder. A name
+    typed and confirmed there is an explicit choice and is stored even in read-only mode.
+  - `folder-version.js`, `folder-poll.js`, `folder-inventory.js`: the sidebar block below
+    **Write now**, after a divider: "From <name>, version:" (or "Version:" without a name) with the
+    local date and time, with seconds, of the head's encrypted `exportedAt`, plus a Refresh button
+    (↻, `flush()`; disabled while running and in read-only mode); hidden in the copy view. Every
+    60 s, with the tab visible, the window focused, nothing running and not read-only, the poll lists
+    root `*.keeplocal` names, sizes and dates (`getFile()`, never the bytes) and runs the sync only
+    when that inventory changed; the stamp is stored after each complete check, including own
+    writes and merges, and a listing failure is swallowed. Test interval seam:
+    `__keepLocalTestFolderPollMs`.
 - `recovery/keeplocal-recovery.html`, `recovery/LEIA-ME.txt`: standalone offline reader of
   the documented profile 2 contract (imports nothing from `js/`; hash-based CSP; works
   from `file://`; no network, storage, download or data-derived HTML; every vault field
@@ -235,8 +257,9 @@ roadmap, one package per owner request (small or same-area items may share a pac
 emergency kit, merged), H2a (per-note merge, tombstones and writer clocks, merged),
 H2b (password changed on another PC / other-salt folders, other folder as read-only
 recovery, merged), H2c (rotating history copies, package P1, merged), H3 (vault copies in seven
-dedicated photos and Write now, package P2, merged). Packages P3 (release details and preparation)
-and P4 (final review fixes) are merged; the manual run and the v1.0.0 release remain. Phase 4
+dedicated photos and Write now, package P2, merged). Packages P3 (release details and preparation),
+P4 (final review fixes) and P5 (device name, folder version in the sidebar, Refresh and the
+60-second check) are merged; the manual run and the v1.0.0 release remain. Phase 4
 Etapas D (core) and
 E (templates, primary fields and quick copy, generator, editor undo, section lock)
 are merged.
