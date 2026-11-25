@@ -502,3 +502,29 @@ export async function runP58Idle({check,assert}){
     });
   }
 }
+
+export async function runP58Divider({check,assert}){
+  await check('P5.8 the sidebar version has a divider matching the other sidebar dividers',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await connectedCopyPage(browser);
+      await page.until("!!document.querySelector('.sidebar [data-folder-state=saved]')&&!!document.querySelector('#write-now-btn')");
+      for(const theme of ['dark','light']){
+        const evidence=await page.eval(`(()=>{
+          document.documentElement.dataset.theme=${JSON.stringify(theme)};
+          const block=document.querySelector('.sidebar [data-folder-state=saved]');
+          const reference=getComputedStyle(document.querySelector('.sidebar .sidebar-divider'));
+          const style=getComputedStyle(block);
+          return {
+            atTop:[style.borderTopWidth,style.borderTopStyle,style.borderTopColor],
+            divider:[reference.height,'solid',reference.backgroundColor],
+            belowWriteNow:block.previousElementSibling.id==='write-now-btn',
+          };
+        })()`);
+        assert.equal(evidence.belowWriteNow,true);
+        assert.deepEqual(evidence.atTop,evidence.divider,`version divider in ${theme} theme`);
+      }
+      assert.deepEqual(page.errors,[]);
+    }finally{await browser.close();}
+  });
+}
