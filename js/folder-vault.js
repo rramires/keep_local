@@ -1,22 +1,11 @@
+import {listCandidates} from './folder-inventory.js';
 import {base64ToArray,arrayToBase64,bytesHash} from './crypto.js';
 import {withFolderReadTimeout} from './folder-timeout.js';
 import {BACKUP_PROFILES,decodePayloadV2,payloadHash} from './backup-v2.js';
 import {MAX_BACKUP_BYTES,decryptRecords,validateRecords} from './backup-format.js';
 
 export const MAIN_FILE='keeplocal-vault.keeplocal';
-const MAX_CANDIDATES=32;
-
-export function listCandidates(handle) {
-  return withFolderReadTimeout(async()=>{
-    const entries=[];
-    for await(const [name,entry] of handle.entries()){
-      if(entry.kind!=='file'||!/\.keeplocal$/i.test(name))continue;
-      if(entries.length===MAX_CANDIDATES)return {entries,limitExceeded:true};
-      entries.push({name,entry});
-    }
-    return {entries,limitExceeded:false};
-  });
-}
+export {listCandidates} from './folder-inventory.js';
 
 export async function decodeV2WithKey(bytes,key,localSaltB64) {
   if(bytes.length<16)return {status:'unreadable'};
@@ -34,24 +23,26 @@ export async function decodeV2WithKey(bytes,key,localSaltB64) {
 export async function readFolderCandidate(entry,key,salt,{allowEmpty=false,secondary,includeBytes=false}={}) {
   const result=await withFolderReadTimeout(async()=>{
     const file=await entry.getFile();
-    if(allowEmpty&&file.size===0)return {status:'emptyMain'};
-    if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge'};
-    return {bytes:new Uint8Array(await file.arrayBuffer())};
+    const fileStat=[file.size,file.lastModified];
+    if(allowEmpty&&file.size===0)return {status:'emptyMain',fileStat};
+    if(file.size>MAX_BACKUP_BYTES)return {status:'tooLarge',fileStat};
+    return {bytes:new Uint8Array(await file.arrayBuffer()),fileStat};
   },'file');
   if(result.status)return result;
   const actualSalt=arrayToBase64(result.bytes.slice(0,16));
   const selected=secondary?.salt===actualSalt?secondary:{key,salt};
   const decoded=await decodeV2WithKey(result.bytes,selected.key,selected.salt);
   if(decoded.status==='otherSalt')decoded.bytesHash=await bytesHash(result.bytes);
-  return {...decoded,salt:actualSalt,...(includeBytes?result:{})};
+  return {...decoded,salt:actualSalt,fileStat:result.fileStat,...(includeBytes?{bytes:result.bytes}:{})};
 }
 
 export async function readFolderState(handle,key,salt,secondary) {
   const {entries,limitExceeded}=await listCandidates(handle);
-  const state={head:null,candidates:[],divergent:false,unreadable:[],otherSalt:[],tooLarge:[],limitExceeded};
+  const state={head:null,candidates:[],divergent:false,unreadable:[],otherSalt:[],tooLarge:[],limitExceeded,inventory:{limitExceeded,rows:[]}};
   for(const {name,entry} of entries){
     const result=await readFolderCandidate(entry,key,salt,{allowEmpty:name===MAIN_FILE,secondary});
-    const {payload,...summary}=result;
+    const {payload,fileStat,...summary}=result;
+    state.inventory.rows.push([name,...fileStat]);
     state.candidates.push({name,...summary,...(payload?{noteCount:payload.notes.length}:{})});
     if(result.status!=='valid'){
       if(result.status!=='emptyMain')state[result.status].push(name);

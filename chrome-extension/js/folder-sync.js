@@ -8,6 +8,11 @@ import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {PHOTO_FOLDER_CHANGE,photoErrorDetails,requestPhotoPermission,updatePhotoStatus} from './photo-folder.js';
 import {writeFolderPhoto} from './photo-write.js';
 import {versionFromHead} from './folder-version.js';
+import {createFolderPoll} from './folder-poll.js';
+
+function mainInventoryEntry(head) {
+  return head?.name===MAIN_FILE&&head.fileStat?[MAIN_FILE,...head.fileStat]:undefined;
+}
 
 export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onBusyChange=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
@@ -15,6 +20,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   const writer=createFolderWriter(handle,key,lifetime);
   let timer=null,running=false,queued=false,backoff=1000,lastWarning=null,writingNow=false,admitting=false;
   const checking=()=>running||writingNow||admitting;
+  const poll=createFolderPoll({handle,signal:lifetime,canCheck:()=>!checking()&&!isReadOnly(),check:()=>run()});
   window.addEventListener(PHOTO_FOLDER_CHANGE,event=>{photoFolder=event.detail;},{signal:lifetime});
 
   function schedule(delay=1500) {
@@ -31,6 +37,10 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(!snapshot.meta.syncFolder||!await withFolderReadTimeout(()=>handle.isSameEntry(snapshot.meta.syncFolder)))
       throw folderFailure('folder.changed');
     const state=await writer.scan(snapshot.meta.salt);
+    const complete=(outcome,replacement)=>{
+      poll.remember(state.inventory,replacement);
+      return outcome;
+    };
     await requireFolderSession(snapshot,key,lifetime);
     if(!admitting&&isReadOnly())return {status:'paused'};
     if(!admitting&&hasPendingDrafts())return {status:'push'};
@@ -44,7 +54,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(decision==='merge'){
       const outcome=await executeFolderMerge({handle,writer,snapshot,state,key,signal:lifetime,allowReadOnly:admitting,skipPhoto});
       if(admitting&&isReadOnly())await enableFolderWrites({key,signal:lifetime});
-      return outcome;
+      return complete(outcome,mainInventoryEntry(outcome.head));
     }
     if(decision==='pull'){
       const reading=isReadOnly();
@@ -58,7 +68,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
             restoreInput=onPullCommit();
           },
         });
-        return {...outcome,restoreInput};
+        return complete({...outcome,restoreInput},mainInventoryEntry(outcome.head));
       }catch(error){
         restoreInput?.();
         if(error.code==='folder.pendingDrafts')return {status:'push'};
@@ -72,16 +82,16 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       await requireFolderSession(snapshot,key,lifetime);
       await recordFolderWrite(snapshot.meta,state.head,{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
-      return {status:'saved',...versionFromHead(state.head)};
+      return complete({status:'saved',...versionFromHead(state.head)});
     }
     if(decision!=='push'&&decision!=='saved'){
       setWriteMode('readOnly');
       return {status:decision,snapshot,state};
     }
     if(admitting)await enableFolderWrites({key,signal:lifetime});
-    if(admitting||decision==='saved')return {status:decision,writtenAt:snapshot.meta.folderWrittenAt,writtenBy:snapshot.meta.folderWrittenBy};
+    if(admitting||decision==='saved')return complete({status:decision,writtenAt:snapshot.meta.folderWrittenAt,writtenBy:snapshot.meta.folderWrittenBy});
     const result=await writer.write(snapshot,state,{skipPhoto});
-    return {...result,status:'saved'};
+    return complete({...result,status:'saved'},result.inventoryMain);
   }
 
   async function interpret(outcome) {
@@ -254,6 +264,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       return result;
     });
     photoFolder=await getMeta('photoFolder');
+    poll.remember(review.state.inventory,result.result?.inventoryMain??mainInventoryEntry(result.head));
     if(['pulled','merged'].includes(result.status))await interpret(result);
     else onStatus('saved',result.result);
     return result;

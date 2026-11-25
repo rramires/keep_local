@@ -1,5 +1,6 @@
 import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
+import {pollFixture} from './folder-poll-fixture.mjs';
 import {connectBoth,editNote,focus,relogin,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
 import {copyFolderFiles,readFolderFixture} from './folder-transfer.mjs';
 import {connectedCopyPage} from './folder-copy-view.mjs';
@@ -266,5 +267,68 @@ export async function runP54({check,assert}){
       await waitButton(true);
       assert.deepEqual(b.errors,[]);
     });
+  });
+}
+
+export async function runP55({check,assert}){
+  await check('P5.5 a metadata tick watches only the active foreground folder and never reads unchanged bytes',async()=>{
+    const browser=await launchExtension();
+    try{
+      const source=pollFixture(folderFixtureSource('KL-TEST-POLL',{metadata:450,file:3000}));
+      const page=await browser.page(undefined,source);
+      await connectedCopyPage(browser,page);
+      assert.equal(await page.eval("typeof window.pollTest.tick==='function'"),true);
+      const stats=()=>page.eval('({lists:pollTest.lists,metadata:pollTest.metadata,reads:pollTest.reads})');
+      const tick=()=>page.eval('pollTest.tick()');
+      await page.until("!!document.querySelector('.sidebar [data-folder-state=saved]')&&!document.querySelector('[data-folder-refresh]').disabled");
+      const before=await stats();
+      await tick();
+      assert.deepEqual(await stats(),{lists:before.lists+1,metadata:before.metadata+1,reads:before.reads});
+
+      await page.eval("(await folderTest.directory()).getFileHandle('ordinary.txt',{create:true})");
+      const ignored=await stats();
+      await tick();
+      assert.deepEqual(await stats(),{lists:ignored.lists+1,metadata:ignored.metadata+1,reads:ignored.reads});
+      const dormant=await stats();
+      for(const mode of ['hidden','unfocused','readOnly']){
+        await page.eval(`(async()=>{
+          const db=await import('./js/db.js');
+          pollTest.visible=${mode!=='hidden'};pollTest.focused=${mode!=='unfocused'};
+          db.setWriteMode(${JSON.stringify(mode==='readOnly'?'readOnly':'readWrite')});
+        })()`);
+        await tick();
+        assert.deepEqual(await stats(),dormant,mode);
+      }
+      await page.eval("(await import('./js/db.js')).setWriteMode('readWrite');folderTest.stalls.add('entries')");
+      const time=await page.eval("(async()=>{const start=performance.now();await pollTest.tick();return performance.now()-start;})()");
+      assert.ok(time>=300&&time<2500,time);
+      assert.equal(await page.eval("!!document.querySelector('.sidebar [data-folder-state=saved]')"),true);
+      assert.equal(await page.eval("!!document.querySelector('[data-folder-status=unresponsive], [data-folder-state=error]')"),false);
+      assert.deepEqual(await page.eval("folderTest.stalls.clear();folderTest.release()"),['entries']);
+      await page.until("folderTest.events.some(event=>event.kind==='settled:entries')");
+      const after=await stats();
+      assert.equal(after.reads,dormant.reads);
+      assert.equal(after.metadata,dormant.metadata);
+      await tick();
+      assert.equal((await stats()).reads,dormant.reads);
+
+      await page.eval(`(async()=>{
+        const directory=await folderTest.directory();
+        const original=await directory.getFileHandle('keeplocal-vault.keeplocal');
+        const duplicate=await directory.getFileHandle('Fictional late delivery.keeplocal',{create:true});
+        const writer=await duplicate.createWritable();
+        await writer.write(await original.getFile());
+        await writer.close();
+      })()`);
+      const changed=await stats();
+      const writes=await page.eval('folderTest.writeAttempts');
+      await tick();
+      assert.ok((await stats()).reads>changed.reads);
+      assert.equal(await page.eval('folderTest.writeAttempts'),writes);
+      const settled=await stats();
+      await tick();
+      assert.equal((await stats()).reads,settled.reads);
+      assert.deepEqual(page.errors,[]);
+    }finally{await browser.close();}
   });
 }

@@ -122,7 +122,7 @@ export function createFolderWriter(handle,key,signal,access) {
       }
       if(!options?.skipPhoto)await writeFolderPhoto(snapshot.meta,head,bytes,key,signal);
     }
-    return {rev,hash,writtenAt,writtenBy:head.payload.writtenBy??null,replacedEmptyMain,hasNewChanges:localFolderDirty((await readVault()).meta)};
+    return {rev,hash,writtenAt,writtenBy:head.payload.writtenBy??null,replacedEmptyMain,inventoryMain:[MAIN_FILE,...head.fileStat],hasNewChanges:localFolderDirty((await readVault()).meta)};
   }
 
   // The explicit replacement commits the chosen records and lineage together after readback.
