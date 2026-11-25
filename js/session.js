@@ -4,7 +4,24 @@ let activeSignal=null;
 let vaultId=null;
 let key=null,deadline=0,lastActivity=0,idleTimeout=TIMEOUT,timer=null,controller=null,onExpired=null;
 let readOnlySession=false;
-export function storeSessionKey(value,id=keyVaults.get(value)||null){readOnlySession=false;key=value;vaultId=id;if(id)keyVaults.set(value,id);lastActivity=Date.now();deadline=lastActivity+idleTimeout;}
+function bindSessionKey(value,id) {
+  readOnlySession=false;
+  key=value;
+  vaultId=id;
+  if(id)keyVaults.set(value,id);
+}
+
+export function storeSessionKey(value,id=keyVaults.get(value)||null) {
+  bindSessionKey(value,id);
+  lastActivity=Date.now();
+  deadline=lastActivity+idleTimeout;
+}
+
+export function replaceSessionKey(value,id) {
+  if(!key&&!readOnlySession)return storeSessionKey(value,id);
+  bindSessionKey(value,id);
+}
+
 export function startReadOnlySession(id){key=null;readOnlySession=true;vaultId=id;lastActivity=Date.now();deadline=lastActivity+idleTimeout;}
 export async function getSessionKey(){checkDeadline();return key;}
 export function clearSession(){activeSignal=null;key=null;readOnlySession=false;vaultId=null;deadline=0;lastActivity=0;idleTimeout=TIMEOUT;}

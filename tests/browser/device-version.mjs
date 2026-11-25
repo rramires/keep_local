@@ -452,3 +452,53 @@ export async function runP56({check,assert}){
     }finally{await browser.close();}
   });
 }
+
+export async function runP58Idle({check,assert}){
+  const source=(name,timeouts)=>pollFixture(folderFixtureSource(name,timeouts))+`;(()=>{
+    let now=Date.now();
+    Date.now=()=>now;
+    window.advanceIdleClock=milliseconds=>{now+=milliseconds;};
+  })()`;
+  for(const route of ['tick pull','focus pull','applied merge']){
+    await check(`P5.8 the ${route} keeps the Passwords & Keys idle deadline`,async()=>{
+      await withTwoProfiles(async(a,b)=>{
+        const left=note({title:'Fictional remote note',content:'Before delivery'});
+        const right=note({title:'Fictional local note',content:'Before editing'});
+        await connectBoth(a,b,[left,right]);
+        await editAndCheck(a,left.id,'Delivered edit',2);
+        const merged=route==='applied merge';
+        if(merged)await editAndCheck(b,right.id,'Independent local edit',2);
+        await b.until("!document.querySelector('[data-folder-refresh]').disabled");
+        await b.eval("document.querySelector('[data-view=vault]').click()");
+        await b.until("!!document.querySelector('[data-vault-lock]')");
+        await b.eval(`(()=>{
+          const lock=document.querySelector('[data-vault-lock]');
+          lock.value='1';
+          lock.dispatchEvent(new Event('change',{bubbles:true}));
+        })()`);
+        await b.until("(await import('./js/db.js')).getMeta('vaultLockMinutes').then(value=>value===1)");
+        const priorId=await meta(b,'vaultId');
+        await b.eval("window.beforeDelivery=document.querySelector('.app-view');advanceIdleClock(2000)");
+        await b.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Shift',code:'ShiftLeft',modifiers:8});
+        await b.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Shift',code:'ShiftLeft'});
+
+        await copyFolderFiles(a,b);
+        await b.eval('advanceIdleClock(40000)');
+        if(route==='focus pull')await focus(b);
+        else await b.eval('pollTest.tick()');
+        await waitForRev(b,merged?3:2);
+        await b.until("!beforeDelivery.isConnected&&!!document.querySelector('.vault-section [data-vault-lock]')");
+        assert.notEqual(await meta(b,'vaultId'),priorId);
+        assert.deepEqual(await b.eval("Object.fromEntries((await import('./js/app.js')).getNotes().map(note=>[note.title,note.content]))"),{
+          [left.title]:'Delivered edit',
+          [right.title]:merged?'Independent local edit':right.content,
+        });
+        const activeAt=milliseconds=>b.eval(`advanceIdleClock(${milliseconds});(await import('./js/session.js')).checkDeadline()`);
+        assert.equal(await activeAt(19_999),true,'the session stays open before the original deadline');
+        assert.equal(await activeAt(1),false,'the session locks at the original deadline');
+        await b.until("!!document.querySelector('#login-form:not(.hidden)')");
+        assert.deepEqual([...a.errors,...b.errors],[]);
+      },undefined,source);
+    });
+  }
+}

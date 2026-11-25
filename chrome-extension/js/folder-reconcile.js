@@ -1,5 +1,5 @@
 import {assertWritable,readVault,recordFolderWrite,verifyFolderWrite,replaceVaultFromFolder,isReadOnly,setWriteMode,vaultIdentity} from './db.js';
-import {getSessionKey,getSessionVaultId,storeSessionKey} from './session.js';
+import {getSessionKey,getSessionVaultId,replaceSessionKey} from './session.js';
 import {publishVaultEvent} from './vault-events.js';
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {preserveFolderChoice,preserveLocalChoice} from './folder-preserve.js';
@@ -85,7 +85,7 @@ export async function applyFolderCopy(copy,snapshot,key,signal,{mergedHeads,rese
   for(const name of ['theme','lang'])if(!Object.hasOwn(prefs,name))delete meta[name];
   await replaceVaultFromFolder({notes:copy.payload.notes,meta},previous,{signal,head:copy,mergedHeads,resetBases,beforeReplace});
   if(signal.aborted)throw folderFailure('session.ended');
-  storeSessionKey(key,vaultId);
+  replaceSessionKey(key,vaultId);
   setWriteMode('readWrite');
   publishVaultEvent('vault-replaced',{vaultId});
   return {status:'pulled',head:copy};

@@ -55,3 +55,4 @@ await deviceVersion.runP53({check,assert});
 await deviceVersion.runP54({check,assert});
 await deviceVersion.runP55({check,assert});
 await deviceVersion.runP56({check,assert});
+await deviceVersion.runP58Idle({check,assert});
