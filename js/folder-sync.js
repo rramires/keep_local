@@ -9,11 +9,12 @@ import {PHOTO_FOLDER_CHANGE,photoErrorDetails,requestPhotoPermission,updatePhoto
 import {writeFolderPhoto} from './photo-write.js';
 import {versionFromHead} from './folder-version.js';
 
-export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
+export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onBusyChange=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
   signal.addEventListener('abort',()=>controller.abort(),{once:true});
   const writer=createFolderWriter(handle,key,lifetime);
-  let timer=null,running=false,queued=false,backoff=1000,lastWarning=null,writingNow=false;
+  let timer=null,running=false,queued=false,backoff=1000,lastWarning=null,writingNow=false,admitting=false;
+  const checking=()=>running||writingNow||admitting;
   window.addEventListener(PHOTO_FOLDER_CHANGE,event=>{photoFolder=event.detail;},{signal:lifetime});
 
   function schedule(delay=1500) {
@@ -126,6 +127,16 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   }
 
   async function admit() {
+    admitting=true;
+    onBusyChange();
+    try{return await admitFolder();}
+    finally{
+      admitting=false;
+      onBusyChange();
+    }
+  }
+
+  async function admitFolder() {
     while(!lifetime.aborted){
       try {return interpret(await withVaultLineage(()=>inspect(true)));}
       catch(error) {
@@ -146,6 +157,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     if(running||writingNow){queued=true;return;}
     if(hasPendingDrafts()){schedule();return;}
     running=true;
+    onBusyChange();
     let retry;
     try {
       const outcome=await withVaultLineage(async()=>{
@@ -164,6 +176,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       }
     }finally{
       running=false;
+      onBusyChange();
       if(queued){queued=false;schedule();}
       else if(retry!==undefined&&!lifetime.aborted&&!isReadOnly())timer=setTimeout(()=>void run(),retry);
     }
@@ -196,6 +209,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
   async function writeNow(flushDrafts) {
     if(writingNow||lifetime.aborted||isReadOnly())return null;
     writingNow=true;
+    onBusyChange();
     clearTimeout(timer);
     try{
       // Ask in the click's user activation, before flushing drafts or waiting for the lock.
@@ -225,6 +239,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       return {reason};
     }finally{
       writingNow=false;
+      onBusyChange();
       if(queued&&!running){
         queued=false;
         schedule();
@@ -244,11 +259,11 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     return result;
   }
 
-  const flush=()=>void run();
+  const flush=()=>run();
   document.addEventListener('visibilitychange',flush,{signal:lifetime});
   window.addEventListener('focus',flush,{signal:lifetime});
   window.addEventListener('pagehide',flush,{signal:lifetime});
   const unwatch=watchLocalChanges(()=>schedule());
   lifetime.addEventListener('abort',()=>{clearTimeout(timer);unwatch();},{once:true});
-  return {schedule,flush,admit,resolve,writeNow,writingNow:()=>writingNow,dispose:()=>controller.abort()};
+  return {schedule,flush,admit,resolve,writeNow,checking,writingNow:()=>writingNow,dispose:()=>controller.abort()};
 }

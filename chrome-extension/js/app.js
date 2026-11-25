@@ -17,7 +17,7 @@ import {openSaltReconciliation} from './folder-salt-ui.js';
 import {connectSaltFolder} from './folder-salt-connect.js';
 import {beginFolderCopy,discardFolderCopy,getFolderCopy,pickFolderCopy,renderFolderCopies,renderFolderCopyBanner,selectFolderCopy} from './folder-copy-view.js';
 import {confirmFolderReset,renderFolderReview} from './folder-review.js';
-import {createFolderIndicator,folderTime,setFolderStatus} from './folder-status.js';
+import {createFolderIndicator,folderTime,setFolderStatus,updateFolderRefresh} from './folder-status.js';
 import {addFolderSettingsTrigger,createFolderGate,quietReadOnlyCards,renderFolderSettings,renderReadOnlyNote} from './folder-ui.js';
 import {renderSettingsImport} from './import-ui.js';
 import { ensureVaultId, getMeta, saveMeta, isReadOnly, setWriteMode,readVault } from './db.js';
@@ -280,6 +280,7 @@ async function configureFolderSync({admit=false,selected}={}) {
         },
       });
     },
+    onBusyChange:updateFolderRefresh,
     onStatus:(status,detail)=>{
       setFolderStatus(status,detail,{onRetry:()=>folderSync?.flush()});
       if(detail==='folder.unreadable')showToast(t(detail));
@@ -483,7 +484,10 @@ function renderAppShell() {
   } else if(folderSupported()){
     addFolderSettingsTrigger(document.getElementById('backup-btn'),openFolderSettings);
   }
-  if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator());
+  if(folderSupported()&&!copy)document.getElementById('backup-btn').after(createFolderIndicator({
+    onRefresh:()=>folderSync?.flush(),
+    canRefresh:()=>!isReadOnly()&&!!folderSync&&!folderSync.checking(),
+  }));
   renderWriteNow();
   initAppListeners();
 }

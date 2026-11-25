@@ -19,3 +19,19 @@ export function renderFolderVersion(root,{writtenAt,writtenBy}) {
   time.textContent=date+' '+clock;
   root.append(time);
 }
+
+export function createFolderRefresh(onRefresh) {
+  const button=document.createElement('button');
+  button.type='button';
+  button.className='icon-btn folder-version-refresh';
+  button.dataset.folderRefresh='';
+  const label=t('folder.version.refresh');
+  button.setAttribute('aria-label',label);
+  button.dataset.tooltip=label;
+  const icon=document.createElement('span');
+  icon.setAttribute('aria-hidden','true');
+  icon.textContent='↻';
+  button.append(icon);
+  button.addEventListener('click',()=>void onRefresh());
+  return button;
+}

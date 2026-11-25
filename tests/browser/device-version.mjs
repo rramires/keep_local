@@ -1,6 +1,6 @@
 import {create,launchExtension,note,PASSWORD} from './harness.mjs';
 import {folderFixtureSource} from './folder-fixture.mjs';
-import {connectBoth,editNote,focus,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
+import {connectBoth,editNote,focus,relogin,waitForFolderLineage,waitForRev,withTwoProfiles} from './folder-merge.mjs';
 import {copyFolderFiles,readFolderFixture} from './folder-transfer.mjs';
 import {connectedCopyPage} from './folder-copy-view.mjs';
 import {exportFromApp} from './recovery-tool.mjs';
@@ -200,5 +200,71 @@ export async function runP53({check,assert}){
       assert.equal((await state()).label,'Versão:');
       assert.deepEqual(page.errors,[]);
     }finally{await browser.close();}
+  });
+}
+
+export async function runP54({check,assert}){
+  await check('P5.4 Refresh checks the folder, makes no unchanged writes and asks for no photo access',async()=>{
+    await withTwoProfiles(async(a,b)=>{
+      const item=note({title:'Fictional refresh note',content:'Original'});
+      await connectBoth(a,b,[item]);
+      await b.eval(`(async()=>{
+        const db=await import('./js/db.js');
+        const photos=await (await navigator.storage.getDirectory()).getDirectoryHandle('KL-TEST-REFRESH-PHOTOS',{create:true});
+        await db.saveMeta('photoFolder',photos);
+      })()`);
+      await relogin(b);
+      await b.until("!!document.querySelector('.sidebar [data-folder-state=saved]')");
+      await waitForFolderLineage(b);
+      assert.equal(await b.eval("!!document.querySelector('[data-folder-refresh]')"),true);
+      const waitButton=(disabled)=>b.until(`document.querySelector('[data-folder-refresh]')?.disabled===${disabled}`);
+      await waitButton(false);
+      const snapshot=()=>b.eval(`({
+        text:document.querySelector('.sidebar [data-folder-version-label]').textContent,
+        date:document.querySelector('.sidebar [data-folder-state=saved] time').dateTime,
+        writes:folderTest.writes,attempts:folderTest.writeAttempts,
+        permissionRequests:folderTest.events.filter(event=>event.kind==='request').length,
+      })`);
+      await b.eval(`(()=>{
+        folderTest.clear();
+        folderTest.permission='prompt';
+        folderTest.requested='error';
+        let hold=true;
+        const getFile=FileSystemFileHandle.prototype.getFile;
+        FileSystemFileHandle.prototype.getFile=async function(...args){
+          if(hold&&this.name==='keeplocal-vault.keeplocal'){
+            hold=false;
+            await new Promise(resolve=>{window.finishRefreshRead=resolve;});
+          }
+          return getFile.apply(this,args);
+        };
+      })()`);
+      const before=await snapshot();
+      await b.eval("document.querySelector('[data-folder-refresh]').click()");
+      await b.until("typeof window.finishRefreshRead==='function'");
+      await waitButton(true);
+      await b.eval('window.finishRefreshRead()');
+      await waitButton(false);
+      assert.deepEqual(await snapshot(),before);
+      assert.deepEqual(before.writes,{});
+      assert.equal(before.permissionRequests,0);
+
+      await editNote(a,item.id,{content:'Edit received by Refresh'});
+      await focus(a);
+      await waitForRev(a,2);
+      await waitForFolderLineage(a);
+      await copyFolderFiles(a,b);
+      await b.eval("folderTest.clear();document.querySelector('[data-folder-refresh]').click()");
+      await waitForRev(b,2);
+      await b.until("(await import('./js/app.js')).getNotes()[0]?.content==='Edit received by Refresh'");
+      await waitButton(false);
+      assert.equal((await snapshot()).permissionRequests,0);
+      await b.eval(`(async()=>{
+        (await import('./js/db.js')).setWriteMode('readOnly');
+        (await import('./js/folder-status.js')).setFolderStatus('readOnly');
+      })()`);
+      await waitButton(true);
+      assert.deepEqual(b.errors,[]);
+    });
   });
 }
