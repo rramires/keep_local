@@ -273,7 +273,7 @@ export function storeFolderConnection(handle,expected,vaultId,{signal,transition
           meta.delete('folderConnectionId');
         }
         for(const key of ['folderSyncedHash','folderSyncedClock','folderSyncedRevision','folderSyncedVersions',
-          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderSaltClock',
+          'folderSyncedBase','folderSyncedBases','folderPendingWrite','folderSeenRev','folderWrittenAt','folderWrittenBy','folderSaltClock',
           ...FOLDER_HISTORY_META,...PHOTO_META])meta.delete(key);
         done();
       }catch(error){fail(error);}
@@ -298,7 +298,7 @@ export function replaceFolderHandle(handle,expected,{signal}={}) {
 
 function assertVaultSnapshot(current,expected,{allowNewEdits=false}={}) {
   const keys=['salt','vaultId','revision','exportRev','exportParent','folderConnectionId',
-    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt'];
+    'folderSyncedHash','folderSyncedRevision','folderSeenRev','folderWrittenAt','folderWrittenBy'];
   if(keys.some(key=>!(allowNewEdits&&key==='revision')&&current[key]!==expected[key]))throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
 }
 
@@ -338,6 +338,7 @@ export function recordFolderWrite(expected,head,{signal,adopt=false,mergedHeads,
         const state={
           folderSyncedHash:hash,folderSyncedClock:payload.clock??{},...folderVersionState(current,head,{mergedHeads,resetBases}),
           folderSyncedRevision:expected.revision||0,folderSeenRev:Math.max(current.folderSeenRev||0,rev),folderWrittenAt:Date.parse(exportedAt),
+          folderWrittenBy:payload.writtenBy??null,
           exportRev:keepLineage?current.exportRev:rev,
           exportParent:keepLineage?current.exportParent:hash,
           exportAncestors:(keepLineage?current.exportAncestors:payload.ancestors)??[],

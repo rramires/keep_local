@@ -74,10 +74,11 @@ export async function runP48({browser,check,assert}){
         body.value=${JSON.stringify(content)};
         body.dispatchEvent(new Event('input',{bubbles:true}));
         window.beforeLanguageBar=document.querySelector('#new-note-bar');
+        window.beforeLanguageShell=document.querySelector('.app-view');
       })()`);
       const lang=await page.eval('document.documentElement.lang');
       await page.eval("document.querySelector('#lang-toggle').click()");
-      await page.until(`document.documentElement.lang!==${JSON.stringify(lang)}&&!window.beforeLanguageBar.isConnected&&!!document.querySelector('#new-note-bar.expanded')`);
+      await page.until(`document.documentElement.lang!==${JSON.stringify(lang)}&&!window.beforeLanguageShell.isConnected&&!window.beforeLanguageBar.isConnected&&!!document.querySelector('#new-note-bar.expanded')`);
       assert.equal(await page.eval("document.querySelector('#new-note-body').value"),content);
       await page.eval("document.querySelector('#new-note-close').click()");
       await page.until("(await import('./js/app.js')).getNotes().length===1");

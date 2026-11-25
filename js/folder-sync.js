@@ -7,6 +7,7 @@ import {decideFolderAction,executeFolderMerge,pullFolderHead,requireFolderSessio
 import {MAIN_FILE,readFolderCandidate} from './folder-vault.js';
 import {PHOTO_FOLDER_CHANGE,photoErrorDetails,requestPhotoPermission,updatePhotoStatus} from './photo-folder.js';
 import {writeFolderPhoto} from './photo-write.js';
+import {versionFromHead} from './folder-version.js';
 
 export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,onStatus=()=>{},onReview=()=>{},onPulled=()=>{},onPullCommit=()=>{},onMerged=()=>{},onIgnored=()=>{},onEmptyMainReplaced=()=>{}}) {
   const controller=new AbortController(),lifetime=controller.signal;
@@ -68,17 +69,16 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       if(folderStamp(await writer.scan(snapshot.meta.salt))!==folderStamp(state))
         throw folderFailure('folder.changed');
       await requireFolderSession(snapshot,key,lifetime);
-      const writtenAt=Date.parse(state.head.exportedAt);
       await recordFolderWrite(snapshot.meta,state.head,{signal:lifetime,adopt:true});
       if(admitting)await enableFolderWrites({key,signal:lifetime});
-      return {status:'saved',writtenAt};
+      return {status:'saved',...versionFromHead(state.head)};
     }
     if(decision!=='push'&&decision!=='saved'){
       setWriteMode('readOnly');
       return {status:decision,snapshot,state};
     }
     if(admitting)await enableFolderWrites({key,signal:lifetime});
-    if(admitting||decision==='saved')return {status:decision,writtenAt:snapshot.meta.folderWrittenAt};
+    if(admitting||decision==='saved')return {status:decision,writtenAt:snapshot.meta.folderWrittenAt,writtenBy:snapshot.meta.folderWrittenBy};
     const result=await writer.write(snapshot,state,{skipPhoto});
     return {...result,status:'saved'};
   }
@@ -100,15 +100,15 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
       if(lifetime.aborted)return false;
     }
     if(outcome.status==='merged'){
-      onStatus('saved',Date.parse(outcome.head.exportedAt));
+      onStatus('saved',versionFromHead(outcome.head));
       if(outcome.applied)await onPulled(outcome.head,outcome.stats);
       else onMerged(outcome.stats);
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();
     }else if(outcome.status==='pulled'){
-      onStatus('saved',Date.parse(outcome.head.exportedAt));
+      onStatus('saved',versionFromHead(outcome.head));
       await onPulled(outcome.head,outcome.stats);
     }else if(outcome.status==='saved'){
-      onStatus('saved',outcome.writtenAt);
+      onStatus('saved',outcome);
       if(outcome.replacedEmptyMain)onEmptyMainReplaced();
     }
     else if(outcome.status==='push')schedule();
@@ -240,7 +240,7 @@ export function createFolderSync({handle,key,signal,photoFolder,onUnavailable,on
     });
     photoFolder=await getMeta('photoFolder');
     if(['pulled','merged'].includes(result.status))await interpret(result);
-    else onStatus('saved',result.result.writtenAt);
+    else onStatus('saved',result.result);
     return result;
   }
 

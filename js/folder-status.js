@@ -1,4 +1,5 @@
 import {t} from './i18n.js';
+import {renderFolderVersion} from './folder-version.js';
 
 let current=null;
 let retry=null;
@@ -37,9 +38,8 @@ function render(root) {
   root.dataset.folderState=kind;
   const text=document.createElement('span');
   text.setAttribute('role','status');
-  const parameters=kind==='saved'?{time:folderTime(detail)}:
-    kind==='error'?{reason:t(detail||'folder.actionFailed')}:{};
-  text.textContent=t('folder.state.'+kind,parameters);
+  if(kind==='saved')renderFolderVersion(text,detail);
+  else text.textContent=t('folder.state.'+kind,kind==='error'?{reason:t(detail||'folder.actionFailed')}:{});
   root.append(text);
   if(kind==='error'&&retry){
     const button=document.createElement('button');

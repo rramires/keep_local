@@ -144,3 +144,61 @@ export async function runP52({check,assert}){
     }finally{await browser.close();}
   });
 }
+
+export async function runP53({check,assert}){
+  await check('P5.3 the sidebar displays the checked revision in EN and pt-BR, with a nameless fallback',async()=>{
+    const browser=await launchExtension();
+    try{
+      const page=await connectedCopyPage(browser);
+      await page.send('Emulation.setTimezoneOverride',{timezoneId:'America/Sao_Paulo'});
+      const id=await page.eval("(await import('./js/app.js')).getNotes()[0].id");
+      await page.eval("(await import('./js/db.js')).saveMeta('deviceName','Desktop')");
+      await editNote(page,id,{content:'Fictional named revision'});
+      await focus(page);
+      await waitForRev(page,2);
+      await waitForFolderLineage(page);
+      await page.until("!!document.querySelector('.sidebar [data-folder-state=saved]')");
+      const state=()=>page.eval(`(()=>{
+        const root=document.querySelector('.sidebar [data-folder-state=saved]');
+        return {label:root?.querySelector('[data-folder-version-label]')?.textContent??null,
+          datetime:root?.querySelector('time')?.dateTime??null,
+          time:root?.querySelector('time')?.textContent??null,
+          preceding:root?.previousElementSibling?.id??null};
+      })()`);
+      const {payload}=await decodeV2(Buffer.from(await readFolderFixture(page,'keeplocal-vault.keeplocal'),'base64'),PASSWORD);
+      const localDate=await page.eval(`(new Date(${JSON.stringify(payload.exportedAt)})).getTime()`);
+      assert.equal(await meta(page,'folderWrittenBy'),'Desktop');
+      assert.equal(await meta(page,'folderWrittenAt'),localDate);
+      for(const [lang,label] of [['en','From Desktop, version:'],['pt-BR','De Desktop, versão:']]){
+        if((await page.eval('document.documentElement.lang'))!==lang){
+          await page.eval(`(async()=>{
+            const db=await import('./js/db.js');
+            const i18n=await import('./js/i18n.js');
+            const status=await import('./js/folder-status.js');
+            db.setWriteMode('readOnly');
+            try {await i18n.setLang(${JSON.stringify(lang)});}
+            finally{db.setWriteMode('readWrite');}
+            status.setFolderStatus('saved',{writtenAt:await db.getMeta('folderWrittenAt'),writtenBy:await db.getMeta('folderWrittenBy')});
+          })()`);
+          await page.until(`document.documentElement.lang===${JSON.stringify(lang)}&&document.querySelector('.sidebar [data-folder-version-label]')?.textContent===${JSON.stringify(label)}`);
+        }
+        const expected=await page.eval(`(()=>{
+          const when=new Date(${JSON.stringify(payload.exportedAt)}),lang=${JSON.stringify(lang)};
+          const date=new Intl.DateTimeFormat(lang,{year:'numeric',month:'2-digit',day:'2-digit'}).format(when);
+          const hour=new Intl.DateTimeFormat(lang,{hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(when);
+          return date+' '+hour;
+        })()`);
+        assert.deepEqual(await state(),{label,datetime:payload.exportedAt,time:expected,preceding:'write-now-btn'});
+      }
+      await page.eval("(await import('./js/db.js')).deleteMeta('deviceName')");
+      await editNote(page,id,{content:'Fictional nameless revision'});
+      await focus(page);
+      await waitForRev(page,3);
+      await waitForFolderLineage(page);
+      await page.until("document.querySelector('.sidebar [data-folder-version-label]')?.textContent==='Versão:'");
+      assert.equal(await meta(page,'folderWrittenBy'),null);
+      assert.equal((await state()).label,'Versão:');
+      assert.deepEqual(page.errors,[]);
+    }finally{await browser.close();}
+  });
+}

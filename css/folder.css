@@ -21,6 +21,8 @@
 .folder-indicator { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
 .folder-indicator[hidden] { display: none; }
 .sidebar .folder-indicator { padding: 8px 16px; }
+.folder-version { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.folder-version time { font-variant-numeric: tabular-nums; }
 .folder-review .folder-actions { margin-top: 12px; }
 .folder-review-warnings { display: grid; gap: 8px; margin-top: 12px; }
 .folder-review-warnings p { margin: 0; }

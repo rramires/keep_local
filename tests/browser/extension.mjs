@@ -461,7 +461,7 @@ export async function run({check,assert}) {
       assert.match(selected,/^KL-TEST-/);
       assert.equal(await p.eval("folderTest.events.find(event=>event.kind==='picker').active"),true);
       assert.match(await text(),new RegExp('Folder connected: '+selected));
-      assert.match(await text(),/Folder write pending|Written to folder/);
+      assert.match(await text(),/Folder write pending|Version:/);
       assert.doesNotMatch(await text(),/\bsynced\b|\bsynchronized\b/i);
       await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
       assert.deepEqual(await p.eval('folderTest.entries()'),[HISTORY_DIR,primary]);
@@ -1472,7 +1472,7 @@ export async function run({check,assert}) {
       assert.equal(await warns(),true);
       await p.eval("folderTest.failWrites=0;document.querySelector('.folder-settings [data-folder-retry]').click()");
       await p.until("!!document.querySelector('.folder-settings [data-folder-state=saved]')");
-      assert.match(await p.eval("document.querySelector('.folder-settings [data-folder-state=saved]').innerText"),/Written to folder at \d\d:\d\d/);
+      assert.match(await p.eval("document.querySelector('.folder-settings [data-folder-state=saved]').innerText"),/Version:[\s\S]+\d\d:\d\d:\d\d/);
       assert.equal(await p.eval("(await import('./js/backup.js')).isUnsaved()"),true);
       assert.equal(await warns(),false);
       assert.doesNotMatch(await p.eval("document.querySelector('.folder-settings').innerText"),/sync|cloud|sincroniz|nuvem/i);
@@ -1482,7 +1482,7 @@ export async function run({check,assert}) {
       await p.until("document.querySelector('#toast-container').innerText.includes('unreadable folder copies')");
       await p.eval("document.querySelector('#modal-close').click();document.querySelector('#lang-toggle').click()");
       await p.until("document.documentElement.lang==='pt-BR'&&!!document.querySelector('.sidebar [data-folder-state=saved]')");
-      assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Gravado na pasta às \d\d:\d\d/);
+      assert.match(await p.eval("document.querySelector('.sidebar [data-folder-indicator]').innerText"),/Versão:[\s\S]+\d\d:\d\d:\d\d/);
 
       await p.eval("await folderTest.remove();window.dispatchEvent(new Event('focus'))");
       await p.until("!!document.querySelector('.folder-banner')&&!!document.querySelector('.sidebar [data-folder-state=readOnly]')");
