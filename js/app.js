@@ -311,7 +311,7 @@ async function finishSaltReview(outcome,handle,signal) {
 function connectOtherSaltSelection(selection) {
   const signal=sessionController.signal;
   return connectSaltFolder({root:appContainer,selection,key:cryptoKey,signal,
-    onExit:logout,onOpenReadOnly:async()=>{
+    notify:showToast,onExit:logout,onOpenReadOnly:async()=>{
       folderGate=folderGateFor(selection.handle,'otherSalt',cryptoKey,signal);
       await closeModal();
       await showApp();

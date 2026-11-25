@@ -2,6 +2,7 @@
 
 import {pruneTombstones,folderVersionState,reserveFolderVersion} from './folder-merge.js';
 import {folderWriterState} from './folder-clock.js';
+import {normalizeDeviceName} from './device-name.js';
 
 const DB_NAME = 'KeepLocalDB';
 const DB_VERSION = 1;
@@ -209,19 +210,20 @@ export function createVault(values) {
   });
 }
 
-export function replaceVault({notes:records,meta:values},expected,{signal}={}) {
-  return replaceLocalVault(records,values,expected,signal);
+export function replaceVault({notes:records,meta:values},expected,{signal,keepDeviceName=true}={}) {
+  return replaceLocalVault(records,values,expected,signal,{keepDeviceName});
 }
 
 export function resetFolderLocalVault(expected,vaultId,{signal}={}) {
-  return replaceLocalVault([],{vaultId},expected,signal,true);
+  return replaceLocalVault([],{vaultId},expected,signal,{explicitTransition:true,keepDeviceName:false});
 }
 
 export function replaceVaultFromFolder({notes,meta},expected,{signal,head,mergedHeads,resetBases,beforeReplace}={}) {
-  return replaceLocalVault(notes,meta,expected,signal,true,{head,mergedHeads,resetBases,beforeReplace});
+  const folderReplacement={head,mergedHeads,resetBases,beforeReplace};
+  return replaceLocalVault(notes,meta,expected,signal,{explicitTransition:true,folderReplacement});
 }
 
-function replaceLocalVault(records,values,expected,signal,explicitTransition=false,folderReplacement) {
+function replaceLocalVault(records,values,expected,signal,{explicitTransition=false,folderReplacement,keepDeviceName=true}={}) {
   return transactVault(({tx,notes,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const replace=(current={})=>{
@@ -236,8 +238,9 @@ function replaceLocalVault(records,values,expected,signal,explicitTransition=fal
       notes.clear();meta.clear();
       for(const record of records)notes.put(record);
       for(const[key,value]of Object.entries(next)){
-        if(!FOLDER_HISTORY_META.includes(key)&&!PHOTO_META.includes(key))meta.put({key,value});
+        if(key!=='deviceName'&&!FOLDER_HISTORY_META.includes(key)&&!PHOTO_META.includes(key))meta.put({key,value});
       }
+      if(keepDeviceName&&Object.hasOwn(current,'deviceName'))meta.put({key:'deviceName',value:current.deviceName});
       if(folderReplacement&&current.syncFolder&&next.syncFolder&&current.folderConnectionId===next.folderConnectionId){
         for(const key of PHOTO_META)if(Object.hasOwn(current,key))meta.put({key,value:current[key]});
       }
@@ -374,22 +377,32 @@ export function recordPhotoWrite(expected,at,day,signal) {
   });
 }
 
-function updateFolderMetadata(expected,signal,update) {
-  return vaultTransaction(({tx,meta},done,fail)=>{
+export function storeDeviceName(expected,value,{signal,fromPicker=false}={}) {
+  const name=normalizeDeviceName(value);
+  if(!name)throw new TypeError('Invalid device name');
+  return updateFolderMetadata(expected,signal,(meta,current)=>{
+    const existing=normalizeDeviceName(current.deviceName);
+    if(fromPicker&&existing)return existing;
+    if(name!==current.deviceName)meta.put({key:'deviceName',value:name});
+    return name;
+  },{requireFolder:fromPicker,explicitTransition:fromPicker});
+}
+
+function updateFolderMetadata(expected,signal,update,{requireFolder=true,explicitTransition=false}={}) {
+  return transactVault(({tx,meta},done,fail)=>{
     if(!bindTransactionAbort(tx,signal,fail))return;
     const request=meta.getAll();
     request.onsuccess=()=>{
       try {
-        assertWritable();
+        if(!explicitTransition)assertWritable();
         const current=Object.fromEntries(request.result.map(({key,value})=>[key,value]));
-        if(!current.syncFolder||current.vaultId!==expected.vaultId||
+        if((requireFolder&&!current.syncFolder)||current.vaultId!==expected.vaultId||
             current.folderConnectionId!==expected.folderConnectionId)
           throw Object.assign(new Error('vault.changed'),{code:'vault.changed'});
-        update(meta);
-        done();
+        done(update(meta,current));
       }catch(error){fail(error);}
     };
-  });
+  },explicitTransition);
 }
 
 export async function readVault() {

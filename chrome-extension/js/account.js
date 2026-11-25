@@ -42,7 +42,7 @@ export async function resetVault(confirmation) {
   assertWritable();
   if(confirmation!==t('account.resetWord'))throw new Error(t('account.resetCancelled'));
   const previous=await readVault(),vaultId=crypto.randomUUID();
-  await replaceVault({notes:[],meta:{vaultId}},previous.meta);
+  await replaceVault({notes:[],meta:{vaultId}},previous.meta,{keepDeviceName:false});
   clearSession();publishVaultEvent('vault-replaced',{vaultId});
 }
 export async function resetFromLogin(confirmation,expected) {

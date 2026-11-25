@@ -27,6 +27,13 @@ function installFolderFixture(name,timeouts) {
   const record = (kind,options) => fixture.events.push({
     kind, options, active:navigator.userActivation.isActive,
   });
+  document.addEventListener('DOMContentLoaded',()=>{
+    new MutationObserver(()=>{
+      if(fixture.showDeviceNamePrompt)return;
+      document.querySelector('.app-dialog input[name=deviceName]')?.closest('.app-dialog')
+        ?.querySelector('[data-dialog-action=cancel]').click();
+    }).observe(document.body,{childList:true});
+  },{once:true});
   async function stall(kind,force=false){
     if(!force&&!fixture.stalls.has(kind))return false;
     await new Promise(resume=>fixture.pending.push({kind,resume}));
